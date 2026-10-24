@@ -151,8 +151,10 @@ export class Engine {
     this.devices = [];
     this.byPart = new Map();
     this.timeDependent = false;
+    this.resistorNets = new Set();   // nets touching a resistor — lets LEDs tell "no resistor" from "resistor too small"
     for (const [p, def, pins] of partPins) {
       const pinNets = pins.map(pin => idxOf(key(pin.x, pin.y)));
+      if (p.type === 'resistor' || p.type === 'pot') for (const n of pinNets) this.resistorNets.add(n);
       let device = null;
       if (def.device) {
         device = def.device(p, pinNets);
@@ -194,6 +196,10 @@ export class Engine {
     for (const d of this.devices) if (d.stamp) d.stamp(S, V, this);
 
     const n = this.nets;
+    // Total conductance at each net; capacitors use it to estimate their RC time constant.
+    const gsum = new Float64Array(n);
+    for (let k = 0; k < S.g.length; k += 3) { gsum[S.g[k]] += S.g[k + 2]; if (S.g[k + 1] >= 0) gsum[S.g[k + 1]] += S.g[k + 2]; }
+    this.gsum = gsum;
     // Islands: union nets joined by real conductances.
     const parent = new Int32Array(n);
     for (let k = 0; k < n; k++) parent[k] = k;
@@ -287,17 +293,36 @@ export class Engine {
   /** Advance simulated time by dt seconds. */
   step(dt) {
     this.dt = dt;
+    this.minTau = Infinity;
+    this.maxHz = 0;
     for (const d of this.devices) if (d.begin) d.begin(this);
     let iters = 0;
     this.converged = false;
     while (iters++ < MAX_ITERS) {
       this.solve();
       let changed = false;
-      for (const d of this.devices) if (d.update && d.update(this.V, this)) changed = true;
+      // Settle diodes/LEDs first. A diode that hasn't switched off yet can briefly hold a
+      // falling wire at an in-between voltage; if a chip read it now it could latch a level
+      // that never really existed (e.g. a 7493 resetting at 8 instead of 10).
+      for (const d of this.devices) if (d.analog && d.update && d.update(this.V, this)) changed = true;
+      if (changed) continue;
+      for (const d of this.devices) if (!d.analog && d.update && d.update(this.V, this)) changed = true;
       if (!changed) { this.converged = true; break; }
     }
+    // Giving up leaves V from a solve made *before* the last update() changed some
+    // states (e.g. an LED switching on). Solve once more so commit() reads voltages
+    // that match the current states — otherwise an LED can report hundreds of mA.
+    if (!this.converged) this.solve();
     for (const d of this.devices) if (d.commit) d.commit(this.V, dt, this);
     this.time += dt;
+  }
+
+  /** Time step that resolves the fastest RC constant and clock in the circuit. */
+  suggestDt() {
+    let dt = 5e-4;
+    if (Number.isFinite(this.minTau)) dt = Math.min(dt, this.minTau / 20);
+    if (this.maxHz > 0) dt = Math.min(dt, 1 / (40 * this.maxHz));
+    return Math.max(2e-6, dt);
   }
 
   collectWarnings() {

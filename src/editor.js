@@ -347,10 +347,48 @@ export class Editor {
     if (pt && part && !pt.pins.some(p => p.part === part)) pt = null;
     this.hover = pt;
     this.hoverPart = part && getDef(part.type).ic ? part : (pt && pt.pins.length && getDef(pt.pins[0].part.type).ic ? pt.pins[0].part : null);
+    // While wiring, show the pinout of any chip near the cursor.
+    const wiring = m && (m.kind === 'wire' || m.kind === 'wireStart' || m.kind === 'wireEnd');
+    if (wiring && !this.hoverPart) this.hoverPart = this.chipNear(this.mx, this.my, 2);
+    // The chip pin that shares a breadboard strip with the hovered hole gets highlighted.
+    this.haloTarget = pt && pt.hole && !pt.hole.rail ? this.stripChipPins(pt.hole.strip)[0] || null : null;
+    if (this.haloTarget && !this.hoverPart) this.hoverPart = this.haloTarget.part;
     const sim = this.app.engine;
     this.hoverNet = pt ? sim.netAt(pt.x, pt.y) : -1;
-    if (pt && (!m || m.kind !== 'place') && this.app.settings.get('tooltips')) this.app.ui.tip(this.tipFor(pt), e.clientX, e.clientY);
-    else this.app.ui.tip(null);
+    const tips = this.app.settings.get('tooltips') && (!m || m.kind !== 'place');
+    if (pt && tips) this.app.ui.tip(this.tipFor(pt), e.clientX, e.clientY);
+    else if (!pt && tips && this.sim && !m) {
+      const hw = this.wireAt(this.mx, this.my);
+      if (hw) this.app.ui.tip(this.wireTip(hw.wire), e.clientX, e.clientY); else this.app.ui.tip(null);
+    } else this.app.ui.tip(null);
+  }
+
+  /** Closest chip whose outline (grown by `margin` grid units) contains the point. */
+  chipNear(wx, wy, margin) {
+    let best = null, bestD = Infinity;
+    for (const p of this.app.circuit.parts) {
+      if (!getDef(p.type).ic) continue;
+      const b = p.bounds();
+      if (wx < b.x0 - margin || wx > b.x1 + margin || wy < b.y0 - margin || wy > b.y1 + margin) continue;
+      const d = Math.hypot(wx - (b.x0 + b.x1) / 2, wy - (b.y0 + b.y1) / 2);
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    return best;
+  }
+  /** Chip pins plugged into the given breadboard strip. */
+  stripChipPins(strip) {
+    const ix = this.app.index, out = [];
+    for (const [k, list] of ix.pins) {
+      const hole = ix.holes.get(k);
+      if (!hole || hole.strip !== strip) continue;
+      for (const p of list) if (getDef(p.part.type).ic) out.push(p);
+    }
+    return out;
+  }
+  wireTip(w) {
+    const sim = this.app.engine;
+    const v = sim.voltage(sim.netAt(w.a.x, w.a.y));
+    return { lines: ['Wire'], state: Number.isNaN(v) ? 'not powered (floating)' : `${v.toFixed(2)} V · ${v >= 2 ? 'HIGH' : v <= 0.8 ? 'LOW' : 'in between'}`, level: Number.isNaN(v) ? 'float' : v >= 2 ? 'high' : v <= 0.8 ? 'low' : 'mid' };
   }
 
   tipFor(pt) {
@@ -361,6 +399,17 @@ export class Editor {
       lines.push(`${def.short || def.name} · ${def.ic ? 'pin ' + (p.i + 1) + ' ' : ''}${p.name}`);
     }
     if (!pt.hole && !pt.pins.length) lines.push('Wire junction');
+    if (pt.hole && !pt.hole.rail && !pt.pins.length) {
+      for (const p of this.stripChipPins(pt.hole.strip)) lines.push(`Connects to ${getDef(p.part.type).short} pin ${p.i + 1} (${p.name})`);
+    }
+    if (this.sim) for (const p of pt.pins) {
+      if (p.part.type !== 'capacitor') continue;
+      const d = this.app.engine.byPart.get(p.part.id)?.device;
+      if (!d) continue;
+      const a = Math.abs(d.i), flowing = a > 2e-5;
+      const amps = a >= 1e-3 ? (a * 1e3).toFixed(2) + ' mA' : (a * 1e6).toFixed(0) + ' µA';
+      lines.push(`Capacitor ${d.vc.toFixed(2)} V · ${!flowing ? 'holding its charge' : (d.vc * d.i > 0 ? 'charging' : 'discharging') + ', ' + amps}`);
+    }
     const sim = this.app.engine;
     const v = sim.voltage(sim.netAt(pt.x, pt.y));
     let state = '';
@@ -787,14 +836,28 @@ export class Editor {
       g.fillStyle = R.accentA(0.08); g.strokeStyle = R.accentA(0.8); g.lineWidth = 1 / z;
       g.beginPath(); g.roundRect(x, y, w, h, 3 / z); g.fill(); g.stroke();
     }
-    if (!m && this.hoverPart && this.app.settings.get('pinHalo')) this.drawPinHalo(g, this.hoverPart);
+    if (this.app.settings.get('pinHalo')) {
+      const wiring = m && (m.kind === 'wire' || m.kind === 'wireStart' || m.kind === 'wireEnd');
+      const chips = new Set();
+      if ((!m || wiring) && this.hoverPart) chips.add(this.hoverPart);
+      // A selected wire shows the pinout of every chip its ends plug into.
+      if (!m) for (const id of this.selection) {
+        const w = this.app.circuit.wires.find(x => x.id === id);
+        if (!w) continue;
+        for (const end of [w.a, w.b]) {
+          const hole = this.app.index.holes.get(key(end.x, end.y));
+          if (hole && !hole.rail) for (const p of this.stripChipPins(hole.strip)) chips.add(p.part);
+        }
+      }
+      for (const chip of chips) this.drawPinHalo(g, chip, this.haloTarget && this.haloTarget.part === chip ? this.haloTarget.i : -1, wiring);
+    }
     if (this.hover && (!m || m.kind === 'wire' || m.kind === 'wireEnd')) {
       g.strokeStyle = R.accent; g.lineWidth = 2 / Math.max(z, 1);
       g.beginPath(); g.arc(this.hover.x * P, this.hover.y * P, 6.5, 0, TAU); g.stroke();
     }
   }
   /** Pin names around a hovered chip, in constant screen size so they stay readable. */
-  drawPinHalo(g, part) {
+  drawPinHalo(g, part, target = -1, wiring = false) {
     const z = this.app.cam.z;
     const b = part.bounds();
     const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
@@ -808,14 +871,35 @@ export class Editor {
       const tx = (q.x + (horiz ? Math.sign(dx) * off * 1.4 : 0)) * P;
       const ty = (q.y + (horiz ? 0 : Math.sign(dy) * off)) * P;
       const label = `${q.i + 1} ${q.name}`;
-      const tw = g.measureText(label).width + 8 / z, th = fs + 5 / z;
+      const hit = q.i === target;
+      g.font = `${hit ? 700 : 600} ${hit ? fs * 1.2 : fs}px "SF Mono", ui-monospace, Menlo, monospace`;
+      const tw = g.measureText(label).width + 8 / z, th = (hit ? fs * 1.2 : fs) + 5 / z;
       g.save();
+      if (wiring) {
+        // The labels sit in the same columns as the holes you are aiming for:
+        // fade the ones near the pointer so the holes underneath stay visible.
+        const d = Math.hypot(tx / P - this.mx, ty / P - this.my);
+        g.globalAlpha = d < 1.5 ? 0.12 : d < 3.5 ? 0.12 + 0.6 * (d - 1.5) / 2 : 0.72;
+      }
       if (!horiz) { g.translate(tx, ty); g.rotate(-Math.PI / 2); g.translate(-tx, -ty); }
-      const n = /^(VCC|VDD)$/.test(q.name) ? '#e5484d' : /^(GND|VSS)$/.test(q.name) ? '#1d1d1f' : 'rgba(29,29,31,0.88)';
+      const n = hit ? this.app.renderer.accent : /^(VCC|VDD)$/.test(q.name) ? '#e5484d' : /^(GND|VSS)$/.test(q.name) ? '#1d1d1f' : 'rgba(29,29,31,0.88)';
       g.fillStyle = n;
       g.beginPath(); g.roundRect(tx - tw / 2, ty - th / 2, tw, th, 4 / z); g.fill();
       g.fillStyle = '#fff'; g.fillText(label, tx, ty + 0.5 / z);
       g.restore();
+    }
+    if (wiring) this.punchHoles(g, b, 2.6);
+  }
+  /** Redraw the holes near the pointer on top of the pin labels, so you can always see where a wire will land. */
+  punchHoles(g, b, margin) {
+    for (const [, h] of this.app.index.holes) {
+      if (h.x < b.x0 - margin || h.x > b.x1 + margin || h.y < b.y0 - margin || h.y > b.y1 + margin) continue;
+      if (h.x > b.x0 && h.x < b.x1 && h.y > b.y0 && h.y < b.y1) continue; // under the chip itself
+      if (Math.hypot(h.x - this.mx, h.y - this.my) > 3.5) continue;    // far labels stay readable
+      const x = h.x * P, y = h.y * P;
+      g.fillStyle = 'rgba(255,255,255,0.9)'; g.fillRect(x - 3.4, y - 3.4, 6.8, 6.8);
+      g.fillStyle = '#4a4c52'; g.fillRect(x - 2.6, y - 2.6, 5.2, 5.2);
+      g.fillStyle = '#26282c'; g.fillRect(x - 1.8, y - 1.6, 3.6, 3.6);
     }
   }
   drawLanding(g, parts) {

@@ -155,6 +155,7 @@ export class Renderer {
       g.fillText(String(c + 1), xx, (b.y + b.rowY(0) - 0.85) * P);
       g.fillText(String(c + 1), xx, (b.y + b.rowY(9) + 0.85) * P);
     }
+    if (this.app.mode === 'sim' && this.app.settings.get('wireStyle') !== 'off') this.tintLiveStrips(b);
     // holes
     const sim = this.app.engine;
     const running = this.app.running;
@@ -221,12 +222,31 @@ export class Renderer {
     };
     const sim = this.app.engine;
     const ww = this.app.settings.get('wireWidth');
+    const style = wire && this.app.mode === 'sim' ? this.app.settings.get('wireStyle') : 'off';
     let state = null;
-    if (wire && this.app.mode === 'sim' && this.app.settings.get('wireStates')) {
+    if (style !== 'off') {
       const v = sim.voltage(sim.netAt(pts[0].x, pts[0].y));
       state = Number.isNaN(v) ? 'float' : v >= 2 ? 'high' : v <= 0.8 ? 'low' : 'mid';
-      if (state === 'float') g.globalAlpha = alpha * 0.4;
     }
+    if (style === 'recolor') {
+      // Paint the wire by its electrical state; the jumper colour stays as a thin edge.
+      const STATE = { high: '#ff453a', low: '#0a84ff', mid: '#ff9f0a', float: '#8e8e93' };
+      if (state === 'float') g.globalAlpha = alpha * 0.45;
+      path();
+      if (selected) { g.strokeStyle = this.accentA(0.35); g.lineWidth = 12 * ww; g.stroke(); }
+      if (state === 'high' || state === 'mid') {
+        const a = state === 'mid' ? 0.3 + 0.25 * Math.sin(performance.now() / 120) : 0.3;   // in-between pulses: two outputs fighting
+        g.strokeStyle = state === 'high' ? `rgba(255,69,58,${a})` : `rgba(255,159,10,${a})`; g.lineWidth = 11 * ww; g.stroke();
+      }
+      g.strokeStyle = color; g.lineWidth = 6.5 * ww; g.stroke();
+      g.strokeStyle = STATE[state]; g.lineWidth = 4 * ww; g.stroke();
+      if (state === 'float') { g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineWidth = 1.4; g.setLineDash([3, 4]); path(); g.stroke(); g.setLineDash([]); }
+      else { g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 1.1; g.save(); g.translate(-0.6, -0.9); path(); g.stroke(); g.restore(); }
+      this.drawWireEnds(pts, state, alpha);
+      g.restore();
+      return;
+    }
+    if (state === 'float') g.globalAlpha = alpha * 0.4;
     path();
     if (selected) { g.strokeStyle = this.accentA(0.35); g.lineWidth = 11 * ww; g.stroke(); }
     if (state === 'high' || state === 'mid') {
@@ -246,11 +266,42 @@ export class Renderer {
       g.save(); g.translate(-0.6, -0.9); path(); g.stroke(); g.restore();
     }
 
+    this.drawWireEnds(pts, state, alpha);
+    g.restore();
+  }
+
+  /** Metal tips, plus a "no power" badge on floating wires in Simulate mode. */
+  drawWireEnds(pts, state, alpha) {
+    const g = this.g;
     for (const e of [pts[0], pts[pts.length - 1]]) {
       g.fillStyle = '#aeb4bd';
       g.beginPath(); g.arc(e.x * P, e.y * P, 2.8, 0, TAU); g.fill();
     }
-    g.restore();
+    if (state === 'float') {
+      const m = Math.floor((pts.length - 1) / 2);
+      const x = ((pts[m].x + pts[m + 1].x) / 2) * P, y = ((pts[m].y + pts[m + 1].y) / 2) * P;
+      g.globalAlpha = alpha;
+      g.fillStyle = '#8e8e93'; g.beginPath(); g.arc(x, y, 6.5, 0, TAU); g.fill();
+      g.fillStyle = '#fff'; g.font = '700 9px -apple-system, Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText('∅', x, y + 0.5);
+    }
+  }
+
+  /** Faint red/blue band behind every breadboard strip that belongs to a live net. */
+  tintLiveStrips(b) {
+    const g = this.g, sim = this.app.engine;
+    const strips = new Map();
+    for (const h of b.holes()) {
+      const s = strips.get(h.strip);
+      if (!s) strips.set(h.strip, { x0: h.x, y0: h.y, x1: h.x, y1: h.y });
+      else { s.x0 = Math.min(s.x0, h.x); s.x1 = Math.max(s.x1, h.x); s.y0 = Math.min(s.y0, h.y); s.y1 = Math.max(s.y1, h.y); }
+    }
+    for (const s of strips.values()) {
+      const v = sim.voltage(sim.netAt(s.x0, s.y0));
+      if (Number.isNaN(v)) continue;
+      g.fillStyle = v >= 2 ? 'rgba(255,69,58,0.11)' : v <= 0.8 ? 'rgba(10,132,255,0.09)' : 'rgba(255,159,10,0.14)';
+      g.beginPath(); g.roundRect((s.x0 - 0.42) * P, (s.y0 - 0.42) * P, (s.x1 - s.x0 + 0.84) * P, (s.y1 - s.y0 + 0.84) * P, 5); g.fill();
+    }
   }
 
   drawWarnings() {

@@ -2,6 +2,8 @@
  * User preferences: stored in localStorage and applied to CSS variables,
  * the renderer, the editor and sound.
  */
+import { prefs } from './sim/prefs.js';
+
 const KEY = 'cf.settings';
 
 export const ACCENTS = [
@@ -26,7 +28,8 @@ export const DEFAULTS = {
   pinHalo: true,
   landingMarks: true,
   confirmDelete: false,
-  wireStates: true,
+  wireStyle: 'recolor',       // recolor | overlay | off
+  trainerLeds: true,          // LEDs get a built-in 330 Ω (if you didn't add one) and never burn
   tooltips: true,
   sound: true,
   volume: 0.6,
@@ -42,6 +45,8 @@ export class Settings {
     if (localStorage.getItem('cf.theme') && !saved.theme) saved.theme = localStorage.getItem('cf.theme');
     if (localStorage.getItem('cf.autoroute') === '0' && saved.autoRoute === undefined) saved.autoRoute = false;
     if (localStorage.getItem('cf.autocolor') === '0' && saved.autoColor === undefined) saved.autoColor = false;
+    if (saved.wireStates === false && !saved.wireStyle) saved.wireStyle = 'off';
+    delete saved.wireStates;
     this.v = { ...DEFAULTS, ...saved };
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => this.apply());
   }
@@ -69,6 +74,12 @@ export class Settings {
     if (v.canvasTint) root.style.setProperty('--canvas', v.canvasTint); else root.style.removeProperty('--canvas');
     document.body.classList.toggle('solid', !v.translucent);
     document.body.classList.toggle('reduce-motion', v.reduceMotion);
+    document.body.classList.toggle('wires-off', v.wireStyle === 'off');
+    if (prefs.trainerLeds !== v.trainerLeds) {
+      prefs.trainerLeds = v.trainerLeds;
+      // LED models read this when they are built, so rebuild the running circuit.
+      if (app && app.engine && app.circuit) app.engine.build(app.circuit);
+    }
     if (app) {
       app.autoRoute = v.autoRoute;
       app.autoColor = v.autoColor;

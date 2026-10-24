@@ -6,6 +6,12 @@
 import { register } from './registry.js';
 import { IC_LIST } from './ics.js';
 import * as dev from '../sim/devices.js';
+import { prefs } from '../sim/prefs.js';
+
+// Trainer boards put a resistor in series with every LED, so students can wire them straight to outputs.
+const TRAINER_R = 330;
+const PROTECT_FIELD = { key: 'protect', label: 'Built-in resistor', kind: 'select', options: [['auto', 'Auto (from Settings)'], ['on', '330 Ω (protected)'], ['off', 'None (realistic)']] };
+const ledProtected = (part) => part.props.protect === 'on' || (part.props.protect !== 'off' && prefs.trainerLeds);
 
 const U = 20;
 const TAU = Math.PI * 2;
@@ -63,19 +69,27 @@ function text(g, env, s, x, y, { size = 10, color = '#1d1d1f', weight = 600, ali
 function glow(g, x, y, r, rgb, k) {
   if (k <= 0.01) return;
   const gr = g.createRadialGradient(x, y, 0, x, y, r);
-  gr.addColorStop(0, `rgba(${rgb},${0.55 * k})`);
-  gr.addColorStop(0.45, `rgba(${rgb},${0.22 * k})`);
+  gr.addColorStop(0, `rgba(${rgb},${0.85 * k})`);
+  gr.addColorStop(0.3, `rgba(${rgb},${0.45 * k})`);
   gr.addColorStop(1, `rgba(${rgb},0)`);
   g.fillStyle = gr;
   g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
 }
+/** Perceived LED brightness 0–1: the eye is roughly logarithmic, so a few mA already looks clearly on. */
+function ledLevel(amps) { return amps < 3e-4 ? 0 : Math.min(1, Math.sqrt(amps / 0.008)); }
+function mixHex(a, b, t) {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+  const ch = (sh) => Math.round(((pa >> sh) & 255) * (1 - t) + ((pb >> sh) & 255) * t);
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+}
 
 const LED_COLORS = {
-  red: { body: '#d92d2d', lit: '#ff5a4f', rgb: '255,70,60', vf: 1.8, rs: 12, name: 'Red' },
-  green: { body: '#1f9d4a', lit: '#4dff7c', rgb: '60,240,110', vf: 2.1, rs: 15, name: 'Green' },
-  yellow: { body: '#e3b414', lit: '#ffe14d', rgb: '255,215,50', vf: 2.0, rs: 15, name: 'Yellow' },
-  blue: { body: '#2563eb', lit: '#5a9bff', rgb: '70,140,255', vf: 3.0, rs: 18, name: 'Blue' },
-  white: { body: '#d9dde3', lit: '#ffffff', rgb: '235,240,255', vf: 3.0, rs: 18, name: 'White' },
+  // off = how the tinted epoxy looks unlit (dull, dark); lit = the emitted colour
+  red: { body: '#d92d2d', off: '#6e2424', lit: '#ff3b30', rgb: '255,59,48', vf: 1.8, rs: 12, name: 'Red' },
+  green: { body: '#1f9d4a', off: '#22472f', lit: '#30ff6a', rgb: '48,255,106', vf: 2.1, rs: 15, name: 'Green' },
+  yellow: { body: '#e3b414', off: '#5f5426', lit: '#ffd60a', rgb: '255,214,10', vf: 2.0, rs: 15, name: 'Yellow' },
+  blue: { body: '#2563eb', off: '#22305a', lit: '#2f7bff', rgb: '47,123,255', vf: 3.0, rs: 18, name: 'Blue' },
+  white: { body: '#d9dde3', off: '#8e939c', lit: '#ffffff', rgb: '200,225,255', vf: 3.0, rs: 18, name: 'White' },
 };
 const LED_MAX_A = 0.12;
 
@@ -287,7 +301,7 @@ register({
   device: (part, nets) => {
     const d = dev.logicSource(nets[0], () => d.high);
     d.timeDependent = true; d.high = false;
-    d.begin = (e) => { d.high = ((e.time * part.props.hz) % 1) < 0.5; };
+    d.begin = (e) => { d.high = ((e.time * part.props.hz) % 1) < 0.5; e.maxHz = Math.max(e.maxHz, part.props.hz); };
     return d;
   },
 });
@@ -373,7 +387,7 @@ register({
 register({
   type: 'led', name: 'LED', cat: 'Outputs', desc: '5 mm LED. Long leg (anode, +) on the left. Needs a current-limiting resistor.',
   defaults: { color: 'red' },
-  fields: [{ key: 'color', label: 'Color', kind: 'select', options: Object.entries(LED_COLORS).map(([k, v]) => [k, v.name]) }],
+  fields: [{ key: 'color', label: 'Color', kind: 'select', options: Object.entries(LED_COLORS).map(([k, v]) => [k, v.name]) }, PROTECT_FIELD],
   variants: Object.keys(LED_COLORS).map(c => ({ name: `${LED_COLORS[c].name} LED`, props: { color: c } })),
   pins: () => [{ x: 0, y: 0, name: 'Anode (+)' }, { x: 1, y: 0, name: 'Cathode (−)' }],
   bounds: () => [-0.45, -2.75, 1.45, 0.3],
@@ -381,20 +395,29 @@ register({
     const c = LED_COLORS[part.props.color] || LED_COLORS.red;
     const d = env.dev;
     const blown = part.props.damaged || (d && d.blown[0]);
-    const k = d && !blown ? Math.min(1, d.avg[0] / 0.012) : 0;
+    const k = d && !blown ? ledLevel(d.avg[0]) : 0;
     legPolyline(g, [[0, 0], [0, -0.55], [0.2, -0.9]]);
     lead(g, 1, 0, 0.8, -0.9);
     const cx = 0.5 * U, cy = -1.75 * U, r = 0.62 * U;
-    if (k > 0) glow(g, cx, cy, 2.4 * U, c.rgb, k);
-    // flange + dome
+    if (k > 0) { glow(g, cx, cy, 3.8 * U, c.rgb, k); glow(g, cx, cy, 1.6 * U, c.rgb, k); glow(g, cx, cy, 1.0 * U, c.rgb, k); }
+    // flange + dome: dull tinted epoxy when off, the emitted colour with a hot centre when on
+    const off = env.dev ? c.off : c.body;   // library thumbnails show the familiar colour
+    const base = blown ? '#555' : k > 0 ? mixHex(c.off, c.lit, 0.35 + 0.65 * k) : off;
     rr(g, cx - r - 2.5, cy + r - 3, 2 * r + 5, 5, 1.5);
-    g.fillStyle = blown ? '#4a4a4a' : c.body; g.fill();
+    g.fillStyle = blown ? '#4a4a4a' : base; g.fill();
     g.beginPath();
     g.moveTo(cx - r, cy + r - 1); g.lineTo(cx - r, cy); g.arc(cx, cy, r, Math.PI, 0); g.lineTo(cx + r, cy + r - 1); g.closePath();
-    const base = blown ? '#555' : k > 0 ? c.lit : c.body;
-    g.fillStyle = lin(g, cx - r, 0, cx + r, 0, [[0, shade(base, -0.25)], [0.4, base], [1, shade(base, -0.35)]]);
-    g.globalAlpha = blown ? 1 : 0.92; g.fill(); g.globalAlpha = 1;
-    g.fillStyle = `rgba(255,255,255,${0.35 + 0.4 * k})`;
+    g.fillStyle = lin(g, cx - r, 0, cx + r, 0, [[0, shade(blown ? '#555555' : c.body, -0.4)], [0.4, base], [1, shade(blown ? '#555555' : c.body, -0.45)]]);
+    if (k > 0) g.fillStyle = base;
+    g.fill();
+    if (k > 0) {
+      const core = g.createRadialGradient(cx, cy - r * 0.1, 0, cx, cy, r * 1.05);
+      core.addColorStop(0, `rgba(255,255,255,${0.9 * k})`);
+      core.addColorStop(0.45, `rgba(${c.rgb},${0.6 * k})`);
+      core.addColorStop(1, `rgba(${c.rgb},0)`);
+      g.fillStyle = core; g.fill();
+    }
+    g.fillStyle = `rgba(255,255,255,${0.3 + 0.35 * k})`;
     g.beginPath(); g.ellipse(cx - r * 0.38, cy - r * 0.15, r * 0.2, r * 0.48, 0, 0, TAU); g.fill();
     if (blown) {
       g.strokeStyle = '#ff453a'; g.lineWidth = 2;
@@ -403,7 +426,7 @@ register({
   },
   device: (part, nets) => {
     const c = LED_COLORS[part.props.color] || LED_COLORS.red;
-    return dev.diodes([[nets[0], nets[1], c.vf, c.rs]], { maxA: LED_MAX_A, led: true, part, blownText: 'LED burned out — too much current. Add a resistor (220 Ω – 1 kΩ) in series.' });
+    return dev.diodes([[nets[0], nets[1], c.vf, c.rs]], { maxA: LED_MAX_A, led: true, part, protect: ledProtected(part), protectR: TRAINER_R, name: 'LED' });
   },
 });
 
@@ -414,6 +437,7 @@ register({
   fields: [
     { key: 'common', label: 'Type', kind: 'select', options: [['cathode', 'Common cathode'], ['anode', 'Common anode']] },
     { key: 'color', label: 'Color', kind: 'select', options: Object.entries(LED_COLORS).map(([k, v]) => [k, v.name]) },
+    PROTECT_FIELD,
   ],
   pins: () => [
     { x: 0, y: 0, name: 'e' }, { x: 1, y: 0, name: 'd' }, { x: 2, y: 0, name: 'COM' }, { x: 3, y: 0, name: 'c' }, { x: 4, y: 0, name: 'DP' },
@@ -428,21 +452,25 @@ register({
     rr(g, -0.62 * U, -6.6 * U, 5.24 * U, 6.2 * U, 4);
     g.fillStyle = '#1b1c1f'; g.fill(); noShadow(g);
     const d = env.dev;
-    const segs = { a: [[0.9, -5.6], [3.1, -5.6]], b: [[3.25, -5.45], [3.0, -3.65]], c: [[2.95, -3.35], [2.7, -1.55]], d: [[0.65, -1.4], [2.55, -1.4]],
-      e: [[0.85, -3.35], [0.6, -1.55]], f: [[1.15, -5.45], [0.9, -3.65]], g: [[0.95, -3.5], [2.85, -3.5]] };
-    const order = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'dp'];
-    order.forEach((s, k) => {
-      const lit = d ? Math.min(1, d.avg[k] / 0.008) : 0;
-      g.strokeStyle = lit > 0 ? c.lit : 'rgba(255,255,255,0.07)';
-      g.lineWidth = 0.42 * U; g.lineCap = 'round';
-      if (lit > 0) { g.shadowColor = `rgba(${c.rgb},0.9)`; g.shadowBlur = 10 * lit; }
-      if (s === 'dp') {
-        g.fillStyle = g.strokeStyle; g.beginPath(); g.arc(3.7 * U, -1.4 * U, 0.22 * U, 0, TAU); g.fill();
-      } else {
-        const [[x0, y0], [x1, y1]] = segs[s];
-        g.beginPath(); g.moveTo(x0 * U, y0 * U); g.lineTo(x1 * U, y1 * U); g.stroke();
-      }
-      noShadow(g);
+    // Classic hexagonal segments on a slightly slanted grid, meeting cleanly at the corners.
+    const L = 0.75 * U, R = 3.15 * U, T = -5.75 * U, B = -1.25 * U, M = (T + B) / 2;
+    const h = 0.2 * U, gap = 0.05 * U, slant = 0.1;
+    const sk = (x, y) => [x + slant * (M - y), y];   // italic lean
+    const poly = (pts) => { g.beginPath(); pts.forEach(([x, y], i) => { const [px, py] = sk(x, y); if (i) g.lineTo(px, py); else g.moveTo(px, py); }); g.closePath(); };
+    const hseg = (y) => poly([[L + gap, y], [L + gap + h, y - h], [R - gap - h, y - h], [R - gap, y], [R - gap - h, y + h], [L + gap + h, y + h]]);
+    const vseg = (x, y0, y1) => poly([[x, y0 + gap], [x + h, y0 + gap + h], [x + h, y1 - gap - h], [x, y1 - gap], [x - h, y1 - gap - h], [x - h, y0 + gap + h]]);
+    const shapes = { a: () => hseg(T), b: () => vseg(R, T, M), c: () => vseg(R, M, B), d: () => hseg(B), e: () => vseg(L, M, B), f: () => vseg(L, T, M), g: () => hseg(M) };
+    ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'dp'].forEach((s, k) => {
+      const lit = d ? ledLevel(d.avg[k]) : 0;
+      if (s === 'dp') { const [px, py] = sk(R + 0.5 * U, B); g.beginPath(); g.arc(px, py, 0.2 * U, 0, TAU); }
+      else shapes[s]();
+      if (lit > 0) {
+        g.shadowColor = `rgba(${c.rgb},1)`; g.shadowBlur = 14 * lit;
+        g.fillStyle = mixHex(c.off, c.lit, 0.4 + 0.6 * lit); g.fill();
+        noShadow(g);
+        g.fillStyle = `rgba(255,255,255,${0.35 * lit})`; g.fill();   // hot core
+        g.fillStyle = mixHex(c.off, c.lit, 0.4 + 0.6 * lit); g.globalAlpha = 0.55; g.fill(); g.globalAlpha = 1;
+      } else { g.fillStyle = 'rgba(255,255,255,0.07)'; g.fill(); }
     });
   },
   device: (part, nets) => {
@@ -452,13 +480,25 @@ register({
       const n = nets[SEG_PIN[s]];
       return part.props.common === 'anode' ? [com, n, c.vf, c.rs * 2] : [n, com, c.vf, c.rs * 2];
     });
-    return dev.diodes(pairs, { maxA: LED_MAX_A, blownText: 'Segment burned out — add a resistor in series with each segment.' });
+    const d = dev.diodes(pairs, { maxA: LED_MAX_A, protect: ledProtected(part), protectR: TRAINER_R, name: 'Segment' });
+    // Catch the classic mix-up: a 7447 needs a common-anode display, a 7448 a common-cathode one.
+    const base = d.commit;
+    d.commit = function (V, dt, e) {
+      base.call(this, V, dt, e);
+      const vc = com >= 0 ? V[com] : NaN;
+      if (Number.isNaN(vc)) return;
+      const anode = part.props.common === 'anode';
+      const hint = !anode && vc > 3 ? 'COM is wired to +5 V, which is how a common-ANODE display is used (e.g. with a 7447). Set Type to “Common anode” in the inspector.'
+        : anode && vc < 0.8 ? 'COM is wired to ground, which is how a common-CATHODE display is used (e.g. with a 7448). Set Type to “Common cathode” in the inspector.' : null;
+      if (hint) this.notes = [...(this.notes || []), hint];
+    };
+    return d;
   },
 });
 register({
   type: 'bargraph', name: 'LED Bar Graph', cat: 'Outputs', desc: '8 LEDs. Anodes on the top row, cathodes on the bottom row. Straddle the centre gap.',
   defaults: { color: 'green' },
-  fields: [{ key: 'color', label: 'Color', kind: 'select', options: Object.entries(LED_COLORS).map(([k, v]) => [k, v.name]) }],
+  fields: [{ key: 'color', label: 'Color', kind: 'select', options: Object.entries(LED_COLORS).map(([k, v]) => [k, v.name]) }, PROTECT_FIELD],
   pins: () => [
     ...Array.from({ length: 8 }, (_, i) => ({ x: i, y: -3, name: `A${i + 1}` })),
     ...Array.from({ length: 8 }, (_, i) => ({ x: i, y: 0, name: `K${i + 1}` })),
@@ -472,16 +512,17 @@ register({
     g.fillStyle = '#1b1c1f'; g.fill(); noShadow(g);
     const d = env.dev;
     for (let i = 0; i < 8; i++) {
-      const lit = d ? Math.min(1, d.avg[i] / 0.01) : 0;
-      if (lit > 0) { g.shadowColor = `rgba(${c.rgb},0.9)`; g.shadowBlur = 10 * lit; }
+      const lit = d ? ledLevel(d.avg[i]) : 0;
+      if (lit > 0) { g.shadowColor = `rgba(${c.rgb},1)`; g.shadowBlur = 14 * lit; }
       rr(g, i * U - 6, -2.25 * U, 12, 1.5 * U, 2);
-      g.fillStyle = lit > 0 ? c.lit : 'rgba(255,255,255,0.08)'; g.fill();
+      g.fillStyle = lit > 0 ? mixHex(c.off, c.lit, 0.4 + 0.6 * lit) : 'rgba(255,255,255,0.08)'; g.fill();
       noShadow(g);
+      if (lit > 0) { g.fillStyle = `rgba(255,255,255,${0.3 * lit})`; g.fill(); }
     }
   },
   device: (part, nets) => {
     const c = LED_COLORS[part.props.color] || LED_COLORS.green;
-    return dev.diodes(Array.from({ length: 8 }, (_, i) => [nets[i], nets[8 + i], c.vf, c.rs]), { maxA: LED_MAX_A, blownText: 'Bar LED burned out — add series resistors.' });
+    return dev.diodes(Array.from({ length: 8 }, (_, i) => [nets[i], nets[8 + i], c.vf, c.rs]), { maxA: LED_MAX_A, protect: ledProtected(part), protectR: TRAINER_R, name: 'Bar LED' });
   },
 });
 register({
@@ -575,6 +616,32 @@ register({
     g.fillStyle = '#9aa7ba'; g.fillRect(-0.35 * U + 2, -3 * U + 1, 1.7 * U - 4, 3);
     text(g, env, fmtFarads(part.props.uf), 0.3 * U, -2.05 * U, { size: 6.5, color: '#e6edf7', weight: 700 });
     text(g, env, (part.props.vmax || 16) + 'V', 0.3 * U, -1.45 * U, { size: 5.5, color: '#b7c4d8', weight: 600 });
+    const cd = env.dev;
+    if (cd && !part.props.damaged) {
+      // Live charge: the body fills with charge (blue charging, amber discharging), chevrons show current direction.
+      const full = Math.min(part.props.vmax || 16, 5);
+      const level = Math.max(0, Math.min(1, Math.abs(cd.vc) / full));
+      const flowing = Math.abs(cd.i) > 2e-5;
+      const charging = cd.vc * cd.i > 0;
+      const top = -3 * U, h = 2.35 * U;
+      g.save();
+      rr(g, -0.35 * U, top, 1.7 * U, h, 5); g.clip();
+      g.fillStyle = !flowing ? 'rgba(100,210,255,0.30)' : charging ? 'rgba(100,210,255,0.45)' : 'rgba(255,159,10,0.45)';
+      g.fillRect(-0.35 * U, top + h * (1 - level), 1.7 * U, h * level);
+      g.restore();
+      if (flowing) {
+        const speed = 1 + Math.min(3, Math.log10(1 + Math.abs(cd.i) * 1e4));
+        const t = (performance.now() * speed / 900) % 1;
+        g.strokeStyle = charging ? '#64d2ff' : '#ff9f0a'; g.lineWidth = 1.6; g.lineCap = 'round';
+        for (let k = 0; k < 3; k++) {
+          const p = (t + k / 3) % 1, y = charging ? top + h * (1 - p) : top + h * p, dir = charging ? -1 : 1;
+          g.globalAlpha = Math.sin(p * Math.PI);
+          g.beginPath(); g.moveTo(1.6 * U - 3, y - dir * 2); g.lineTo(1.6 * U, y + dir); g.lineTo(1.6 * U + 3, y - dir * 2); g.stroke();
+        }
+        g.globalAlpha = 1;
+      }
+      text(g, env, `${cd.vc.toFixed(2)} V`, 0.5 * U, -3.6 * U, { size: 7.5, color: flowing && !charging ? '#ff9f0a' : '#0a84ff', weight: 700, font: MONO });
+    }
     if (part.props.damaged) {
       // vent split open, electrolyte residue
       g.fillStyle = '#3b2a1a';

@@ -192,7 +192,9 @@ export class UI {
   }
   simClock() {
     const t = this.app.engine.time;
-    $('#sim-time').textContent = t < 60 ? t.toFixed(1) + ' s' : Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+    const slow = this.app.slowmo < 0.95 ? ` · ${this.app.slowmo.toFixed(2)}× slow-mo` : '';
+    $('#sim-time').textContent = (t < 60 ? t.toFixed(1) + ' s' : Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0')) + slow;
+    $('#sim-time').title = slow ? 'This circuit has very fast signals, so it runs slower than real time to stay accurate.' : '';
   }
 
   // -------------------------------------------------------------- overlays --
@@ -503,7 +505,8 @@ export class UI {
           row('Ask before deleting', toggle('confirmDelete'))),
       ],
       Simulation: () => [
-        box(row('Show wire states', toggle('wireStates'), 'HIGH glows red, LOW blue, unpowered wires fade.'),
+        box(row('Wire states', seg('wireStyle', [['recolor', 'Recolor'], ['overlay', 'Overlay'], ['off', 'Off']]), 'Recolor paints each wire by its state: red HIGH, blue LOW, grey dashed = no power.'),
+          row('Protected LEDs', toggle('trainerLeds'), 'An LED with no series resistor of its own gets a built-in 330 Ω (like LEDs on a trainer board) and can’t burn out. Turn off for real-world behaviour.'),
           row('Default speed', seg('defaultSpeed', [[0.25, '¼×'], [0.5, '½×'], [1, '1×'], [2, '2×']]), 'Applies to new sessions; change it live from the toolbar.'),
           row('Sound effects', toggle('sound'), 'Buzzers, tones and the pop when something burns out.'),
           row('Volume', h('input', { type: 'range', class: 'slider', min: 0, max: 1, step: 0.05, value: st.get('volume'), oninput: (e) => st.set('volume', +e.target.value) }))),
@@ -645,6 +648,7 @@ export class UI {
     if (!probes.length) list.append(h('div', { class: 'an-empty' }, 'Right-click any hole or pin and choose “Add Probe”, or click a pin in an IC’s pinout.'));
     probes.forEach((p) => list.append(h('div', { class: 'an-row' }, h('i', { style: `background:${p.color}` }),
       h('span', { class: 'an-name', title: p.name }, p.name),
+      h('button', { class: 'an-mode' + (p.analog ? ' on' : ''), title: p.analog ? 'Showing voltage — click for HIGH/LOW' : 'Showing HIGH/LOW — click for voltage', onclick: () => { p.analog = !p.analog; this.app.commit('Probe mode'); } }, '∿'),
       h('button', { class: 'an-x', title: 'Remove', onclick: () => { this.app.removeProbe(p.id); } }, '×'))));
   }
   drawAnalyzer() {
@@ -679,12 +683,20 @@ export class UI {
         if (t < t0) continue;
         const x = ((t - t0) / this.an.window) * W;
         const v = buf.v[k];
-        const y = Number.isNaN(v) ? (yHi + yLo) / 2 : v >= 2 ? yHi : v <= 0.8 ? yLo : (yHi + yLo) / 2;
-        if (!started) { g.moveTo(x, y); started = true; } else { g.lineTo(x, lastY); g.lineTo(x, y); }
+        // Analog probes plot voltage (0–5 V) so RC charge curves are visible; digital ones plot HIGH/LOW.
+        const y = p.analog
+          ? (Number.isNaN(v) ? yLo : yLo - Math.max(0, Math.min(1, v / 5)) * (yLo - yHi))
+          : (Number.isNaN(v) ? (yHi + yLo) / 2 : v >= 2 ? yHi : v <= 0.8 ? yLo : (yHi + yLo) / 2);
+        if (!started) { g.moveTo(x, y); started = true; } else if (p.analog) g.lineTo(x, y); else { g.lineTo(x, lastY); g.lineTo(x, y); }
         lastY = y;
       }
       if (started) g.lineTo(W, lastY);
       g.stroke();
+      const last = buf.v[buf.v.length - 1];
+      if (p.analog && last !== undefined) {
+        g.fillStyle = p.color; g.font = '600 10px "SF Mono", ui-monospace, Menlo, monospace'; g.textAlign = 'right';
+        g.fillText(Number.isNaN(last) ? 'no power' : last.toFixed(2) + ' V', W - 6, yHi + 4);
+      }
     });
     g.fillStyle = dark ? '#8e8e93' : '#8e8e93'; g.font = '10px -apple-system, Inter, sans-serif'; g.textAlign = 'right';
     g.fillText(`${this.an.window} s window`, W - 6, H - 6);

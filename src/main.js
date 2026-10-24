@@ -51,6 +51,14 @@ const EXAMPLES = [
       [14, 15, 14, 17, R], [14, 4, 14, 2, K], [11, 15, 11, 18, K], [12, 15, 12, 18, K], [12, 5, 10, 14, O], [9, -2, 10, 6, B],
       [12, 7, 23, 7, G], [15, 6, 22, 6, G], [16, 5, 21, 5, G], [13, 4, 20, 4, G]],
   },
+  {
+    name: 'RC Charge & Discharge', sub: 'Hold the button, watch the capacitor',
+    parts: [['vcc', 3, -3], ['gnd', 5, -3], ['button', 8, 22, 2, { label: 'CHARGE' }], ['resistor', 8, 13, 0, { ohms: 1000 }],
+      ['capacitor', 12, 11, 0, { uf: 470, vmax: 16 }], ['resistor', 12, 14, 0, { ohms: 10000 }], ['resistor', 20, 13, 0, { ohms: 470 }], ['led', 24, 12, 0, { color: 'green' }]],
+    wires: [[3, -3, 3, 1, R], [5, -3, 5, 2, K], [28, 1, 28, 17, R], [29, 2, 29, 18, K],
+      [8, 22, 8, 15, B], [13, 14, 13, 18, K], [16, 15, 16, 18, K], [12, 15, 20, 15, G], [25, 14, 25, 18, K]],
+    probes: [{ x: 12, y: 11, name: 'Capacitor +', analog: true }, { x: 8, y: 15, name: 'Button' }],
+  },
 ];
 
 class App {
@@ -296,8 +304,10 @@ class App {
       if (onHole) continue;
       for (const p of c.parts) { const q = p.worldPins().find(q => q.x === e.x && q.y === e.y); if (q) { e.pin = { part: p.id, i: q.i }; break; } }
     }
+    c.probes = (ex.probes || []).map((p, i) => ({ id: newId('pr'), color: PROBE_COLORS[i % PROBE_COLORS.length], ...p }));
     this.load(c.toJSON());
     this.engine.reset();
+    if (c.probes.length && !quiet) this.ui.toggleAnalyzer(true);
     if (!quiet) { this.fit(); this.ui.toast(`Loaded “${ex.name}”`); }
   }
 
@@ -429,12 +439,18 @@ class App {
       const target = real * this.speed;
       const e = this.engine;
       if (e.timeDependent) {
-        const dt = 0.0005;
-        const n = Math.min(240, Math.max(1, Math.round(target / dt)));
-        for (let i = 0; i < n; i++) { e.step(target / n); this.sample(); }
+        // Step size follows the fastest RC constant / clock in the circuit. If the
+        // frame budget runs out, run in slow motion instead of taking bigger steps.
+        const dt = e.suggestDt();
+        const want = Math.max(1, Math.ceil(target / dt));
+        const t0 = performance.now();
+        let n = 0;
+        while (n < want && performance.now() - t0 < 12) { e.step(Math.min(dt, target)); this.sample(); n++; }
+        this.slowmo = n / want;
       } else {
         e.step(target || 0.016);
         this.sample();
+        this.slowmo = 1;
       }
       e.collectWarnings();
       this.handleEvents();

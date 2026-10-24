@@ -14,6 +14,7 @@ const R_SOURCE = 30;     // switch / clock modules
 const OPEN = 1e-9;
 
 const ok = (v) => !Number.isNaN(v);
+const BURN_TIME = 0.05;  // overload must last this long (s) before a part is destroyed
 
 // ---------------------------------------------------------------------------
 export function supply(nets, volts) {
@@ -81,10 +82,20 @@ export function capacitor(nets, part) {
       S.G(nets[0], nets[1], geq);
       S.I(nets[0], nets[1], -geq * this.vc);
     },
-    commit(V, dt) {
-      if (part.props.damaged) { this.warning = 'Capacitor has burst (open circuit). Replace it from the inspector.'; return; }
+    i: 0,
+    commit(V, dt, e) {
+      if (part.props.damaged) { this.warning = 'Capacitor has burst (open circuit). Replace it from the inspector.'; this.i = 0; return; }
       const a = V[nets[0]], c = V[nets[1]];
+      const C = part.props.uf * 1e-6;
+      const prev = this.vc;
       if (ok(a) && ok(c)) this.vc = a - c;
+      this.i = (C * (this.vc - prev)) / dt;   // > 0 while + side is charging up
+      if (e && e.gsum && nets[0] >= 0 && nets[1] >= 0) {
+        const geq = C / dt;
+        const ga = e.gsum[nets[0]] - geq, gb = e.gsum[nets[1]] - geq;
+        const r = (ga > 1e-9 ? 1 / ga : 1e9) + (gb > 1e-9 ? 1 / gb : 1e9);
+        e.minTau = Math.min(e.minTau, C * r);
+      }
       const rating = part.props.vmax || 16;
       const over = this.vc > rating * 1.1, rev = this.vc < -1.5;
       if (over || rev) this.stress += dt; else this.stress = Math.max(0, this.stress - dt * 0.5);
@@ -104,24 +115,31 @@ export function capacitor(nets, part) {
  */
 export function diodes(pairs, opts = {}) {
   const n = pairs.length;
+  const hasR = (e, k) => !!e && !!e.resistorNets && (e.resistorNets.has(pairs[k][0]) || e.resistorNets.has(pairs[k][1]));
   return {
+    analog: true,                                  // engine settles these before chips read logic levels
+    rsEff: Float64Array.from(pairs, p => p[3]),   // Rs plus the trainer-board resistor when one applies
     on: new Uint8Array(n),
     cur: new Float64Array(n),
     blown: new Uint8Array(n),
     avg: new Float64Array(n),
+    over: new Float64Array(n),   // seconds spent above maxA
     reset() { this.on.fill(0); this.cur.fill(0); if (!opts.part) this.blown.fill(0); },
     adopt(o) { if (o.blown && o.blown.length === n) this.blown.set(o.blown); if (o.avg && o.avg.length === n) this.avg.set(o.avg); },
-    stamp(S) {
+    stamp(S, V, e) {
       for (let k = 0; k < n; k++) {
         const [a, c, vf, rs] = pairs[k];
+        // A protected LED gets the trainer board's resistor only if you didn't wire one yourself.
+        this.rsEff[k] = rs + (opts.protect && !hasR(e, k) ? opts.protectR : 0);
         if (this.blown[k]) continue;
-        if (this.on[k]) S.vdrop(a, c, vf, rs); else S.G(a, c, OPEN);
+        if (this.on[k]) S.vdrop(a, c, vf, this.rsEff[k]); else S.G(a, c, OPEN);
       }
     },
     update(V) {
       let changed = false;
       for (let k = 0; k < n; k++) {
-        const [a, c, vf, rs] = pairs[k];
+        const [a, c, vf] = pairs[k];
+        const rs = this.rsEff[k];
         const va = a >= 0 ? V[a] : NaN, vc = c >= 0 ? V[c] : NaN;
         let on = 0;
         if (ok(va) && ok(vc)) {
@@ -132,29 +150,39 @@ export function diodes(pairs, opts = {}) {
       }
       return changed;
     },
-    commit(V, dt) {
+    commit(V, dt, e) {
       if (opts.part && opts.part.props.damaged) this.blown.fill(1);
       const notes = [];
       for (let k = 0; k < n; k++) {
-        const [a, c, vf, rs] = pairs[k];
+        const [a, c, vf] = pairs[k];
+        const rs = this.rsEff[k];
         const va = a >= 0 ? V[a] : NaN, vc = c >= 0 ? V[c] : NaN;
         if (!this.on[k] || this.blown[k]) {
           this.cur[k] = 0;
+          this.over[k] = Math.max(0, this.over[k] - dt);
           if (opts.led && !this.blown[k] && ok(va) && ok(vc) && vc - va > 1) notes.push('LED is backwards — the long leg (anode) must go to the higher voltage.');
         } else {
-          const i = (va - vc - vf) / rs;
-          this.cur[k] = Math.max(0, i);
-          if (opts.maxA && i > opts.maxA) {
-            this.blown[k] = 1;
-            if (opts.part) { opts.part.props.damaged = 'blown'; this.event = { kind: 'blown', text: opts.blownText }; }
-          } else if (opts.led && i > 0.03) notes.push(`No current-limiting resistor? ${(i * 1000).toFixed(0)} mA is above the 20 mA rating.`);
+          const i = Math.max(0, (va - vc - vf) / rs);
+          this.cur[k] = i;
+          if (opts.maxA && !opts.protect) {
+            // A single bad step must never destroy a part: only sustained overload burns it.
+            this.over[k] = i > opts.maxA ? this.over[k] + dt : Math.max(0, this.over[k] - dt);
+            if (this.over[k] > BURN_TIME) {
+              this.blown[k] = 1;
+              this.burnText = `${opts.name || 'LED'} burned out — it carried ${(i * 1000).toFixed(0)} mA (rated 20 mA). `
+                + (hasR(e, k) ? 'The series resistor is too small: use 220 Ω or more.' : 'Add a 220 Ω – 1 kΩ resistor in series.');
+              if (opts.part) { opts.part.props.damaged = 'blown'; this.event = { kind: 'blown', text: this.burnText }; }
+            } else if (opts.led && i > 0.03) notes.push(`${(i * 1000).toFixed(0)} mA is above the 20 mA rating — ${hasR(e, k) ? 'use a bigger resistor' : 'add a series resistor'}.`);
+          }
         }
         // smoothed current for drawing (PWM looks dim instead of flickering)
         const t = Math.min(1, (dt || 0.016) / 0.03);
         this.avg[k] += (this.cur[k] - this.avg[k]) * t;
       }
-      this.warning = this.blown.some(Boolean) ? (opts.blownText || 'Burned out.') : null;
+      this.warning = this.blown.some(Boolean) ? (this.burnText || opts.blownText || 'Burned out.') : null;
       this.notes = notes.length ? [...new Set(notes)] : null;
+      this.infos = opts.protect && this.cur.some(x => x > 0) && !pairs.some((_, k) => hasR(e, k))
+        ? ['Protected LED (built-in 330 Ω). A real LED without a series resistor would burn out — see Settings → Simulation.'] : null;
     },
   };
 }
@@ -255,9 +283,13 @@ export function icDevice(ic, nets) {
 export function timer555(nets) {
   const [gnd, trig, out, rst, ctrl, thr, dis, vcc] = nets;
   return {
-    latch: 0, powered: false, vh: 5, vl: 0,
+    latch: 0, powered: false, vh: 5, vl: 0, decided: false,
     reset() { this.latch = 0; },
     adopt(o) { this.latch = o.latch; },
+    // The latch may flip at most once per time step. Re-deciding inside the
+    // convergence loop made it chatter (discharge on → THR falls → set → discharge
+    // off → THR rises → reset …) and the step never converged.
+    begin() { this.decided = false; },
     stamp(S) {
       if (!this.powered) return;
       if (vcc >= 0 && ctrl >= 0) S.G(vcc, ctrl, 1 / 5000);
@@ -281,11 +313,31 @@ export function timer555(nets) {
       if (vr < 0.7) next = 0;
       else if (vt < vref / 2) next = 1;
       else if (vth > vref) next = 0;
-      if (next !== this.latch) { this.latch = next; changed = true; }
+      if (next !== this.latch && !this.decided) { this.latch = next; this.decided = true; changed = true; }
       return changed;
     },
-    commit() {
+    commit(V, dt, e) {
       this.warning = !this.powered && nets.some(n => n >= 0) ? 'No power — pin 8 (VCC) needs +5 V and pin 1 (GND) needs ground.' : null;
+      this.notes = this.infos = null;
+      if (!this.powered) return;
+      // Measure the real output period and duty cycle so the inspector can show them.
+      const t = e ? e.time : 0;
+      if (this.latch !== this.lastLatch) {
+        if (this.latch === 1) {
+          if (this.lastRise !== undefined) { this.period = t - this.lastRise; this.duty = (this.highTime || 0) / this.period; }
+          this.lastRise = t;
+        } else if (this.lastRise !== undefined) this.highTime = t - this.lastRise;
+        this.lastLatch = this.latch;
+      }
+      if (!this.latch && dis >= 0 && gnd >= 0 && ok(V[dis]) && ok(V[gnd])) {
+        const idis = (V[dis] - V[gnd]) / 8;
+        if (idis > 0.05) this.notes = [`Discharge pin 7 is sinking ${(idis * 1000).toFixed(0)} mA (a 555 handles about 50 mA): Ra is too small — datasheets recommend Ra ≥ 1 kΩ. Frequency ≈ 1.44 / ((Ra + 2·Rb)·C).`];
+      }
+      if (this.period && t - this.lastRise < 3 * this.period + 0.5) {
+        const f = 1 / this.period, p = this.period;
+        const ps = p >= 1 ? p.toFixed(2) + ' s' : p >= 1e-3 ? (p * 1e3).toFixed(1) + ' ms' : (p * 1e6).toFixed(0) + ' µs';
+        this.infos = [`Output period ${ps} (${f < 10 ? f.toFixed(2) : f.toFixed(0)} Hz), ${Math.round(this.duty * 100)}% high${f > 25 ? ' — too fast to see: an LED will just look steadily on.' : '.'}`];
+      }
     },
   };
 }

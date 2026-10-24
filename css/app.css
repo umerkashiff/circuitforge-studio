@@ -226,6 +226,22 @@ body.code-open .zoom { right: calc(min(560px, 62%) + 14px); }
   border-radius: 10px; box-shadow: var(--shadow);
 }
 body.analyzer-open .zoom { bottom: 234px; }
+.legend {
+  position: absolute; left: 14px; bottom: 14px; display: none; gap: 12px; padding: 7px 12px; border-radius: 10px;
+  background: var(--panel); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); box-shadow: var(--shadow);
+  font-size: 11.5px; font-weight: 600; color: var(--text-2); pointer-events: none;
+}
+body[data-mode="sim"]:not(.wires-off) .legend { display: flex; }
+body.analyzer-open .legend { bottom: 234px; }
+.legend span { display: flex; align-items: center; gap: 6px; }
+.legend i { width: 16px; height: 4px; border-radius: 2px; }
+.legend .hi { background: #ff453a; box-shadow: 0 0 6px rgba(255,69,58,.7); }
+.legend .lo { background: #0a84ff; }
+.legend .mid { background: #ff9f0a; }
+.legend .fl { background: repeating-linear-gradient(90deg, #8e8e93 0 3px, transparent 3px 6px); }
+.an-mode { border: 0; background: transparent; color: var(--text-3); border-radius: 5px; width: 22px; height: 22px; font-size: 14px; }
+.an-mode:hover { background: var(--fill-2); color: var(--text); }
+.an-mode.on { color: var(--accent); background: var(--accent-soft); }
 .zoom button { border: 0; background: transparent; height: 26px; min-width: 26px; border-radius: 7px; color: var(--text-2); font-size: 15px; display: flex; align-items: center; justify-content: center; }
 .zoom button:hover { background: var(--fill-2); color: var(--text); }
 .zoom .zl { font: 500 11px var(--mono); min-width: 46px; }
