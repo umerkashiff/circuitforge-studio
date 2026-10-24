@@ -347,9 +347,9 @@ export class Editor {
     if (pt && part && !pt.pins.some(p => p.part === part)) pt = null;
     this.hover = pt;
     this.hoverPart = part && getDef(part.type).ic ? part : (pt && pt.pins.length && getDef(pt.pins[0].part.type).ic ? pt.pins[0].part : null);
-    // While wiring, show the pinout of any chip near the cursor.
+    // While wiring or hovering near a chip, show the pinout of any chip near the cursor.
     const wiring = m && (m.kind === 'wire' || m.kind === 'wireStart' || m.kind === 'wireEnd');
-    if (wiring && !this.hoverPart) this.hoverPart = this.chipNear(this.mx, this.my, 2);
+    if (!this.hoverPart) this.hoverPart = this.chipNear(this.mx, this.my, wiring ? 2.5 : 1.5);
     // The chip pin that shares a breadboard strip with the hovered hole gets highlighted.
     this.haloTarget = pt && pt.hole && !pt.hole.rail ? this.stripChipPins(pt.hole.strip)[0] || null : null;
     if (this.haloTarget && !this.hoverPart) this.hoverPart = this.haloTarget.part;
@@ -849,57 +849,102 @@ export class Editor {
           if (hole && !hole.rail) for (const p of this.stripChipPins(hole.strip)) chips.add(p.part);
         }
       }
-      for (const chip of chips) this.drawPinHalo(g, chip, this.haloTarget && this.haloTarget.part === chip ? this.haloTarget.i : -1, wiring);
+      for (const chip of chips) this.drawPinHalo(g, chip, this.haloTarget && this.haloTarget.part === chip ? this.haloTarget.i : -1, wiring, env);
     }
     if (this.hover && (!m || m.kind === 'wire' || m.kind === 'wireEnd')) {
       g.strokeStyle = R.accent; g.lineWidth = 2 / Math.max(z, 1);
       g.beginPath(); g.arc(this.hover.x * P, this.hover.y * P, 6.5, 0, TAU); g.stroke();
     }
   }
-  /** Pin names around a hovered chip, in constant screen size so they stay readable. */
-  drawPinHalo(g, part, target = -1, wiring = false) {
+  /** Pin names around a hovered chip: compact, translucent, holes underneath always visible. */
+  drawPinHalo(g, part, target = -1, wiring = false, env = null) {
     const z = this.app.cam.z;
     const b = part.bounds();
     const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
-    const fs = 10.5 / z;
-    g.font = `600 ${fs}px "SF Mono", ui-monospace, Menlo, monospace`;
+    // Sleek compact font
+    const fs = Math.max(7.5, 8.5 / Math.max(z, 0.75));
+    const fontNorm = `600 ${fs}px "SF Mono", ui-monospace, Menlo, monospace`;
+    const fontBold = `700 ${fs}px "SF Mono", ui-monospace, Menlo, monospace`;
     g.textAlign = 'center'; g.textBaseline = 'middle';
+
+    const items = [];
     for (const q of part.worldPins()) {
       const dx = q.x - cx, dy = q.y - cy;
       const horiz = Math.abs(dx) / (b.x1 - b.x0) > Math.abs(dy) / (b.y1 - b.y0);
-      const off = 0.75 + 0.35 / z;
+      const off = 0.70;
       const tx = (q.x + (horiz ? Math.sign(dx) * off * 1.4 : 0)) * P;
       const ty = (q.y + (horiz ? 0 : Math.sign(dy) * off)) * P;
       const label = `${q.i + 1} ${q.name}`;
       const hit = q.i === target;
-      g.font = `${hit ? 700 : 600} ${hit ? fs * 1.2 : fs}px "SF Mono", ui-monospace, Menlo, monospace`;
-      const tw = g.measureText(label).width + 8 / z, th = (hit ? fs * 1.2 : fs) + 5 / z;
+      g.font = hit ? fontBold : fontNorm;
+      const tw = g.measureText(label).width + 5 / z;
+      const th = fs + 3 / z;
+      const d = Math.hypot(tx / P - this.mx, ty / P - this.my);
+
+      // Smooth proximity fade:
+      // When far away: ~0.80 alpha
+      // When cursor/wire is near (d < 2.5): drops smoothly to ~0.42 so holes underneath are clearly visible,
+      // while the pin number & name stay completely legible to know what you are wiring.
+      const proximity = Math.min(1, Math.max(0, (d - 0.5) / 2.0));
+      let alpha = 0.42 + 0.38 * proximity;
+      if (hit) alpha = Math.max(alpha, 0.88);
+
+      const isVcc = /^(VCC|VDD)$/.test(q.name);
+      const isGnd = /^(GND|VSS)$/.test(q.name);
+      const col = hit ? this.app.renderer.accent
+        : isVcc ? 'rgba(229, 69, 58, 0.85)'
+        : isGnd ? 'rgba(30, 32, 38, 0.85)'
+        : 'rgba(26, 28, 34, 0.82)';
+
+      items.push({ q, tx, ty, tw, th, horiz, label, hit, alpha, col, font: hit ? fontBold : fontNorm });
+    }
+
+    // 1. Draw compact translucent badge backgrounds
+    for (const it of items) {
       g.save();
-      if (wiring) {
-        // The labels sit in the same columns as the holes you are aiming for:
-        // fade the ones near the pointer so the holes underneath stay visible.
-        const d = Math.hypot(tx / P - this.mx, ty / P - this.my);
-        g.globalAlpha = d < 1.5 ? 0.12 : d < 3.5 ? 0.12 + 0.6 * (d - 1.5) / 2 : 0.72;
+      g.globalAlpha = it.alpha;
+      if (!it.horiz) { g.translate(it.tx, it.ty); g.rotate(-Math.PI / 2); g.translate(-it.tx, -it.ty); }
+      g.fillStyle = it.col;
+      g.beginPath();
+      g.roundRect(it.tx - it.tw / 2, it.ty - it.th / 2, it.tw, it.th, 2.5 / z);
+      g.fill();
+      if (it.hit) {
+        g.strokeStyle = '#ffffff';
+        g.lineWidth = 1 / z;
+        g.stroke();
       }
-      if (!horiz) { g.translate(tx, ty); g.rotate(-Math.PI / 2); g.translate(-tx, -ty); }
-      const n = hit ? this.app.renderer.accent : /^(VCC|VDD)$/.test(q.name) ? '#e5484d' : /^(GND|VSS)$/.test(q.name) ? '#1d1d1f' : 'rgba(29,29,31,0.88)';
-      g.fillStyle = n;
-      g.beginPath(); g.roundRect(tx - tw / 2, ty - th / 2, tw, th, 4 / z); g.fill();
-      g.fillStyle = '#fff'; g.fillText(label, tx, ty + 0.5 / z);
       g.restore();
     }
-    if (wiring) this.punchHoles(g, b, 2.6);
+
+    // 2. Punch real breadboard holes in the pin area so holes beneath are always clearly visible
+    this.punchHoles(g, b, 2.8, env && env.dark);
+
+    // 3. Draw pin text on top of badges and punched holes with subtle shadow for crisp readability
+    for (const it of items) {
+      g.save();
+      g.globalAlpha = Math.min(1, it.alpha + 0.18);
+      if (!it.horiz) { g.translate(it.tx, it.ty); g.rotate(-Math.PI / 2); g.translate(-it.tx, -it.ty); }
+      g.font = it.font;
+      g.fillStyle = '#ffffff';
+      g.shadowColor = 'rgba(0, 0, 0, 0.9)';
+      g.shadowBlur = 2.5 / z;
+      g.fillText(it.label, it.tx, it.ty + 0.5 / z);
+      g.restore();
+    }
   }
-  /** Redraw the holes near the pointer on top of the pin labels, so you can always see where a wire will land. */
-  punchHoles(g, b, margin) {
+
+  /** Real breadboard hole sockets stamped in the pin halo area so holes are never obscured. */
+  punchHoles(g, b, margin = 2.8, dark = false) {
+    const bc = this.app.settings.get('boardColor');
+    const blackBoard = bc === '#2a2c31';
     for (const [, h] of this.app.index.holes) {
       if (h.x < b.x0 - margin || h.x > b.x1 + margin || h.y < b.y0 - margin || h.y > b.y1 + margin) continue;
       if (h.x > b.x0 && h.x < b.x1 && h.y > b.y0 && h.y < b.y1) continue; // under the chip itself
-      if (Math.hypot(h.x - this.mx, h.y - this.my) > 3.5) continue;    // far labels stay readable
       const x = h.x * P, y = h.y * P;
-      g.fillStyle = 'rgba(255,255,255,0.9)'; g.fillRect(x - 3.4, y - 3.4, 6.8, 6.8);
-      g.fillStyle = '#4a4c52'; g.fillRect(x - 2.6, y - 2.6, 5.2, 5.2);
-      g.fillStyle = '#26282c'; g.fillRect(x - 1.8, y - 1.6, 3.6, 3.6);
+      g.fillStyle = blackBoard ? '#55575e' : dark ? '#3a3b40' : '#4a4c52';
+      g.fillRect(x - 2.6, y - 2.6, 5.2, 5.2);
+      g.fillStyle = blackBoard ? '#0b0b0c' : dark ? '#16171a' : '#26282c';
+      g.fillRect(x - 1.8, y - 1.6, 3.6, 3.6);
     }
   }
   drawLanding(g, parts) {
