@@ -88,7 +88,13 @@ export class Editor {
   }
   gripAt(wx, wy) {
     for (const b of this.app.circuit.boards) {
-      if (Math.abs(wx - (b.x + 0.53)) < 0.6 && Math.abs(wy - (b.y + 0.65)) < 0.75) return b;
+      if (Math.abs(wx - (b.x + 0.53)) < 1.2 && Math.abs(wy - (b.y + 0.65)) < 1.2) return b;
+    }
+    return null;
+  }
+  boardAt(wx, wy) {
+    for (const b of this.app.circuit.boards) {
+      if (b.contains(wx, wy)) return b;
     }
     return null;
   }
@@ -100,14 +106,19 @@ export class Editor {
     window.addEventListener('pointermove', (e) => this.move(e));
     window.addEventListener('pointerup', (e) => this.up(e));
     window.addEventListener('pointercancel', (e) => this.up(e));
-    window.addEventListener('blur', () => { this.space = false; this.shift = false; if (this.mode && this.mode.kind === 'drag') this.endDrag(); });
+    window.addEventListener('blur', () => { this.space = false; this.ctrl = false; this.shift = false; if (this.mode && this.mode.kind === 'drag') this.endDrag(); });
     cv.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
     cv.addEventListener('contextmenu', (e) => { e.preventDefault(); this.context(e); });
     cv.addEventListener('dblclick', (e) => this.dblclick(e));
     cv.addEventListener('pointerleave', () => { this.hover = null; this.hoverNet = -1; this.hoverPart = null; this.app.ui.tip(null); this.app.redraw(); });
-    window.addEventListener('keydown', (e) => this.key(e));
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') { this.space = true; this.cursor(); }
+      if (e.key === 'Control' || e.key === 'Meta') { this.ctrl = true; this.cursor(); }
+      this.key(e);
+    });
     window.addEventListener('keyup', (e) => {
       if (e.code === 'Space') { this.space = false; this.cursor(); }
+      if (e.key === 'Control' || e.key === 'Meta') { this.ctrl = false; this.cursor(); }
       if (e.key === 'Shift') this.shift = false;
     });
   }
@@ -115,7 +126,7 @@ export class Editor {
   cursor(c) {
     if (c) { this.cv.style.cursor = c; return; }
     const m = this.mode;
-    if (this.space) this.cv.style.cursor = 'grab';
+    if (this.space || this.ctrl) this.cv.style.cursor = 'grab';
     else if (m && m.kind === 'place') this.cv.style.cursor = 'copy';
     else if (m && m.kind === 'wire') this.cv.style.cursor = 'crosshair';
     else this.cv.style.cursor = 'default';
@@ -134,7 +145,7 @@ export class Editor {
     this.moved = false;
     const panMode = () => { this.mode = { kind: 'pan', cx: this.app.cam.x, cy: this.app.cam.y }; this.cursor('grabbing'); };
 
-    if (e.button === 1 || (e.button === 0 && this.space)) { panMode(); return; }
+    if (e.button === 1 || (e.button === 0 && (this.space || e.ctrlKey || e.metaKey))) { panMode(); return; }
     if (e.button !== 0) return;
     const m = this.mode;
     if (m && m.kind === 'place') { this.place(e.altKey || e.shiftKey); return; }
@@ -152,6 +163,9 @@ export class Editor {
         }
       }
     }
+
+    const grip = !this.sim && this.gripAt(w.x, w.y);
+    if (grip) { this.select([grip.id], e.shiftKey); this.mode = { kind: 'partDown', board: grip }; return; }
 
     const part = this.topPartAt(w.x, w.y);
     const pt = this.pointAt(w.x, w.y);
@@ -178,7 +192,7 @@ export class Editor {
       if (this.sim) panMode(); else this.mode = { kind: 'wireBody', ...hw };
       return;
     }
-    const board = !this.sim && this.gripAt(w.x, w.y);
+    const board = !this.sim && this.boardAt(w.x, w.y);
     if (board) { this.select([board.id], e.shiftKey); this.mode = { kind: 'partDown', board }; return; }
     if (!e.shiftKey) this.select([]);
     if (this.sim) { panMode(); return; }
@@ -241,7 +255,11 @@ export class Editor {
     if (!m) return;
     const w = this.toWorld(e.clientX, e.clientY);
     switch (m.kind) {
-      case 'pan': case 'knob': case 'wireBody': case 'marquee': this.mode = null; break;
+      case 'pan':
+        this.app.saveCamera();
+        this.mode = null;
+        break;
+      case 'knob': case 'wireBody': case 'marquee': this.mode = null; break;
       case 'wireStart':
         this.mode = { kind: 'wire', from: m.from, pts: [] };
         this.app.ui.hint('Click to add bends · click a hole or pin to finish · Esc to cancel');
@@ -307,6 +325,7 @@ export class Editor {
       this.app.zoomAt(e.clientX - r.left, e.clientY - r.top, cam.z * f);
     }
     this.app.redraw();
+    this.app.saveCamera();
   }
 
   dblclick(e) {
@@ -723,19 +742,21 @@ export class Editor {
     const pt = this.pointAt(w.x, w.y);
     const part = this.topPartAt(w.x, w.y);
     const hw = !part && this.wireAt(w.x, w.y);
+    const board = !part && !hw && this.boardAt(w.x, w.y);
     if (part && !this.selection.has(part.id)) this.select([part.id]);
     else if (hw && !this.selection.has(hw.wire.id)) this.select([hw.wire.id]);
+    else if (board && !this.selection.has(board.id)) this.select([board.id]);
     if (pt) items.push({ label: 'Add Probe to Analyzer', action: () => this.app.addProbe(pt.x, pt.y) });
     if (part && getDef(part.type).mcu) items.push({ label: 'Edit Code…', key: '↵', action: () => this.app.ui.openCode(part) });
     if (this.selection.size && !this.sim) {
       if (items.length) items.push('-');
-      const { wires } = this.selected();
+      const { wires, boards } = this.selected();
       if (wires.length) items.push({ label: 'Tidy Wire' + (wires.length > 1 ? 's' : ''), key: 'T', action: () => this.tidyWires() });
-      items.push({ label: 'Rotate', key: 'E', action: () => this.rotateSelection() });
+      if (!boards.length) items.push({ label: 'Rotate', key: 'E', action: () => this.rotateSelection() });
       items.push({ label: 'Duplicate', key: '⌘D', action: () => { this.copy(); this.paste(); } });
       items.push({ label: 'Copy', key: '⌘C', action: () => this.copy() });
       items.push('-');
-      items.push({ label: 'Delete', key: '⌫', danger: true, action: () => this.deleteSelection() });
+      items.push({ label: 'Delete' + (boards.length ? ' Board' : ''), key: '⌫', danger: true, action: () => this.deleteSelection() });
     } else if (!this.sim) {
       if (this.clipboard) items.push({ label: 'Paste', key: '⌘V', action: () => this.paste() });
       if (this.app.circuit.wires.length) items.push({ label: 'Tidy All Wires', key: 'T', action: () => this.tidyWires() });

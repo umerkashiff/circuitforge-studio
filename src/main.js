@@ -82,11 +82,28 @@ class App {
     this.editor = new Editor(this, this.canvas);
     this.ui = new UI(this);
 
-    if (!this.restore()) this.loadExample(EXAMPLES[0], true);
+    const urlParams = new URLSearchParams(window.location.search);
+    const forceReset = urlParams.has('reset') || urlParams.has('new');
+
+    if (forceReset || !this.restore()) {
+      if (forceReset) {
+        try {
+          localStorage.removeItem(STORE);
+          localStorage.removeItem(STORE + '.state');
+        } catch {}
+      }
+      this.newCircuit();
+    }
     this.resize();
-    this.fit();
+    if (!this._restoredCam) {
+      this.fit();
+    } else {
+      this.ui.syncToolbar();
+      this.redraw();
+    }
     window.addEventListener('resize', () => this.resize());
     new ResizeObserver(() => this.resize()).observe(this.canvas.parentElement);
+    window.addEventListener('beforeunload', () => this.save());
     this.last = performance.now();
     requestAnimationFrame((t) => this.frame(t));
     setInterval(() => { this.ui.renderIssues(); this.ui.updatePins(); this.ui.updateBoardLive(); }, 250);
@@ -217,12 +234,44 @@ class App {
   }
   undo() { const s = this.history.undo(); if (s) this.load(s, true); }
   redo() { const s = this.history.redo(); if (s) this.load(s, true); }
-  save() { try { localStorage.setItem(STORE, JSON.stringify(this.circuit)); } catch { /* storage full or blocked */ } }
+  save() {
+    try {
+      localStorage.setItem(STORE, JSON.stringify(this.circuit));
+      this.saveCamera();
+    } catch { /* storage full or blocked */ }
+  }
+  saveCamera() {
+    try {
+      if (this.cam && Number.isFinite(this.cam.x) && Number.isFinite(this.cam.y) && Number.isFinite(this.cam.z)) {
+        localStorage.setItem(STORE + '.state', JSON.stringify({
+          cam: { x: this.cam.x, y: this.cam.y, z: this.cam.z },
+          mode: this.mode,
+          speed: this.speed,
+        }));
+      }
+    } catch { /* storage blocked */ }
+  }
   restore() {
     try {
       const s = localStorage.getItem(STORE);
       if (!s) return false;
       this.load(s);
+      const stateStr = localStorage.getItem(STORE + '.state');
+      if (stateStr) {
+        const state = JSON.parse(stateStr);
+        if (state.cam && Number.isFinite(state.cam.x) && Number.isFinite(state.cam.y) && Number.isFinite(state.cam.z)) {
+          this.cam.x = state.cam.x;
+          this.cam.y = state.cam.y;
+          this.cam.z = state.cam.z;
+          this._restoredCam = true;
+        }
+        if (state.mode && (state.mode === 'build' || state.mode === 'sim')) {
+          this.setMode(state.mode);
+        }
+        if (state.speed) {
+          this.speed = state.speed;
+        }
+      }
       return true;
     } catch { return false; }
   }
@@ -231,7 +280,9 @@ class App {
     c.boards.push(new Board('half', 0, 0));
     this.load(c.toJSON());
     this.engine.reset();
+    this._restoredCam = false;
     this.fit();
+    this.save();
   }
   loadExample(ex, quiet) {
     const c = new Circuit();
@@ -418,6 +469,7 @@ class App {
     c.z = z;
     this.ui.syncToolbar();
     this.redraw();
+    this.saveCamera();
   }
   /** Pan so the given bounds (or wire) are centred, keeping the zoom. */
   focusOn(b, wire) {
