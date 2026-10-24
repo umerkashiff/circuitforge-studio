@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CircuitForge Studio</title>
+  <meta name="description" content="Breadboard circuit simulator for 74xx logic, 555 timers, LEDs and switches.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <meta name="author" content="Umer Kashif">
+  <meta name="theme-color" content="#0a84ff">
+  <meta property="og:title" content="CircuitForge Studio">
+  <meta property="og:description" content="Build and simulate breadboard circuits — 74xx logic, 555 timers, Arduino, ESP32 and STM32 — right in your browser.">
+  <meta property="og:type" content="website">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="tb-left">
+      <button class="icon-btn" id="btn-library" title="Toggle library">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
+      </button>
+      <div class="brand"><button class="logo" id="brand-logo" title="About CircuitForge"></button><input id="project-name" class="project-name" spellcheck="false" aria-label="Circuit name"></div>
+    </div>
+
+    <div class="tb-center">
+      <div class="mode-seg" role="tablist" title="Build ↔ Simulate  ⌘↵">
+        <button id="mode-build" class="on">
+          <svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>Build
+        </button>
+        <button id="mode-sim">
+          <svg class="fill" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg>Simulate
+        </button>
+      </div>
+      <div class="sim-ctrls">
+        <button id="btn-pause" class="icon-btn" title="Pause  (.)">
+          <svg class="i-pause fill" viewBox="0 0 24 24"><rect x="7" y="5.5" width="3.6" height="13" rx="1"/><rect x="13.4" y="5.5" width="3.6" height="13" rx="1"/></svg>
+          <svg class="i-play fill" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg>
+        </button>
+        <span id="sim-time" class="sim-time">0.0 s</span>
+        <select id="speed" class="speed" title="Simulation speed">
+          <option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option><option value="2">2×</option>
+        </select>
+        <button id="btn-reset" class="icon-btn" title="Power cycle (restart chips, boards &amp; capacitors)">
+          <svg viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.3 7.2a8 8 0 1 0 11.4 0"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="tb-right">
+      <div class="seg">
+        <button class="icon-btn" id="btn-undo" title="Undo  ⌘Z"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+        <button class="icon-btn" id="btn-redo" title="Redo  ⇧⌘Z"><svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
+      </div>
+      <div class="pop-wrap">
+        <button class="icon-btn color-btn" id="btn-color" data-pop title="Wire color"><span id="color-dot"></span></button>
+        <div class="popover" id="color-pop">
+          <div class="pop-title">Wire color</div>
+          <div class="swatches"></div>
+          <label class="check"><input type="checkbox" id="auto-color"> Red / black for power &amp; ground</label>
+          <label class="check"><input type="checkbox" id="auto-route"> Route new wires neatly <kbd>⇧T</kbd></label>
+          <button class="btn wide" id="btn-tidy">Tidy wires <kbd>T</kbd></button>
+        </div>
+      </div>
+      <button class="icon-btn" id="btn-analyzer" title="Logic analyzer">
+        <svg viewBox="0 0 24 24"><path d="M3 17h4V7h5v10h4V7h5"/></svg>
+      </button>
+      <div class="sep"></div>
+      <button class="text-btn" id="btn-new" title="New circuit">New</button>
+      <div class="pop-wrap">
+        <button class="text-btn" id="btn-examples" data-pop>Examples</button>
+        <div class="popover menu-pop" id="examples-pop"></div>
+      </div>
+      <button class="icon-btn" id="btn-open" title="Open  ⌘O"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
+      <button class="icon-btn" id="btn-save" title="Save  ⌘S"><svg viewBox="0 0 24 24"><path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M5 19h14"/></svg></button>
+      <button class="icon-btn" id="btn-png" title="Export image"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></svg></button>
+      <button class="icon-btn" id="btn-help" title="Keyboard shortcuts  ?"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><path d="M12 17.2v.1"/></svg></button>
+      <button class="icon-btn" id="btn-settings" title="Settings  ⌘,"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+      <button class="icon-btn" id="btn-theme" title="Light / dark"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></button>
+      <button class="icon-btn" id="btn-panel" title="Toggle inspector"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg></button>
+    </div>
+  </header>
+
+  <aside class="library">
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
+      <input id="search" placeholder="Search parts" spellcheck="false" autocomplete="off">
+      <kbd>/</kbd>
+    </div>
+    <div id="library" class="lib-list"></div>
+  </aside>
+
+  <main class="stage">
+    <div class="canvas-wrap"><canvas id="canvas"></canvas></div>
+    <div id="hint" class="hint"></div>
+    <div class="zoom">
+      <button id="zoom-out" title="Zoom out">−</button>
+      <button id="zoom-label" class="zl" title="Fit (F)">100%</button>
+      <button id="zoom-in" title="Zoom in">+</button>
+      <button id="zoom-fit" title="Fit to screen (F)"><svg viewBox="0 0 24 24"><path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4"/></svg></button>
+    </div>
+    <section id="analyzer" class="analyzer">
+      <div class="an-head">
+        <span class="an-title">Logic Analyzer</span>
+        <select id="an-window" class="speed"><option value="1">1 s</option><option value="2" selected>2 s</option><option value="5">5 s</option><option value="10">10 s</option></select>
+        <span class="grow"></span>
+        <button class="text-btn small" id="an-clear">Clear</button>
+        <button class="icon-btn small" id="an-close" title="Close">✕</button>
+      </div>
+      <div class="an-body">
+        <div id="an-list" class="an-list"></div>
+        <div class="an-plot"><canvas id="an-canvas"></canvas></div>
+      </div>
+    </section>
+    <section id="code" class="code-drawer" aria-label="Code editor">
+      <header class="cd-head">
+        <div class="cd-title"><b id="cd-board">Board</b><span id="cd-status" class="cd-status"></span></div>
+        <select id="cd-examples" class="input small"></select>
+        <button id="cd-upload" class="btn primary" title="Upload  ⌘S">Upload</button>
+        <button id="cd-close" class="icon-btn" title="Close  Esc">✕</button>
+      </header>
+      <div class="cd-editor"><div id="cd-gutter" class="cd-gutter"></div><textarea id="cd-text" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea></div>
+      <div class="cd-serial">
+        <div class="cd-serial-head"><b>Serial Monitor</b><span id="cd-baud" class="muted"></span><span class="grow"></span><button id="cd-clear" class="text-btn small">Clear</button></div>
+        <div id="cd-out" class="cd-out"></div>
+        <form id="cd-send" class="cd-send"><input id="cd-in" class="input" placeholder="Send to the board…" autocomplete="off"><button class="btn">Send</button></form>
+      </div>
+    </section>
+  </main>
+
+  <aside class="inspector"><div id="inspector-body"></div></aside>
+
+  <div id="tip" class="tip"></div>
+  <div id="toast" class="toast"></div>
+  <div id="menu" class="menu"></div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
