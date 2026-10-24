@@ -106,18 +106,16 @@ export class Editor {
     window.addEventListener('pointermove', (e) => this.move(e));
     window.addEventListener('pointerup', (e) => this.up(e));
     window.addEventListener('pointercancel', (e) => this.up(e));
-    window.addEventListener('blur', () => { this.space = false; this.ctrl = false; this.shift = false; if (this.mode && this.mode.kind === 'drag') this.endDrag(); });
+    window.addEventListener('blur', () => { this.ctrl = false; this.shift = false; if (this.mode && this.mode.kind === 'drag') this.endDrag(); });
     cv.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
     cv.addEventListener('contextmenu', (e) => { e.preventDefault(); this.context(e); });
     cv.addEventListener('dblclick', (e) => this.dblclick(e));
     cv.addEventListener('pointerleave', () => { this.hover = null; this.hoverNet = -1; this.hoverPart = null; this.app.ui.tip(null); this.app.redraw(); });
     window.addEventListener('keydown', (e) => {
-      if (e.code === 'Space') { this.space = true; this.cursor(); }
       if (e.key === 'Control' || e.key === 'Meta') { this.ctrl = true; this.cursor(); }
       this.key(e);
     });
     window.addEventListener('keyup', (e) => {
-      if (e.code === 'Space') { this.space = false; this.cursor(); }
       if (e.key === 'Control' || e.key === 'Meta') { this.ctrl = false; this.cursor(); }
       if (e.key === 'Shift') this.shift = false;
     });
@@ -126,7 +124,7 @@ export class Editor {
   cursor(c) {
     if (c) { this.cv.style.cursor = c; return; }
     const m = this.mode;
-    if (this.space || this.ctrl) this.cv.style.cursor = 'grab';
+    if (this.ctrl) this.cv.style.cursor = 'grab';
     else if (m && m.kind === 'place') this.cv.style.cursor = 'copy';
     else if (m && m.kind === 'wire') this.cv.style.cursor = 'crosshair';
     else this.cv.style.cursor = 'default';
@@ -145,7 +143,7 @@ export class Editor {
     this.moved = false;
     const panMode = () => { this.mode = { kind: 'pan', cx: this.app.cam.x, cy: this.app.cam.y }; this.cursor('grabbing'); };
 
-    if (e.button === 1 || (e.button === 0 && (this.space || e.ctrlKey || e.metaKey))) { panMode(); return; }
+    if (e.button === 0 && (e.ctrlKey || e.metaKey)) { panMode(); return; }
     if (e.button !== 0) return;
     const m = this.mode;
     if (m && m.kind === 'place') { this.place(e.altKey || e.shiftKey); return; }
@@ -315,15 +313,11 @@ export class Editor {
       this.app.stateChanged(false);
       return;
     }
-    const trackpadPan = !e.ctrlKey && !e.metaKey && (e.deltaX !== 0 || (e.deltaMode === 0 && Math.abs(e.deltaY) < 40 && !Number.isInteger(e.deltaY * 2)));
-    if (trackpadPan || (!e.ctrlKey && !e.metaKey && e.shiftKey)) {
-      cam.x -= e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
-      cam.y -= e.shiftKey && !e.deltaX ? 0 : e.deltaY;
-    } else {
-      const r = this.cv.getBoundingClientRect();
-      const f = Math.exp(-e.deltaY * (e.ctrlKey ? 0.012 : 0.0018));
-      this.app.zoomAt(e.clientX - r.left, e.clientY - r.top, cam.z * f);
-    }
+    // Trackpad / wheel ONLY zooms; does not move canvas
+    const r = this.cv.getBoundingClientRect();
+    const dy = e.deltaY !== 0 ? e.deltaY : e.deltaX;
+    const f = Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.002));
+    this.app.zoomAt(e.clientX - r.left, e.clientY - r.top, cam.z * f);
     this.app.redraw();
     this.app.saveCamera();
   }
@@ -695,7 +689,6 @@ export class Editor {
     const mod = e.metaKey || e.ctrlKey;
     const k = e.key.toLowerCase();
     if (e.key === 'Shift') this.shift = true;
-    if (e.code === 'Space') { if (!this.space) { this.space = true; this.cursor(); } e.preventDefault(); return; }
     if (mod) {
       if (k === 'z') { e.preventDefault(); e.shiftKey ? this.app.redo() : this.app.undo(); }
       else if (k === 'y') { e.preventDefault(); this.app.redo(); }

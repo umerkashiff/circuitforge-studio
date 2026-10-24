@@ -547,7 +547,7 @@ export class UI {
       ['Wiring', [['drag hole → hole', 'Draw a wire'], ['click, click…', 'Wire with your own bends'], ['⇧ while drawing', 'Straight / routed (opposite of setting)'], ['T', 'Tidy selected (or all) wires'], ['⇧T', 'Auto-route new wires on/off'], ['⌫ while drawing', 'Remove last bend'], ['Esc', 'Cancel']]],
       ['Wire colours', [['R', 'Red'], ['B / K', 'Black'], ['U', 'Blue'], ['G', 'Green'], ['Y', 'Yellow'], ['O', 'Orange'], ['P', 'Purple'], ['W', 'White'], ['1 – 8', 'Same, by number']]],
       ['Parts', [['E / ⇧E', 'Rotate ↻ / ↺'], ['⌥ drag', 'Duplicate while dragging'], ['⌘D', 'Duplicate'], ['⌘C ⌘X ⌘V', 'Copy, cut, paste'], ['← ↑ → ↓', 'Nudge (⇧ = 5 holes)'], ['⌫', 'Delete'], ['↵', 'Open code (boards)'], ['⌘A', 'Select all']]],
-      ['View', [['Space-drag', 'Pan'], ['scroll / pinch', 'Pan / zoom'], ['F or ⌘0', 'Fit to screen'], ['+ / −', 'Zoom'], ['L', 'Logic analyzer'], ['/', 'Search parts']]],
+      ['View', [['Ctrl-drag', 'Pan canvas'], ['Trackpad / Scroll', 'Zoom'], ['F or ⌘0', 'Fit to screen'], ['+ / −', 'Zoom'], ['L', 'Logic analyzer'], ['/', 'Search parts']]],
       ['File', [['⌘Z / ⇧⌘Z', 'Undo / redo'], ['⌘S', 'Save (or Upload in the code editor)'], ['⌘O', 'Open']]],
     ];
     const sheet = h('div', { class: 'sheet-back', onclick: (e) => { if (e.target === sheet) sheet.remove(); } },
