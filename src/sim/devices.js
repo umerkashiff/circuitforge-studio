@@ -341,3 +341,259 @@ export function timer555(nets) {
     },
   };
 }
+
+/**
+ * NPN BJT transistor (e.g. 2N3904).
+ * Pins: [emitterNet, baseNet, collectorNet]
+ */
+export function bjtNpn(nets, part) {
+  const beta = part.props.beta || 150;
+  const Vbe_on = 0.68;
+  const Rbe = 40;
+  const Vce_sat = 0.15;
+  const Rsat = 12;
+
+  return {
+    analog: true,
+    state: 'off',
+    ib: 0,
+    ic: 0,
+    vbe: 0,
+    vce: 0,
+    reset() { this.state = 'off'; this.ib = 0; this.ic = 0; },
+    adopt(o) { this.state = o.state || 'off'; this.ib = o.ib || 0; this.ic = o.ic || 0; },
+    stamp(S) {
+      const [e, b, c] = nets;
+      if (this.state === 'off') {
+        S.G(b, e, OPEN);
+        S.G(c, e, OPEN);
+      } else if (this.state === 'sat') {
+        S.vdrop(b, e, Vbe_on, Rbe);
+        S.vdrop(c, e, Vce_sat, Rsat);
+      } else {
+        S.vdrop(b, e, Vbe_on, Rbe);
+        const geff = Math.max(1e-4, Math.min(0.2, (beta * Math.max(1e-5, this.ib)) / Math.max(0.15, this.vce || 1)));
+        S.G(c, e, geff);
+      }
+    },
+    update(V) {
+      const [e, b, c] = nets;
+      const ve = e >= 0 && ok(V[e]) ? V[e] : 0;
+      const vb = b >= 0 && ok(V[b]) ? V[b] : 0;
+      const vc = c >= 0 && ok(V[c]) ? V[c] : 0;
+
+      const vbe = vb - ve;
+      const vce = vc - ve;
+      this.vbe = vbe;
+      this.vce = vce;
+
+      let newState = 'off';
+      if (vbe > Vbe_on - 0.05 && vce > -0.2) {
+        this.ib = Math.max(0, (vbe - Vbe_on) / Rbe);
+        const ic_avail = Math.max(0, (vce - Vce_sat) / Rsat);
+        if (vce <= Vce_sat || beta * this.ib >= ic_avail) {
+          newState = 'sat';
+          this.ic = ic_avail;
+        } else {
+          newState = 'active';
+          this.ic = beta * this.ib;
+        }
+      } else {
+        this.ib = 0;
+        this.ic = 0;
+      }
+
+      if (newState !== this.state) {
+        this.state = newState;
+        return true;
+      }
+      return false;
+    },
+    commit(V) {
+      const [e, b, c] = nets;
+      const ve = e >= 0 && ok(V[e]) ? V[e] : 0;
+      const vb = b >= 0 && ok(V[b]) ? V[b] : 0;
+      const vc = c >= 0 && ok(V[c]) ? V[c] : 0;
+      this.vbe = vb - ve;
+      this.vce = vc - ve;
+      if (this.state === 'off') {
+        this.notes = this.vbe < 0.2 ? null : [`Cut-off: Vbe = ${this.vbe.toFixed(2)} V (needs ≥ 0.65 V to conduct)`];
+      } else if (this.state === 'sat') {
+        this.notes = [`Saturated: Vbe = ${this.vbe.toFixed(2)} V, Vce = ${this.vce.toFixed(2)} V, Ic ≈ ${(this.ic * 1000).toFixed(1)} mA`];
+      } else {
+        this.notes = [`Active: Vbe = ${this.vbe.toFixed(2)} V, Vce = ${this.vce.toFixed(2)} V, Ib ≈ ${(this.ib * 1000).toFixed(2)} mA, Ic ≈ ${(this.ic * 1000).toFixed(1)} mA`];
+      }
+    },
+  };
+}
+
+/**
+ * N-channel JFET (e.g. 2N5484).
+ * Pins: [drainNet, sourceNet, gateNet]
+ */
+export function jfetN(nets, part) {
+  const vp = part.props.vp || -2.5;
+  const idss = part.props.idss || 0.005;
+  const rds_on = part.props.rdson || 150;
+
+  return {
+    analog: true,
+    state: 'on',
+    id: 0,
+    vds: 0,
+    vgs: 0,
+    reset() { this.state = 'on'; this.id = 0; },
+    adopt(o) { this.state = o.state || 'on'; this.id = o.id || 0; },
+    stamp(S) {
+      const [d, s, g] = nets;
+      S.G(g, s, OPEN);
+      if (this.state === 'off') {
+        S.G(d, s, OPEN);
+      } else if (this.state === 'linear') {
+        S.G(d, s, 1 / rds_on);
+      } else {
+        const geff = Math.max(1e-5, Math.min(0.1, this.id / Math.max(0.15, this.vds || 1)));
+        S.G(d, s, geff);
+      }
+    },
+    update(V) {
+      const [d, s, g] = nets;
+      const vd = d >= 0 && ok(V[d]) ? V[d] : 0;
+      const vs = s >= 0 && ok(V[s]) ? V[s] : 0;
+      const vg = g >= 0 && ok(V[g]) ? V[g] : 0;
+
+      const vgs = vg - vs;
+      const vds = vd - vs;
+      this.vds = vds;
+      this.vgs = vgs;
+
+      let newState = 'off';
+      if (vgs <= vp) {
+        newState = 'off';
+        this.id = 0;
+      } else if (vds >= 0) {
+        const k = Math.max(0, 1 - vgs / vp);
+        const id_sat = idss * k * k;
+        if (vds < Math.max(0.05, vgs - vp)) {
+          newState = 'linear';
+          this.id = Math.min(id_sat, vds / rds_on);
+        } else {
+          newState = 'sat';
+          this.id = id_sat;
+        }
+      }
+
+      if (newState !== this.state) {
+        this.state = newState;
+        return true;
+      }
+      return false;
+    },
+    commit(V) {
+      const [d, s, g] = nets;
+      const vd = d >= 0 && ok(V[d]) ? V[d] : 0;
+      const vs = s >= 0 && ok(V[s]) ? V[s] : 0;
+      const vg = g >= 0 && ok(V[g]) ? V[g] : 0;
+      this.vgs = vg - vs;
+      this.vds = vd - vs;
+      this.notes = [`Vgs = ${this.vgs.toFixed(2)} V, Vds = ${this.vds.toFixed(2)} V, Id ≈ ${(this.id * 1000).toFixed(1)} mA (${this.state.toUpperCase()})`];
+    },
+  };
+}
+
+/**
+ * HD44780 16x2 Parallel Character LCD Display.
+ * Pins: 0:VSS, 1:VDD, 2:V0, 3:RS, 4:RW, 5:E, 6..13:D0..D7, 14:A, 15:K
+ */
+export function lcd16x2(nets, part) {
+  const [vss, vdd, v0, rs, rw, e, d0, d1, d2, d3, d4, d5, d6, d7, blA, blK] = nets;
+  const dPins = [d0, d1, d2, d3, d4, d5, d6, d7];
+
+  return {
+    powered: false,
+    backlight: false,
+    lines: ['', ''],
+    addr: 0,
+    nibble: null,
+    prevE: 0,
+    reset() { this.lines = ['', '']; this.addr = 0; this.nibble = null; this.prevE = 0; },
+    stamp(S) {
+      if (blA >= 0 && blK >= 0) S.vdrop(blA, blK, 2.8, 150);
+    },
+    update(V) {
+      const v_vdd = vdd >= 0 && ok(V[vdd]) ? V[vdd] : 0;
+      const v_vss = vss >= 0 && ok(V[vss]) ? V[vss] : 0;
+      const powered = (v_vdd - v_vss) >= 4.0;
+      let changed = powered !== this.powered;
+      this.powered = powered;
+
+      const v_a = blA >= 0 && ok(V[blA]) ? V[blA] : 0;
+      const v_k = blK >= 0 && ok(V[blK]) ? V[blK] : 0;
+      this.backlight = powered || (v_a - v_k) >= 2.0;
+
+      if (!powered) return changed;
+
+      const currE = (e >= 0 && ok(V[e]) && (V[e] - v_vss) >= 2.0) ? 1 : 0;
+      // Clock on falling edge of E
+      if (this.prevE === 1 && currE === 0) {
+        const isRs = rs >= 0 && ok(V[rs]) && (V[rs] - v_vss) >= 2.0;
+        const readBus = () => {
+          let val = 0;
+          for (let i = 0; i < 8; i++) {
+            const p = dPins[i];
+            if (p >= 0 && ok(V[p]) && (V[p] - v_vss) >= 2.0) val |= (1 << i);
+          }
+          return val;
+        };
+
+        const bus = readBus();
+        const highNibble = (bus >> 4) & 0x0F;
+
+        if (this.nibble === null && (bus & 0x0F) === 0 && dPins.slice(0, 4).every(p => p < 0)) {
+          // 4-bit mode: upper nibble first
+          this.nibble = highNibble;
+        } else {
+          let byte = bus;
+          if (this.nibble !== null) {
+            byte = (this.nibble << 4) | highNibble;
+            this.nibble = null;
+          }
+
+          if (!isRs) {
+            // Command
+            if (byte === 0x01) {
+              this.lines = ['', ''];
+              this.addr = 0;
+              changed = true;
+            } else if (byte === 0x02) {
+              this.addr = 0;
+            } else if (byte >= 0x80) {
+              const a = byte & 0x7F;
+              this.addr = a < 0x40 ? a : 16 + (a - 0x40);
+            }
+          } else {
+            // Data character
+            const row = this.addr >= 16 ? 1 : 0;
+            const col = this.addr % 16;
+            const ch = (byte >= 32 && byte <= 126) ? String.fromCharCode(byte) : ' ';
+            let str = (this.lines[row] || '').padEnd(16, ' ');
+            str = str.slice(0, col) + ch + str.slice(col + 1);
+            this.lines[row] = str;
+            this.addr = (this.addr + 1) % 32;
+            changed = true;
+          }
+        }
+      }
+      this.prevE = currE;
+      return changed;
+    },
+    commit() {
+      if (!this.powered) {
+        this.warning = nets.some(n => n >= 0) ? 'No power — pin 2 (VDD) needs +5 V and pin 1 (VSS) needs ground.' : null;
+      } else {
+        this.warning = null;
+      }
+    },
+  };
+}
+

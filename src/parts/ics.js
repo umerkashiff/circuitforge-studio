@@ -25,7 +25,7 @@ const and = (a) => b(a.every(Boolean));
 const or = (a) => b(a.some(Boolean));
 
 function jk(c, s, k, edge, J, K, pre, clr) {
-  const p = c.i(pre), r = c.i(clr);
+  const p = pre ? c.i(pre) : 1, r = clr ? c.i(clr) : 1;
   if (!p || !r) { s[k] = !p ? 1 : 0; return !p && !r; }
   if (edge) {
     const j = c.i(J), kk = c.i(K);
@@ -149,6 +149,12 @@ const IC_LIST = [
         if (!p || !r) c.s[k] = !p ? 1 : 0; else if (e) c.s[k] = c.i(d);
         outQ(c, c.s[k], !p && !r, q, qn);
       }
+    } },
+  { id: '7473', name: 'JK FF', title: 'Dual JK flip-flop with clear, falling edge', cat: 'Flip-Flops', vcc: 4, gnd: 11,
+    pins: L('1CLK 1CLR 1K VCC 2CLK 2CLR 2J 2Q̅ 2Q 2K GND 1Q 1Q̅ 1J'), init: () => [0, 0],
+    ev: (c) => {
+      outQ(c, c.s[0], jk(c, c.s, 0, c.fall(1), 14, 3, null, 2), 12, 13);
+      outQ(c, c.s[1], jk(c, c.s, 1, c.fall(5), 7, 10, null, 6), 9, 8);
     } },
   { id: '7476', name: 'JK FF', title: 'Dual JK flip-flop, falling edge', cat: 'Flip-Flops', vcc: 5, gnd: 13,
     pins: L('1CLK 1PRE 1CLR 1J VCC 2CLK 2PRE 2CLR 2J 2Q̅ 2Q 2K GND 1Q̅ 1Q 1K'), init: () => [0, 0],

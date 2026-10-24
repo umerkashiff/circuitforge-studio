@@ -552,6 +552,50 @@ register({
   },
 });
 
+register({
+  type: 'lcd16x2', name: '16×2 LCD Display', cat: 'Outputs', desc: 'JHD16x2 / HD44780 16-character x 2-line alphanumeric LCD display. 16-pin single-row header.',
+  defaults: { line1: 'CircuitForge', line2: '16x2 LCD Display' },
+  fields: [
+    { key: 'line1', label: 'Line 1 text', kind: 'text' },
+    { key: 'line2', label: 'Line 2 text', kind: 'text' },
+  ],
+  pins: () => [
+    { x: 0, y: 0, name: 'VSS' }, { x: 1, y: 0, name: 'VDD' }, { x: 2, y: 0, name: 'V0' },
+    { x: 3, y: 0, name: 'RS' }, { x: 4, y: 0, name: 'RW' }, { x: 5, y: 0, name: 'E' },
+    { x: 6, y: 0, name: 'D0' }, { x: 7, y: 0, name: 'D1' }, { x: 8, y: 0, name: 'D2' }, { x: 9, y: 0, name: 'D3' },
+    { x: 10, y: 0, name: 'D4' }, { x: 11, y: 0, name: 'D5' }, { x: 12, y: 0, name: 'D6' }, { x: 13, y: 0, name: 'D7' },
+    { x: 14, y: 0, name: 'A' }, { x: 15, y: 0, name: 'K' },
+  ],
+  bounds: () => [-0.8, -7.5, 15.8, 0.4],
+  draw(g, part, env) {
+    for (let i = 0; i < 16; i++) lead(g, i, -0.7, i, 0);
+    shadow(g, 10, 4, 0.35);
+    rr(g, -0.6 * U, -7.2 * U, 16.2 * U, 6.4 * U, 4);
+    g.fillStyle = lin(g, 0, -7.2 * U, 0, -0.8 * U, [[0, '#12542a'], [1, '#0c381c']]);
+    g.fill();
+    noShadow(g);
+    g.fillStyle = '#b8bec7';
+    for (const [hx, hy] of [[-0.2, -7.0], [15.2, -7.0], [-0.2, -1.0], [15.2, -1.0]]) {
+      g.beginPath(); g.arc(hx * U, hy * U, 2.5, 0, TAU); g.fill();
+    }
+    rr(g, 0.2 * U, -6.6 * U, 14.6 * U, 4.8 * U, 3);
+    g.fillStyle = lin(g, 0, -6.6 * U, 0, -1.8 * U, [[0, '#3a3f47'], [1, '#202328']]);
+    g.fill();
+    const lit = env.dev ? env.dev.backlight : true;
+    rr(g, 0.8 * U, -6.2 * U, 13.4 * U, 4.0 * U, 2);
+    g.fillStyle = lit ? '#8ec03f' : '#334422';
+    g.fill();
+    if (lit) glow(g, 7.5 * U, -4.2 * U, 7 * U, '142,192,63', 0.35);
+    const l1 = (env.dev && (env.dev.lines[0] || env.dev.lines[1])) ? env.dev.lines[0] : (part.props.line1 || 'CircuitForge');
+    const l2 = (env.dev && (env.dev.lines[0] || env.dev.lines[1])) ? env.dev.lines[1] : (part.props.line2 || '16x2 Character');
+    text(g, env, (l1 || '').padEnd(16, ' ').slice(0, 16), 7.5 * U, -5.2 * U, { size: 10, color: lit ? '#152408' : '#223010', weight: 700, font: MONO });
+    text(g, env, (l2 || '').padEnd(16, ' ').slice(0, 16), 7.5 * U, -3.2 * U, { size: 10, color: lit ? '#152408' : '#223010', weight: 700, font: MONO });
+    g.fillStyle = '#ffffff';
+    g.beginPath(); g.arc(0, -0.9 * U, 1.8, 0, TAU); g.fill();
+  },
+  device: (part, nets) => dev.lcd16x2(nets, part),
+});
+
 // ---------------------------------------------------------------- Passives -
 const BAND = ['#1a1a1a', '#8b4513', '#e5484d', '#ff8a00', '#f5d90a', '#30a46c', '#0a84ff', '#8e4ec6', '#8e8e93', '#ffffff'];
 function bands(ohms) {
@@ -656,7 +700,12 @@ register({
 register({
   type: 'diode', name: 'Diode', cat: 'Passives', desc: 'Current flows from anode (left) to the striped cathode (right).',
   defaults: { model: '1N4148' },
-  fields: [{ key: 'model', label: 'Model', kind: 'select', options: [['1N4148', '1N4148 signal'], ['1N4001', '1N4001 rectifier']] }],
+  fields: [{ key: 'model', label: 'Model', kind: 'select', options: [['1N4148', '1N4148 signal'], ['1N4001', '1N4001 rectifier (50 V)'], ['1N4007', '1N4007 rectifier (1000 V)']] }],
+  variants: [
+    { name: '1N4148 Diode', props: { model: '1N4148' } },
+    { name: '1N4001 Diode', props: { model: '1N4001' } },
+    { name: '1N4007 Diode', props: { model: '1N4007' } },
+  ],
   pins: () => [{ x: 0, y: 0, name: 'Anode' }, { x: 4, y: 0, name: 'Cathode' }],
   bounds: () => [-0.2, -0.45, 4.2, 0.45],
   draw(g, part, env) {
@@ -669,8 +718,82 @@ register({
     noShadow(g);
     g.fillStyle = glass ? '#1a1a1a' : '#d1d5db';
     g.fillRect(x0 + w - 7, -h / 2, 4, h);
+    if (!glass) {
+      text(g, env, part.props.model || '1N4007', x0 + w / 2 - 2, 0, { size: 5.5, color: '#c3c8cf', weight: 700, font: MONO });
+    }
   },
-  device: (part, nets) => dev.diodes([[nets[0], nets[1], part.props.model === '1N4001' ? 0.7 : 0.62, part.props.model === '1N4001' ? 0.05 : 0.6]]),
+  device: (part, nets) => dev.diodes([[nets[0], nets[1], part.props.model && part.props.model.startsWith('1N400') ? 0.7 : 0.62, part.props.model && part.props.model.startsWith('1N400') ? 0.05 : 0.6]]),
+});
+
+register({
+  type: 'npn', name: 'NPN Transistor', cat: 'Passives', desc: 'General-purpose NPN BJT (2N3904) in TO-92 package. Pin 1: Emitter, Pin 2: Base, Pin 3: Collector.',
+  defaults: { model: '2N3904', beta: 150 },
+  fields: [
+    { key: 'model', label: 'Model', kind: 'select', options: [['2N3904', '2N3904 (general-purpose NPN)'], ['2N2222', '2N2222 (high-current NPN)'], ['BC547', 'BC547 (low-noise NPN)']] },
+    { key: 'beta', label: 'Current Gain (hFE)', kind: 'select', options: [[100, '100'], [150, '150 (typical 2N3904)'], [200, '200'], [300, '300']] },
+  ],
+  variants: [
+    { name: '2N3904 NPN', props: { model: '2N3904', beta: 150 } },
+    { name: '2N2222 NPN', props: { model: '2N2222', beta: 100 } },
+  ],
+  pins: () => [{ x: 0, y: 0, name: 'E (Emitter)' }, { x: 1, y: 0, name: 'B (Base)' }, { x: 2, y: 0, name: 'C (Collector)' }],
+  bounds: () => [-0.4, -2.8, 2.4, 0.3],
+  draw(g, part, env) {
+    lead(g, 0, -0.65, 0, 0); lead(g, 1, -0.65, 1, 0); lead(g, 2, -0.65, 2, 0);
+    shadow(g, 6, 2, 0.28);
+    const cx = 1 * U, cy = -1.65 * U, rx = 1.25 * U;
+    g.beginPath();
+    g.arc(cx, cy, rx, Math.PI, 0, false);
+    g.lineTo(cx + rx, cy + 0.3 * U);
+    g.lineTo(cx - rx, cy + 0.3 * U);
+    g.closePath();
+    g.fillStyle = lin(g, cx - rx, 0, cx + rx, 0, [[0, '#33373e'], [0.4, '#1e2025'], [1, '#111215']]);
+    g.fill();
+    noShadow(g);
+    g.fillStyle = '#25282e';
+    g.fillRect(cx - rx + 2, cy + 0.05 * U, (rx - 1) * 2, 0.32 * U);
+    text(g, env, part.props.model || '2N3904', cx, cy - 0.2 * U, { size: 6.5, color: '#e2e8f0', weight: 700, font: MONO });
+    text(g, env, 'NPN', cx, cy + 0.24 * U, { size: 5, color: '#94a3b8', weight: 600, font: MONO });
+    text(g, env, 'E', 0, -0.32 * U, { size: 5.5, color: '#8e96a3', weight: 700, font: MONO });
+    text(g, env, 'B', 1 * U, -0.32 * U, { size: 5.5, color: '#8e96a3', weight: 700, font: MONO });
+    text(g, env, 'C', 2 * U, -0.32 * U, { size: 5.5, color: '#8e96a3', weight: 700, font: MONO });
+  },
+  device: (part, nets) => dev.bjtNpn(nets, part),
+});
+
+register({
+  type: 'jfet', name: 'N-JFET Transistor', cat: 'Passives', desc: 'N-channel depletion-mode JFET (2N5484) in TO-92 package. Pin 1: Drain, Pin 2: Source, Pin 3: Gate.',
+  defaults: { model: '2N5484' },
+  fields: [
+    { key: 'model', label: 'Model', kind: 'select', options: [['2N5484', '2N5484 (RF / audio N-JFET)'], ['J201', 'J201 (general-purpose N-JFET)']] },
+  ],
+  variants: [
+    { name: '2N5484 N-JFET', props: { model: '2N5484' } },
+    { name: 'J201 N-JFET', props: { model: 'J201' } },
+  ],
+  pins: () => [{ x: 0, y: 0, name: 'D (Drain)' }, { x: 1, y: 0, name: 'S (Source)' }, { x: 2, y: 0, name: 'G (Gate)' }],
+  bounds: () => [-0.4, -2.8, 2.4, 0.3],
+  draw(g, part, env) {
+    lead(g, 0, -0.65, 0, 0); lead(g, 1, -0.65, 1, 0); lead(g, 2, -0.65, 2, 0);
+    shadow(g, 6, 2, 0.28);
+    const cx = 1 * U, cy = -1.65 * U, rx = 1.25 * U;
+    g.beginPath();
+    g.arc(cx, cy, rx, Math.PI, 0, false);
+    g.lineTo(cx + rx, cy + 0.3 * U);
+    g.lineTo(cx - rx, cy + 0.3 * U);
+    g.closePath();
+    g.fillStyle = lin(g, cx - rx, 0, cx + rx, 0, [[0, '#33373e'], [0.4, '#1e2025'], [1, '#111215']]);
+    g.fill();
+    noShadow(g);
+    g.fillStyle = '#25282e';
+    g.fillRect(cx - rx + 2, cy + 0.05 * U, (rx - 1) * 2, 0.32 * U);
+    text(g, env, part.props.model || '2N5484', cx, cy - 0.2 * U, { size: 6.5, color: '#e2e8f0', weight: 700, font: MONO });
+    text(g, env, 'JFET', cx, cy + 0.24 * U, { size: 5, color: '#94a3b8', weight: 600, font: MONO });
+    text(g, env, 'D', 0, -0.32 * U, { size: 5.5, color: '#8e96a3', weight: 700, font: MONO });
+    text(g, env, 'S', 1 * U, -0.32 * U, { size: 5.5, color: '#8e96a3', weight: 700, font: MONO });
+    text(g, env, 'G', 2 * U, -0.32 * U, { size: 5.5, color: '#8e96a3', weight: 700, font: MONO });
+  },
+  device: (part, nets) => dev.jfetN(nets, part),
 });
 register({
   type: 'inductor', name: 'Inductor', cat: 'Passives', desc: 'Axial inductor. Behaves as a wire in DC.',
