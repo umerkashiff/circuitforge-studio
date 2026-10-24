@@ -516,13 +516,13 @@ export class UI {
           h('div', { class: 'about-logo' }),
           h('div', { class: 'about-name' }, 'CircuitForge Studio'),
           h('div', { class: 'about-ver' }, 'Version 2.0'),
-          h('div', { class: 'about-by' }, 'Designed and built by ', h('b', {}, 'Umer Kashif')),
+          h('div', { class: 'about-by' }, 'Designed and built by ', h('b', {}, 'Umer')),
           h('p', { class: 'about-text' }, 'A breadboard workbench for learning electronics: real 74-series logic, 555 timers, LEDs and passives, and Arduino, ESP32 and STM32 boards you can program — all simulated live in your browser.')),
         box(row('Simulation engine', h('span', { class: 'set-val' }, 'Nodal analysis · datasheet IC models')),
           row('Microcontrollers', h('span', { class: 'set-val' }, 'Uno · Nano · ESP32 · ESP32-S3 · Blue Pill')),
           row('Runs', h('span', { class: 'set-val' }, 'Entirely in your browser — nothing is uploaded')),
           row('Your work', h('span', { class: 'set-val' }, 'Saved automatically on this device'))),
-        h('div', { class: 'about-foot' }, `© ${new Date().getFullYear()} Umer Kashif. All rights reserved.`),
+        h('div', { class: 'about-foot' }, `© ${new Date().getFullYear()} Umer. All rights reserved.`),
       ],
     };
     const nav = h('nav', { class: 'set-nav' });

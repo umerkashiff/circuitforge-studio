@@ -1,6 +1,6 @@
 # CircuitForge Studio v2
 
-Breadboard circuit simulator by Umer Kashif. Plain HTML, CSS and ES modules — no build step, no server.
+Breadboard circuit simulator by Umer. Plain HTML, CSS and ES modules — no build step, no server.
 
 ## Run locally
 Serve this folder with any static server, e.g. `npx serve .` or `python3 -m http.server`, then open the printed URL.
