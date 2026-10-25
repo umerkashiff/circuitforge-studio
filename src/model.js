@@ -67,7 +67,7 @@ export class Part {
   constructor(type, x = 0, y = 0, rot = 0, props = null, id = newId('p')) {
     this.id = id; this.type = type; this.x = x; this.y = y; this.rot = rot;
     const def = getDef(type);
-    this.props = Object.assign({}, def.defaults || {}, props || {});
+    this.props = Object.assign({}, structuredClone(def.defaults || {}), props || {});
     this.ui = {}; // transient interaction state (pressed buttons etc.)
   }
   get def() { return getDef(this.type); }
