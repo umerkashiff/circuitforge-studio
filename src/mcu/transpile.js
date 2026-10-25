@@ -18,6 +18,7 @@ const TYPES = new Set(['void', 'int', 'long', 'short', 'float', 'double', 'char'
   'uint32_t', 'int32_t', 'uint64_t', 'int64_t', 'register', 'inline', 'constexpr']);
 const INT_TYPES = new Set(['int', 'long', 'short', 'byte', 'word', 'size_t', 'uint8_t', 'int8_t', 'uint16_t', 'int16_t', 'uint32_t', 'int32_t', 'uint64_t', 'int64_t', 'unsigned', 'signed', 'char']);
 export const PAUSING = new Set(['delay', 'delayMicroseconds', 'digitalWrite', 'shiftOut', 'analogWrite', 'tone', 'noTone', 'ledcWrite', 'neopixelWrite', 'rgbLedWrite', 'pulseIn']);
+export const SHIM_CLASSES = new Set(['Servo', 'Adafruit_SSD1306', 'LiquidCrystal_I2C', 'LiquidCrystal', 'Adafruit_NeoPixel', 'DHT']);
 
 export class SketchError extends Error {
   constructor(msg, line) { super(msg); this.line = line; }
@@ -233,6 +234,30 @@ export function transpile(src) {
       }
       statementStart = true; continue;
     }
+    if (statementStart && t.t === 'id' && SHIM_CLASSES.has(t.v)) {
+      statementStart = false;
+      const cls = next().v;
+      const varName = next().v;
+      let args = [];
+      if (peek().v === '(') {
+        next(); // (
+        let d = 1;
+        let cur = [];
+        for (;;) {
+          const tok = next();
+          if (tok.t === 'eof' || tok.v === undefined) throw new SketchError('Unclosed argument list.', tok.line);
+          if (tok.v === '(') d++;
+          if (tok.v === ')') { d--; if (d === 0) break; }
+          if (tok.v === '&' && peek().t === 'id') continue;
+          cur.push(tok.v);
+        }
+        args = cur;
+      }
+      if (peek().v === ';') next();
+      emit(`const ${varName} = new ${cls}(${args.join(' ')});`);
+      statementStart = true;
+      continue;
+    }
     if (statementStart && t.t === 'id' && TYPES.has(t.v) && !(t.v === 'void' && peek(1).v === ')')) {
       statementStart = false;
       if (parseDecl()) continue;
@@ -318,7 +343,9 @@ export const API_NAMES = [
   'attachInterrupt', 'detachInterrupt', 'digitalPinToInterrupt', 'isnan', 'isinf', 'fabs', 'log', 'exp', 'atan2',
   'HIGH', 'LOW', 'INPUT', 'OUTPUT', 'INPUT_PULLUP', 'INPUT_PULLDOWN', 'LED_BUILTIN', 'RGB_BUILTIN', 'MSBFIRST', 'LSBFIRST',
   'DEC', 'HEX', 'BIN', 'OCT', 'CHANGE', 'RISING', 'FALLING', 'PI', 'HALF_PI', 'TWO_PI', 'DEG_TO_RAD', 'RAD_TO_DEG', 'EULER',
-  'WL_CONNECTED', 'WL_DISCONNECTED', 'WIFI_STA', 'WIFI_AP', 'ESP', 'String',
+  'WL_CONNECTED', 'WL_DISCONNECTED', 'WIFI_STA', 'WIFI_AP', 'ESP', 'String', 'Wire', 'SPI',
+  'Adafruit_SSD1306', 'LiquidCrystal_I2C', 'LiquidCrystal',
+  'SSD1306_SWITCHCAPVCC', 'SSD1306_WHITE', 'SSD1306_BLACK', 'SSD1306_INVERSE',
   '__i', '__u8', '__arr', '__sizeof', '__api', 'true', 'false',
 ];
 

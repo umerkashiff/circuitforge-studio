@@ -3,6 +3,7 @@
  * drives/reads the board's pins through the circuit engine.
  */
 import { compile, SketchError } from './transpile.js';
+import { I2CBus } from '../sim/i2c.js';
 
 const ok = (v) => !Number.isNaN(v);
 const R_OUT = 25, R_PULL = 40000;
@@ -133,6 +134,15 @@ function makeRuntime(board, part, dev, engine) {
     run(eng) {
       this.now = eng.time;
       this.written.clear();
+      if (board.vcc === 3.3 && (board.type === 'esp32' || board.type === 'esp32s3')) {
+        for (const [g] of pinsByGpio) {
+          const v = this.volts(g);
+          if (v > 3.6) {
+            const warn = `Warning: Pin ${g} voltage (${v.toFixed(1)}V) exceeds 3.3V logic level without level shifter.`;
+            if (!this.notes.includes(warn)) this.notes.push(warn);
+          }
+        }
+      }
       if (!this.gen) return;
       // interrupts
       for (const h of this.isr) {
@@ -168,11 +178,29 @@ function makeRuntime(board, part, dev, engine) {
     },
   };
 
-  const C = board.consts;
-  const pinOf = (p) => (typeof p === 'number' ? p : C[p] ?? p);
+  const C = board.consts || {};
+  const pinOf = (p) => {
+    if (typeof p === 'number') return p;
+    if (C[p] !== undefined) return C[p];
+    if (typeof p === 'string') {
+      const base = p.split(/[/:]/)[0];
+      if (C[base] !== undefined) return C[base];
+      const m = /^[DA](\d+)$/i.exec(base);
+      if (m) {
+        const num = +m[1];
+        if (base[0].toUpperCase() === 'A') return C[base.toUpperCase()] ?? (14 + num);
+        return num;
+      }
+    }
+    return p;
+  };
   const check = (g, what) => {
     if (!pinsByGpio.has(g) && g !== board.rgbPin && g !== board.ledPin) {
       const n = `Pin ${g} doesn’t exist on the ${board.short} (used in ${what}).`;
+      if (!rt.notes.includes(n)) rt.notes.push(n);
+    }
+    if (board.type === 'esp32' && [34, 35, 36, 39].includes(g) && what === 'pinMode(OUTPUT)') {
+      const n = `GPIO ${g} is input-only on the ESP32 and cannot be set as OUTPUT.`;
       if (!rt.notes.includes(n)) rt.notes.push(n);
     }
     if (board.reserved && board.reserved[g] && !rt.notes.includes(board.reserved[g])) rt.notes.push(board.reserved[g]);
@@ -196,7 +224,310 @@ function makeRuntime(board, part, dev, engine) {
     toString() { return name; },
   });
 
+  const getWirePins = () => {
+    let sdaGpio = board.consts && board.consts.SDA !== undefined ? board.consts.SDA : (board.type === 'esp32' ? 21 : board.type === 'esp32s3' ? 8 : board.type === 'bluepill' ? 23 : 18);
+    let sclGpio = board.consts && board.consts.SCL !== undefined ? board.consts.SCL : (board.type === 'esp32' ? 22 : board.type === 'esp32s3' ? 9 : board.type === 'bluepill' ? 22 : 19);
+    const sdaIndices = pinsByGpio.get(sdaGpio) || [];
+    const sclIndices = pinsByGpio.get(sclGpio) || [];
+    let sdaNet = -1, sclNet = -1;
+    for (const idx of sdaIndices) {
+      if (dev.nets[idx] >= 0) { sdaNet = dev.nets[idx]; break; }
+    }
+    for (const idx of sclIndices) {
+      if (dev.nets[idx] >= 0) { sclNet = dev.nets[idx]; break; }
+    }
+    if (sdaNet < 0 && sdaIndices.length) sdaNet = dev.nets[sdaIndices[0]];
+    if (sclNet < 0 && sclIndices.length) sclNet = dev.nets[sclIndices[0]];
+    return { sdaGpio, sclGpio, sdaNet, sclNet };
+  };
+
+  const wireObj = {
+    begin(addr) {
+      const { sdaGpio, sclGpio } = getWirePins();
+      api.pinMode(sdaGpio, 2); // INPUT_PULLUP
+      api.pinMode(sclGpio, 2); // INPUT_PULLUP
+      rt.i2cTx = null;
+      rt.i2cRx = [];
+    },
+    beginTransmission(addr) {
+      rt.i2cTx = { addr, bytes: [] };
+    },
+    write(val) {
+      if (!rt.i2cTx) return 0;
+      if (typeof val === 'number') {
+        rt.i2cTx.bytes.push(val & 0xFF);
+        return 1;
+      }
+      if (typeof val === 'string') {
+        for (let i = 0; i < val.length; i++) rt.i2cTx.bytes.push(val.charCodeAt(i) & 0xFF);
+        return val.length;
+      }
+      if (Array.isArray(val) || (val && typeof val.length === 'number')) {
+        for (let i = 0; i < val.length; i++) rt.i2cTx.bytes.push(val[i] & 0xFF);
+        return val.length;
+      }
+      return 0;
+    },
+    endTransmission(sendStop = true) {
+      if (!rt.i2cTx) return 4;
+      const { sdaNet, sclNet } = getWirePins();
+      if (sdaNet < 0 || sclNet < 0) return 4;
+      const bus = I2CBus.getBus(engine, sdaNet, sclNet);
+      const code = bus.write(rt.i2cTx.addr, rt.i2cTx.bytes);
+      rt.i2cTx = null;
+      return code;
+    },
+    requestFrom(addr, quantity, sendStop = true) {
+      const { sdaNet, sclNet } = getWirePins();
+      if (sdaNet < 0 || sclNet < 0) return 0;
+      const bus = I2CBus.getBus(engine, sdaNet, sclNet);
+      const data = bus.read(addr, quantity);
+      rt.i2cRx = data ? [...data] : [];
+      return rt.i2cRx.length;
+    },
+    available() {
+      return rt.i2cRx ? rt.i2cRx.length : 0;
+    },
+    read() {
+      if (!rt.i2cRx || !rt.i2cRx.length) return -1;
+      return rt.i2cRx.shift();
+    },
+    peek() {
+      if (!rt.i2cRx || !rt.i2cRx.length) return -1;
+      return rt.i2cRx[0];
+    },
+    setClock(freq) {
+      rt.i2cClock = freq;
+    }
+  };
+
+  const spiObj = {
+    begin() {},
+    beginTransaction(settings) {},
+    endTransaction() {},
+    transfer(val) {
+      for (const d of engine.devices) {
+        if (d && d.spiTransfer && d.csNet >= 0 && ok(engine.V[d.csNet]) && engine.V[d.csNet] < 1.5) {
+          return d.spiTransfer(val & 0xFF);
+        }
+      }
+      return 0;
+    },
+    transfer16(val) {
+      const msb = spiObj.transfer((val >> 8) & 0xFF);
+      const lsb = spiObj.transfer(val & 0xFF);
+      return (msb << 8) | lsb;
+    }
+  };
+
+  const GLYPHS_5X7 = {
+    ' ': [0, 0, 0, 0, 0], '!': [0, 0, 0x5F, 0, 0], '"': [0, 0x07, 0, 0x07, 0],
+    '#': [0x14, 0x7F, 0x14, 0x7F, 0x14], '$': [0x24, 0x2A, 0x7F, 0x2A, 0x12], '%': [0x23, 0x13, 0x08, 0x64, 0x62],
+    '&': [0x36, 0x49, 0x55, 0x22, 0x50], '\'': [0, 0x05, 0x03, 0, 0], '(': [0, 0x1C, 0x22, 0x41, 0],
+    ')': [0, 0x41, 0x22, 0x1C, 0], '*': [0x14, 0x08, 0x3E, 0x08, 0x14], '+': [0x08, 0x08, 0x3E, 0x08, 0x08],
+    ',': [0, 0x50, 0x30, 0, 0], '-': [0x08, 0x08, 0x08, 0x08, 0x08], '.': [0, 0x60, 0x60, 0, 0],
+    '/': [0x20, 0x10, 0x08, 0x04, 0x02], '0': [0x3E, 0x51, 0x49, 0x45, 0x3E], '1': [0x00, 0x42, 0x7F, 0x40, 0x00],
+    '2': [0x42, 0x61, 0x51, 0x49, 0x46], '3': [0x21, 0x41, 0x45, 0x4B, 0x31], '4': [0x18, 0x14, 0x12, 0x7F, 0x10],
+    '5': [0x27, 0x45, 0x45, 0x45, 0x39], '6': [0x3C, 0x4A, 0x49, 0x49, 0x30], '7': [0x01, 0x71, 0x09, 0x05, 0x03],
+    '8': [0x36, 0x49, 0x49, 0x49, 0x36], '9': [0x06, 0x49, 0x49, 0x29, 0x1E], ':': [0, 0x36, 0x36, 0, 0],
+    ';': [0, 0x56, 0x36, 0, 0], '<': [0x08, 0x14, 0x22, 0x41, 0x00], '=': [0x14, 0x14, 0x14, 0x14, 0x14],
+    '>': [0x00, 0x41, 0x22, 0x14, 0x08], '?': [0x02, 0x01, 0x51, 0x09, 0x06], '@': [0x32, 0x49, 0x79, 0x41, 0x3E],
+    'A': [0x7E, 0x11, 0x11, 0x11, 0x7E], 'B': [0x7F, 0x49, 0x49, 0x49, 0x36], 'C': [0x3E, 0x41, 0x41, 0x41, 0x22],
+    'D': [0x7F, 0x41, 0x41, 0x22, 0x1C], 'E': [0x7F, 0x49, 0x49, 0x49, 0x41], 'F': [0x7F, 0x09, 0x09, 0x09, 0x01],
+    'G': [0x3E, 0x41, 0x49, 0x49, 0x7A], 'H': [0x7F, 0x08, 0x08, 0x08, 0x7F], 'I': [0x00, 0x41, 0x7F, 0x41, 0x00],
+    'J': [0x20, 0x40, 0x41, 0x3F, 0x01], 'K': [0x7F, 0x08, 0x14, 0x22, 0x41], 'L': [0x7F, 0x40, 0x40, 0x40, 0x40],
+    'M': [0x7F, 0x02, 0x0C, 0x02, 0x7F], 'N': [0x7F, 0x04, 0x08, 0x10, 0x7F], 'O': [0x3E, 0x41, 0x41, 0x41, 0x3E],
+    'P': [0x7F, 0x09, 0x09, 0x09, 0x06], 'Q': [0x3E, 0x41, 0x51, 0x21, 0x5E], 'R': [0x7F, 0x09, 0x19, 0x29, 0x46],
+    'S': [0x46, 0x49, 0x49, 0x49, 0x31], 'T': [0x01, 0x01, 0x7F, 0x01, 0x01], 'U': [0x3F, 0x40, 0x40, 0x40, 0x3F],
+    'V': [0x1F, 0x20, 0x40, 0x20, 0x1F], 'W': [0x7F, 0x20, 0x18, 0x20, 0x7F], 'X': [0x63, 0x14, 0x08, 0x14, 0x63],
+    'Y': [0x07, 0x08, 0x70, 0x08, 0x07], 'Z': [0x61, 0x51, 0x49, 0x45, 0x43], 'a': [0x20, 0x54, 0x54, 0x54, 0x78],
+    'b': [0x7F, 0x48, 0x44, 0x44, 0x38], 'c': [0x38, 0x44, 0x44, 0x44, 0x20], 'd': [0x38, 0x44, 0x44, 0x48, 0x7F],
+    'e': [0x38, 0x54, 0x54, 0x54, 0x18], 'f': [0x08, 0x7E, 0x09, 0x01, 0x02], 'g': [0x0C, 0x52, 0x52, 0x52, 0x3E],
+    'h': [0x7F, 0x08, 0x04, 0x04, 0x78], 'i': [0x00, 0x44, 0x7D, 0x40, 0x00], 'j': [0x20, 0x40, 0x44, 0x3D, 0x00],
+    'k': [0x7F, 0x10, 0x28, 0x44, 0x00], 'l': [0x00, 0x41, 0x7F, 0x40, 0x00], 'm': [0x7C, 0x04, 0x18, 0x04, 0x78],
+    'n': [0x7C, 0x08, 0x04, 0x04, 0x78], 'o': [0x38, 0x44, 0x44, 0x44, 0x38], 'p': [0x7C, 0x14, 0x14, 0x14, 0x08],
+    'q': [0x08, 0x14, 0x14, 0x18, 0x7C], 'r': [0x7C, 0x08, 0x04, 0x04, 0x08], 's': [0x48, 0x54, 0x54, 0x54, 0x20],
+    't': [0x04, 0x3F, 0x44, 0x40, 0x20], 'u': [0x3C, 0x40, 0x40, 0x20, 0x7C], 'v': [0x1C, 0x20, 0x40, 0x20, 0x1C],
+    'w': [0x3C, 0x40, 0x30, 0x40, 0x3C], 'x': [0x44, 0x28, 0x10, 0x28, 0x44], 'y': [0x0C, 0x50, 0x50, 0x50, 0x3C],
+    'z': [0x44, 0x64, 0x54, 0x4C, 0x44],
+  };
+
+  class Adafruit_SSD1306 {
+    constructor(w = 128, h = 64, wireInstance = null, rst = -1) {
+      this.width = w;
+      this.height = h;
+      this.wire = wireInstance || wireObj;
+      this.addr = 0x3C;
+      this.buffer = new Uint8Array((w * h) / 8);
+      this.cursorX = 0;
+      this.cursorY = 0;
+      this.textSize = 1;
+      this.textColor = 1;
+    }
+    begin(vccstate = 2, i2caddr = 0x3C) {
+      this.addr = i2caddr;
+      if (this.wire && this.wire.begin) this.wire.begin();
+      this.wire.beginTransmission(this.addr);
+      this.wire.write([0x00, 0xAE, 0xD5, 0x80, 0xA8, this.height - 1, 0xD3, 0x00, 0x40, 0x8D, 0x14, 0x20, 0x00, 0xA1, 0xC8, 0xDA, 0x12, 0x81, 0xCF, 0xD9, 0xF1, 0xDB, 0x40, 0xA4, 0xA6, 0xAF]);
+      this.wire.endTransmission();
+      return true;
+    }
+    clearDisplay() {
+      this.buffer.fill(0);
+    }
+    drawPixel(x, y, color = 1) {
+      if (x < 0 || x >= this.width || y < 0 || y >= this.height) return;
+      const idx = Math.floor(y / 8) * this.width + x;
+      const bit = 1 << (y & 7);
+      if (color) this.buffer[idx] |= bit;
+      else this.buffer[idx] &= ~bit;
+    }
+    drawLine(x0, y0, x1, y1, color = 1) {
+      x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+      const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+      const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+      let err = dx - dy;
+      while (true) {
+        this.drawPixel(x0, y0, color);
+        if (x0 === x1 && y0 === y1) break;
+        const e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; x0 += sx; }
+        if (e2 < dx) { err += dx; y0 += sy; }
+      }
+    }
+    drawRect(x, y, w, h, color = 1) {
+      this.drawLine(x, y, x + w - 1, y, color);
+      this.drawLine(x, y + h - 1, x + w - 1, y + h - 1, color);
+      this.drawLine(x, y, x, y + h - 1, color);
+      this.drawLine(x + w - 1, y, x + w - 1, y + h - 1, color);
+    }
+    fillRect(x, y, w, h, color = 1) {
+      for (let i = 0; i < w; i++) this.drawLine(x + i, y, x + i, y + h - 1, color);
+    }
+    setTextSize(s) { this.textSize = Math.max(1, s); }
+    setTextColor(c) { this.textColor = c; }
+    setCursor(x, y) { this.cursorX = x; this.cursorY = y; }
+    print(str) {
+      const s = String(str);
+      for (let i = 0; i < s.length; i++) this.write(s.charCodeAt(i));
+    }
+    println(str = '') {
+      this.print(str);
+      this.cursorX = 0;
+      this.cursorY += this.textSize * 8;
+    }
+    write(c) {
+      if (c === 10) {
+        this.cursorX = 0;
+        this.cursorY += this.textSize * 8;
+        return 1;
+      }
+      const ch = typeof c === 'number' ? String.fromCharCode(c) : String(c);
+      const pattern = GLYPHS_5X7[ch] || [0x7F, 0x41, 0x41, 0x41, 0x7F];
+      for (let i = 0; i < 5; i++) {
+        let line = pattern[i];
+        for (let j = 0; j < 8; j++, line >>= 1) {
+          if (line & 1) {
+            if (this.textSize === 1) this.drawPixel(this.cursorX + i, this.cursorY + j, this.textColor);
+            else this.fillRect(this.cursorX + i * this.textSize, this.cursorY + j * this.textSize, this.textSize, this.textSize, this.textColor);
+          }
+        }
+      }
+      this.cursorX += this.textSize * 6;
+      return 1;
+    }
+    display() {
+      this.wire.beginTransmission(this.addr);
+      this.wire.write([0x00, 0x21, 0, this.width - 1, 0x22, 0, (this.height / 8) - 1]);
+      this.wire.endTransmission();
+
+      const chunkSize = 32;
+      for (let i = 0; i < this.buffer.length; i += chunkSize) {
+        this.wire.beginTransmission(this.addr);
+        this.wire.write(0x40);
+        const slice = this.buffer.slice(i, i + chunkSize);
+        for (let j = 0; j < slice.length; j++) this.wire.write(slice[j]);
+        this.wire.endTransmission();
+      }
+    }
+  }
+
+  class LiquidCrystal_I2C {
+    constructor(addr = 0x27, cols = 16, rows = 2) {
+      this.addr = addr;
+      this.cols = cols;
+      this.rows = rows;
+      this.wire = wireObj;
+      this.backlightVal = 0x08;
+    }
+    init() { this.begin(this.cols, this.rows); }
+    begin(cols, rows) {
+      this.cols = cols; this.rows = rows;
+      if (this.wire && this.wire.begin) this.wire.begin();
+      this.send(0x03, 0);
+      this.send(0x03, 0);
+      this.send(0x03, 0);
+      this.send(0x02, 0);
+      this.command(0x28);
+      this.command(0x0C);
+      this.clear();
+      this.command(0x06);
+    }
+    clear() { this.command(0x01); }
+    home() { this.command(0x02); }
+    setCursor(col, row) {
+      const rowOffsets = [0x00, 0x40, 0x14, 0x54];
+      this.command(0x80 | (col + (rowOffsets[row] || 0)));
+    }
+    print(val) {
+      const s = String(val);
+      for (let i = 0; i < s.length; i++) this.write(s.charCodeAt(i));
+    }
+    println(val = '') { this.print(val); }
+    write(ch) {
+      const code = typeof ch === 'number' ? ch : String(ch).charCodeAt(0);
+      this.send(code, 1);
+      return 1;
+    }
+    backlight() { this.backlightVal = 0x08; this.expanderWrite(0); }
+    noBacklight() { this.backlightVal = 0x00; this.expanderWrite(0); }
+    command(cmd) { this.send(cmd, 0); }
+    send(val, mode) {
+      const highNib = val & 0xF0;
+      const lowNib = (val << 4) & 0xF0;
+      this.write4bits(highNib | mode);
+      this.write4bits(lowNib | mode);
+    }
+    write4bits(val) {
+      this.expanderWrite(val);
+      this.pulseEnable(val);
+    }
+    expanderWrite(data) {
+      this.wire.beginTransmission(this.addr);
+      this.wire.write(data | this.backlightVal);
+      this.wire.endTransmission();
+    }
+    pulseEnable(data) {
+      this.expanderWrite(data | 0x04);
+      this.expanderWrite(data & ~0x04);
+    }
+    createChar(location, charmap) {
+      location &= 0x7;
+      this.command(0x40 | (location << 3));
+      for (let i = 0; i < 8; i++) this.write(charmap[i]);
+    }
+  }
+
   const api = {
+    Wire: wireObj,
+    SPI: spiObj,
+    Adafruit_SSD1306,
+    LiquidCrystal_I2C,
+    LiquidCrystal: LiquidCrystal_I2C,
+    SSD1306_SWITCHCAPVCC: 2,
+    SSD1306_WHITE: 1,
+    SSD1306_BLACK: 0,
+    SSD1306_INVERSE: 2,
     __n: 0,
     __i: (v) => (typeof v === 'number' ? Math.trunc(v) : typeof v === 'boolean' ? +v : v),
     __u8: (v) => (Math.trunc(v) & 255),
@@ -209,7 +540,7 @@ function makeRuntime(board, part, dev, engine) {
     LED_BUILTIN: board.ledPin, RGB_BUILTIN: board.rgbPin ?? board.ledPin,
     ...C,
     pinMode(p, m) {
-      const g = pinOf(p); check(g, 'pinMode');
+      const g = pinOf(p); check(g, m === 1 ? 'pinMode(OUTPUT)' : 'pinMode');
       rt.modes.set(g, m === 1 ? 'out' : m === 2 ? 'pu' : m === 3 ? 'pd' : 'in');
       rt.pwm.delete(g);
     },
@@ -302,6 +633,8 @@ function makeRuntime(board, part, dev, engine) {
     },
     String: Object.assign((v, f) => (v === undefined ? '' : typeof v === 'number' && f !== undefined ? fmtNum(v, f) : globalThis.String(v)), {}),
   };
+
+  rt.api = api;
 
   try {
     const pinNames = Object.keys(C);

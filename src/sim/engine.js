@@ -116,6 +116,7 @@ export class Engine {
 
   /** Rebuild nets and devices from the circuit. Keeps per-part sim state. */
   build(circuit) {
+    this._i2cBuses = new Map();
     const uf = new UnionFind();
     const prevState = new Map();
     for (const [id, e] of this.byPart) if (e.device) prevState.set(id, e.device);
@@ -174,6 +175,8 @@ export class Engine {
     this.V = new Float64Array(this.nets).fill(NaN);
     this.defined = new Uint8Array(this.nets);
     if (oldV.length === this.V.length) this.V.set(oldV);
+    this.solve();
+    for (const d of this.devices) if (d.update) d.update(this.V, this);
   }
 
   netAt(x, y) {

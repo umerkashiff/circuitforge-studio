@@ -154,7 +154,11 @@ void loop() {
 }
 `;
 
-const UNO_CONSTS = { A0: 14, A1: 15, A2: 16, A3: 17, A4: 18, A5: 19, A6: 20, A7: 21, SDA: 18, SCL: 19 };
+const UNO_CONSTS = {
+  A0: 14, A1: 15, A2: 16, A3: 17, A4: 18, A5: 19, A6: 20, A7: 21,
+  SDA: 18, SCL: 19,
+  MOSI: 11, MISO: 12, SCK: 13, SS: 10,
+};
 
 // ---- Arduino Nano ----------------------------------------------------------
 moduleBoard({
@@ -162,8 +166,8 @@ moduleBoard({
   desc: 'Classic breadboard Arduino. Straddle the centre gap: pins on rows d and h.',
   specs: [['MCU', 'ATmega328P, 16 MHz'], ['Memory', '32 KB flash · 2 KB SRAM'], ['Logic', '5 V'], ['I/O', '14 digital (6 PWM) · 8 analog (10-bit)'], ['Built-in LED', 'D13']],
   S: 6, pcb: '#1d5fae', vcc: 5, adcBits: 10, adcRef: 5, ledPin: 13, consts: UNO_CONSTS, heap: 2048, chip: 'ATmega328P', mhz: 16,
-  bottom: ['D12:12', 'D11:11', 'D10:10', 'D9:9', 'D8:8', 'D7:7', 'D6:6', 'D5:5', 'D4:4', 'D3:3', 'D2:2', 'GND', 'RST', 'RX0:0', 'TX1:1'],
-  top: ['D13:13', '3V3', 'REF', 'A0:14', 'A1:15', 'A2:16', 'A3:17', 'A4:18', 'A5:19', 'A6:20', 'A7:21', '5V', 'RST', 'GND', 'VIN'],
+  bottom: ['D12/MISO:12', 'D11/MOSI:11', 'D10/SS:10', 'D9:9', 'D8:8', 'D7:7', 'D6:6', 'D5:5', 'D4:4', 'D3:3', 'D2:2', 'GND', 'RST', 'RX0:0', 'TX1:1'],
+  top: ['D13/SCK:13', '3V3', 'REF', 'A0:14', 'A1:15', 'A2:16', 'A3:17', 'A4/SDA:18', 'A5/SCL:19', 'A6:20', 'A7:21', '5V', 'RST', 'GND', 'VIN'],
   ledAt: [1.2, -4.2], pwrAt: [1.2, -1.8],
   art(g, env, part, n, S) {
     chip(g, env, 7 * U, -3 * U, 2.4 * U, 2.4 * U, 'ATMEGA', '328P', 45);
@@ -180,11 +184,15 @@ moduleBoard({
   desc: 'The cheapest Wi-Fi + Bluetooth board (30-pin DOIT DevKit V1). Spans 10 rows: put the pins on rows a and i (or b and j).',
   specs: [['MCU', 'ESP32-D0WD, dual-core 240 MHz'], ['Memory', '4 MB flash · 520 KB SRAM'], ['Radio', 'Wi-Fi 4 + Bluetooth 4.2/BLE'], ['Logic', '3.3 V (not 5 V tolerant)'], ['ADC', '12-bit, GPIO 32–39 best'], ['Built-in LED', 'GPIO 2']],
   S: 10, pcb: '#1c1c1e', vcc: 3.3, adcBits: 12, adcRef: 3.3, ledPin: 2, antenna: true, ledColor: 'rgb(60,140,255)',
-  consts: { A0: 36, A3: 39, A4: 32, A5: 33, A6: 34, A7: 35, A10: 4, A11: 0, A12: 2, A13: 15, A14: 13, A15: 12, A16: 14, A17: 27, A18: 25, A19: 26, T0: 4, SDA: 21, SCL: 22, TX: 1, RX: 3 },
+  consts: {
+    A0: 36, A3: 39, A4: 32, A5: 33, A6: 34, A7: 35,
+    A10: 4, A11: 0, A12: 2, A13: 15, A14: 13, A15: 12, A16: 14, A17: 27, A18: 25, A19: 26,
+    T0: 4, SDA: 21, SCL: 22, MOSI: 23, MISO: 19, SCK: 18, SS: 5, TX: 1, RX: 3
+  },
   heap: 290000, flash: 4194304, chip: 'ESP32-D0WD-V3', mhz: 240, cores: 2,
   reserved: { 6: 'GPIO 6–11 are wired to the flash chip — don’t use them.' },
-  top: ['VIN', 'GND', 'D13:13', 'D12:12', 'D14:14', 'D27:27', 'D26:26', 'D25:25', 'D33:33', 'D32:32', 'D35:35', 'D34:34', 'VN:39', 'VP:36', 'EN'],
-  bottom: ['3V3', 'GND', 'D15:15', 'D2:2', 'D4:4', 'RX2:16', 'TX2:17', 'D5:5', 'D18:18', 'D19:19', 'D21:21', 'RX0:3', 'TX0:1', 'D22:22', 'D23:23'],
+  top: ['VIN', 'GND', 'D13:13', 'D12:12', 'D14:14', 'D27:27', 'D26:26', 'D25:25', 'D33:33', 'D32:32', 'D35[IN]:35', 'D34[IN]:34', 'VN[IN]:39', 'VP[IN]:36', 'EN'],
+  bottom: ['3V3', 'GND', 'D15:15', 'D2:2', 'D4:4', 'RX2:16', 'TX2:17', 'D5/SS:5', 'D18/SCK:18', 'D19/MISO:19', 'D21/SDA:21', 'RX0:3', 'TX0:1', 'D22/SCL:22', 'D23/MOSI:23'],
   ledAt: [1.5, -6.6], pwrAt: [1.5, -3.6],
   art(g, env, part, n, S) {
     wroom(g, env, 6.6 * U, (-S + 1.9) * U, 9.2 * U, (S - 3.8) * U, 'ESP32');
@@ -204,10 +212,10 @@ moduleBoard({
   desc: 'Best all-rounder for Edge AI: vector instructions for TensorFlow Lite Micro / ESP-NN, 8 MB PSRAM for models. RGB LED on GPIO 48.',
   specs: [['MCU', 'ESP32-S3, dual-core Xtensa LX7 240 MHz + AI vector ext.'], ['Memory', '16 MB flash · 8 MB octal PSRAM · 512 KB SRAM'], ['Radio', 'Wi-Fi 4 + Bluetooth 5 (LE)'], ['USB', 'Native USB-OTG + USB-UART'], ['Logic', '3.3 V'], ['Built-in LED', 'RGB (WS2812) on GPIO 48'], ['Edge AI', 'TFLite Micro, ESP-DL, Edge Impulse']],
   S: 10, pcb: '#141416', vcc: 3.3, adcBits: 12, adcRef: 3.3, ledPin: 48, rgbPin: 48, antenna: true, usb2: true,
-  consts: { A0: 1, A1: 2, A2: 3, A3: 4, A4: 5, A5: 6, A6: 7, A7: 8, A8: 9, A9: 10, SDA: 8, SCL: 9, TX: 43, RX: 44 },
+  consts: { A0: 1, A1: 2, A2: 3, A3: 4, A4: 5, A5: 6, A6: 7, A7: 8, A8: 9, A9: 10, SDA: 8, SCL: 9, MOSI: 11, MISO: 13, SCK: 12, SS: 10, TX: 43, RX: 44 },
   heap: 327680, psram: 8388608, flash: 16777216, chip: 'ESP32-S3', mhz: 240, cores: 2,
   reserved: { 35: 'GPIO 35–37 are used by the octal PSRAM on N16R8 boards — pick other pins.', 36: 'GPIO 35–37 are used by the octal PSRAM on N16R8 boards — pick other pins.', 37: 'GPIO 35–37 are used by the octal PSRAM on N16R8 boards — pick other pins.' },
-  top: ['GND', '5V', '14:14', '13:13', '12:12', '11:11', '10:10', '9:9', '46:46', '3:3', '8:8', '18:18', '17:17', '16:16', '15:15', '7:7', '6:6', '5:5', '4:4', 'RST', '3V3', '3V3'],
+  top: ['GND', '5V', '14:14', '13:13', '12:12', '11:11', '10:10', '9/SCL:9', '46:46', '3:3', '8/SDA:8', '18:18', '17:17', '16:16', '15:15', '7:7', '6:6', '5:5', '4:4', 'RST', '3V3', '3V3'],
   bottom: ['GND', 'GND', '19:19', '20:20', '21:21', '47:47', '48:48', '45:45', '0:0', '35:35', '36:36', '37:37', '38:38', '39:39', '40:40', '41:41', '42:42', '2:2', '1:1', 'RX:44', 'TX:43', 'GND'],
   rgbAt: [3.4, -5], pwrAt: [1.4, -3.4],
   art(g, env, part, n, S) {
@@ -239,14 +247,21 @@ void loop() {
 // ---- STM32 Blue Pill --------------------------------------------------------
 const STM = {};
 ['A', 'B', 'C'].forEach((port, pi) => { for (let i = 0; i < 16; i++) STM[`P${port}${i}`] = pi * 16 + i; });
+STM.SDA = STM.PB7;
+STM.SCL = STM.PB6;
+STM.MOSI = STM.PA7;
+STM.MISO = STM.PA6;
+STM.SCK = STM.PA5;
+STM.SS = STM.PA4;
+
 moduleBoard({
   type: 'bluepill', name: 'STM32 Blue Pill', short: 'Blue Pill', title: 'STM32F103C8T6 · 3.3 V',
   desc: 'Cheap 72 MHz ARM Cortex-M3 board. Straddle the centre gap: pins on rows d and h. LED on PC13 is active-LOW.',
   specs: [['MCU', 'STM32F103C8T6, Cortex-M3 72 MHz'], ['Memory', '64 KB flash · 20 KB SRAM'], ['Logic', '3.3 V (most pins 5 V tolerant)'], ['ADC', '12-bit on PA0–PA7, PB0, PB1'], ['Built-in LED', 'PC13 (on when LOW)']],
   S: 6, pcb: '#1b4fa8', vcc: 3.3, adcBits: 12, adcRef: 3.3, ledPin: STM.PC13, ledActiveLow: true, ledColor: 'rgb(60,220,90)',
   consts: STM, heap: 20480, chip: 'STM32F103C8T6', mhz: 72,
-  top: ['PB12:28', 'PB13:29', 'PB14:30', 'PB15:31', 'PA8:8', 'PA9:9', 'PA10:10', 'PA11:11', 'PA12:12', 'PA15:15', 'PB3:19', 'PB4:20', 'PB5:21', 'PB6:22', 'PB7:23', 'PB8:24', 'PB9:25', '5V', 'GND', '3V3'],
-  bottom: ['GND', 'GND', '3V3', 'RST', 'PB11:27', 'PB10:26', 'PB1:17', 'PB0:16', 'PA7:7', 'PA6:6', 'PA5:5', 'PA4:4', 'PA3:3', 'PA2:2', 'PA1:1', 'PA0:0', 'PC15:47', 'PC14:46', 'PC13:45', 'VB'],
+  top: ['PB12:28', 'PB13:29', 'PB14:30', 'PB15:31', 'PA8:8', 'PA9:9', 'PA10:10', 'PA11:11', 'PA12:12', 'PA15:15', 'PB3:19', 'PB4:20', 'PB5:21', 'PB6/SCL:22', 'PB7/SDA:23', 'PB8:24', 'PB9:25', '5V', 'GND', '3V3'],
+  bottom: ['GND', 'GND', '3V3', 'RST', 'PB11:27', 'PB10:26', 'PB1:17', 'PB0:16', 'PA7/MOSI:7', 'PA6/MISO:6', 'PA5/SCK:5', 'PA4/SS:4', 'PA3:3', 'PA2:2', 'PA1:1', 'PA0:0', 'PC15:47', 'PC14:46', 'PC13:45', 'VB'],
   ledAt: [17.6, -3.8], pwrAt: [17.6, -2.2],
   art(g, env, part, n, S) {
     chip(g, env, 9 * U, -3 * U, 2.6 * U, 2.6 * U, 'STM32', 'F103C8T6', 45);
@@ -274,9 +289,9 @@ void loop() {
 // ---- Arduino Uno R3 ---------------------------------------------------------
 {
   const pins = [];
-  const topRow = [['SCL:19', 9], ['SDA:18', 10], ['AREF', 11], ['GND', 12], ['D13:13', 13], ['D12:12', 14], ['D11:11', 15], ['D10:10', 16], ['D9:9', 17], ['D8:8', 18],
+  const topRow = [['SCL:19', 9], ['SDA:18', 10], ['AREF', 11], ['GND', 12], ['D13/SCK:13', 13], ['D12/MISO:12', 14], ['D11/MOSI:11', 15], ['D10/SS:10', 16], ['D9:9', 17], ['D8:8', 18],
     ['D7:7', 20], ['D6:6', 21], ['D5:5', 22], ['D4:4', 23], ['D3:3', 24], ['D2:2', 25], ['TX1:1', 26], ['RX0:0', 27]];
-  const botRow = [['IOREF', 11], ['RESET', 12], ['3V3', 13], ['5V', 14], ['GND', 15], ['GND', 16], ['VIN', 17], ['A0:14', 19], ['A1:15', 20], ['A2:16', 21], ['A3:17', 22], ['A4:18', 23], ['A5:19', 24]];
+  const botRow = [['IOREF', 11], ['RESET', 12], ['3V3', 13], ['5V', 14], ['GND', 15], ['GND', 16], ['VIN', 17], ['A0:14', 19], ['A1:15', 20], ['A2:16', 21], ['A3:17', 22], ['A4/SDA:18', 23], ['A5/SCL:19', 24]];
   for (const [s, x] of topRow) pins.push(parsePin(s, x, 1));
   for (const [s, x] of botRow) pins.push(parsePin(s, x, 20));
   const board = { type: 'uno', name: 'Arduino Uno R3', short: 'Uno', vcc: 5, adcBits: 10, adcRef: 5, ledPin: 13, consts: UNO_CONSTS, pins, heap: 2048, chip: 'ATmega328P', mhz: 16,

@@ -6,12 +6,14 @@
 import { register } from './registry.js';
 import { IC_LIST } from './ics.js';
 import * as dev from '../sim/devices.js';
+import * as devI2C from '../sim/devices_i2c.js';
 import { prefs } from '../sim/prefs.js';
 
 // Trainer boards put a resistor in series with every LED, so students can wire them straight to outputs.
 const TRAINER_R = 330;
 const PROTECT_FIELD = { key: 'protect', label: 'Built-in resistor', kind: 'select', options: [['auto', 'Auto (from Settings)'], ['on', '330 Ω (protected)'], ['off', 'None (realistic)']] };
 const ledProtected = (part) => part.props.protect === 'on' || (part.props.protect !== 'off' && prefs.trainerLeds);
+const ok = (v) => !Number.isNaN(v);
 
 const U = 20;
 const TAU = Math.PI * 2;
@@ -278,9 +280,13 @@ register({
   device: (part, nets) => dev.logicSource(nets[0], () => !!part.ui.pressed),
 });
 register({
-  type: 'clock', name: 'Clock', cat: 'Inputs', desc: 'Square-wave generator with adjustable frequency.',
-  defaults: { hz: 1 },
-  fields: [{ key: 'hz', label: 'Frequency', kind: 'select', options: [[0.25, '0.25 Hz'], [0.5, '0.5 Hz'], [1, '1 Hz'], [2, '2 Hz'], [5, '5 Hz'], [10, '10 Hz'], [25, '25 Hz'], [100, '100 Hz']] }],
+  type: 'clock', name: 'Clock', cat: 'Inputs', desc: 'Square-wave generator with adjustable frequency and duty cycle.',
+  aliases: ['wokwi-clock-generator'],
+  defaults: { hz: 1, duty: 50 },
+  fields: [
+    { key: 'hz', label: 'Frequency', kind: 'select', options: [[0.25, '0.25 Hz'], [0.5, '0.5 Hz'], [1, '1 Hz'], [2, '2 Hz'], [5, '5 Hz'], [10, '10 Hz'], [25, '25 Hz'], [100, '100 Hz'], [1000, '1 kHz']] },
+    { key: 'duty', label: 'Duty Cycle (%)', kind: 'select', options: [[10, '10%'], [25, '25%'], [50, '50%'], [75, '75%'], [90, '90%']] },
+  ],
   pins: () => [{ x: 0, y: 0, name: 'CLK' }],
   bounds: () => [-2, -3.4, 2, 0.3],
   draw(g, part, env) {
@@ -296,18 +302,25 @@ register({
     g.fillStyle = hi ? '#30d158' : '#3a3a3c';
     g.beginPath(); g.arc(1.4 * U, -2.6 * U, 3.2, 0, TAU); g.fill();
     if (hi) glow(g, 1.4 * U, -2.6 * U, 12, '48,209,88', 1);
-    text(g, env, `${part.props.hz} Hz`, 0, -1.3 * U, { size: 8, color: '#f2f2f7', weight: 600, font: MONO });
+    const hz = part.props.frequency || part.props.hz || 1;
+    text(g, env, hz >= 1000 ? `${hz / 1000} kHz` : `${hz} Hz`, 0, -1.3 * U, { size: 8, color: '#f2f2f7', weight: 600, font: MONO });
   },
   device: (part, nets) => {
     const d = dev.logicSource(nets[0], () => d.high);
     d.timeDependent = true; d.high = false;
-    d.begin = (e) => { d.high = ((e.time * part.props.hz) % 1) < 0.5; e.maxHz = Math.max(e.maxHz, part.props.hz); };
+    d.begin = (e) => {
+      const hz = part.props.frequency || part.props.hz || 1;
+      const duty = (part.props.duty !== undefined ? part.props.duty : 50) / 100;
+      d.high = ((e.time * hz) % 1) < duty;
+      e.maxHz = Math.max(e.maxHz, hz);
+    };
     return d;
   },
 });
 function dipSwitchDef(nBits) {
   register({
     type: 'dip' + nBits, name: `DIP Switch ×${nBits}`, cat: 'Inputs', desc: `${nBits} independent switches, each drives its own output HIGH or LOW.`,
+    aliases: nBits === 8 ? ['wokwi-dip-switch-8'] : undefined,
     defaults: { bits: Array(nBits).fill(false) },
     pins: () => Array.from({ length: nBits }, (_, i) => ({ x: i, y: 0, name: 'S' + (i + 1) })),
     bounds: () => [-0.55, -3.3, nBits - 0.45, 0.3],
@@ -343,6 +356,7 @@ dipSwitchDef(8);
 
 register({
   type: 'slide', name: 'Slide Switch', cat: 'Inputs', desc: 'Passive on/off contact between its two pins (SPST).',
+  aliases: ['wokwi-slide-switch'],
   defaults: { on: false },
   pins: () => [{ x: 0, y: 0, name: 'A' }, { x: 2, y: 0, name: 'B' }],
   bounds: () => [-0.6, -2.1, 2.6, 0.3],
@@ -363,7 +377,10 @@ register({
 });
 register({
   type: 'tactile', name: 'Tactile Button', cat: 'Inputs', desc: '4-pin 6 mm push button. Straddle the centre gap; pressing connects left and right.',
-  pins: () => [{ x: 0, y: 0, name: '1A' }, { x: 0, y: -3, name: '1B' }, { x: 2, y: 0, name: '2A' }, { x: 2, y: -3, name: '2B' }],
+  aliases: ['wokwi-pushbutton'],
+  defaults: { bounce: false },
+  fields: [{ key: 'bounce', label: 'Bounce', kind: 'select', options: [[false, 'Off (ideal)'], [true, 'On (realistic)']] }],
+  pins: () => [{ x: 0, y: 0, name: '1.l' }, { x: 0, y: -3, name: '1.r' }, { x: 2, y: 0, name: '2.l' }, { x: 2, y: -3, name: '2.r' }],
   bounds: () => [-0.5, -3.3, 2.5, 0.3],
   draw(g, part, env) {
     for (const [x, y] of [[0, 0], [0, -3], [2, 0], [2, -3]]) lead(g, x, y * 0.7 + (y ? -0.2 : 0.2) * 0, x, y);
@@ -386,6 +403,7 @@ register({
 // ---------------------------------------------------------------- Outputs --
 register({
   type: 'led', name: 'LED', cat: 'Outputs', desc: '5 mm LED. Long leg (anode, +) on the left. Needs a current-limiting resistor.',
+  aliases: ['wokwi-led'],
   defaults: { color: 'red' },
   fields: [{ key: 'color', label: 'Color', kind: 'select', options: Object.entries(LED_COLORS).map(([k, v]) => [k, v.name]) }, PROTECT_FIELD],
   variants: Object.keys(LED_COLORS).map(c => ({ name: `${LED_COLORS[c].name} LED`, props: { color: c } })),
@@ -527,6 +545,7 @@ register({
 });
 register({
   type: 'buzzer', name: 'Buzzer', cat: 'Outputs', desc: 'Active piezo buzzer. Sounds when + is about 3 V above −.',
+  aliases: ['wokwi-buzzer'],
   pins: () => [{ x: 0, y: 0, name: '+' }, { x: 3, y: 0, name: '−' }],
   bounds: () => [-0.2, -3.6, 3.2, 0.3],
   draw(g, part, env) {
@@ -617,6 +636,7 @@ export function fmtFarads(uf) {
 const R_VALUES = [100, 220, 330, 470, 1000, 2200, 4700, 10000, 47000, 100000, 1000000];
 register({
   type: 'resistor', name: 'Resistor', cat: 'Passives', desc: 'Carbon-film resistor, spans 4 holes.',
+  aliases: ['wokwi-resistor'],
   defaults: { ohms: 220, watts: 0.25 },
   fields: [{ key: 'ohms', label: 'Resistance', kind: 'select', options: R_VALUES.map(v => [v, fmtOhms(v)]), custom: { unit: 'Ω', min: 1, max: 1e7 } },
     { key: 'watts', label: 'Power rating', kind: 'select', options: [[0.125, '⅛ W'], [0.25, '¼ W'], [0.5, '½ W'], [1, '1 W'], [5, '5 W']] }],
@@ -816,6 +836,7 @@ register({
 
 register({
   type: 'pot', name: 'Potentiometer', cat: 'Inputs', desc: 'Variable resistor. Outer pins to + and −, the middle pin (wiper) gives 0 – 5 V. Drag or scroll the knob.',
+  aliases: ['wokwi-potentiometer'],
   defaults: { ohms: 10000, pos: 0.5 },
   fields: [{ key: 'ohms', label: 'Resistance', kind: 'select', options: [[1000, '1 kΩ'], [10000, '10 kΩ'], [100000, '100 kΩ']] }],
   pins: () => [{ x: 0, y: 0, name: '1' }, { x: 1, y: 0, name: 'Wiper' }, { x: 2, y: 0, name: '3' }],
@@ -842,6 +863,519 @@ register({
       S.G(nets[1], nets[2], 1 / Math.max(1, R * (1 - k)));
     },
   }),
+});
+
+// ---------------------------------------------------------------- Tier 1 Simple Parts --
+register({
+  type: 'wokwi-rgb-led', name: 'RGB LED', cat: 'Outputs', desc: '4-pin 5 mm full-color RGB LED. Pins: R, COM, G, B.',
+  aliases: ['rgb-led'],
+  defaults: { common: 'cathode' },
+  fields: [
+    { key: 'common', label: 'Common Pin', kind: 'select', options: [['cathode', 'Common cathode (−)'], ['anode', 'Common anode (+)']] },
+    PROTECT_FIELD,
+  ],
+  pins: () => [{ x: 0, y: 0, name: 'R' }, { x: 1, y: 0, name: 'COM' }, { x: 2, y: 0, name: 'G' }, { x: 3, y: 0, name: 'B' }],
+  bounds: () => [-0.4, -2.8, 3.4, 0.3],
+  draw(g, part, env) {
+    for (let i = 0; i < 4; i++) {
+      legPolyline(g, [[i, 0], [i, -0.55], [0.8 + i * 0.45, -0.9]]);
+    }
+    const cx = 1.5 * U, cy = -1.75 * U, r = 0.95 * U;
+    const d = env.dev;
+    const kr = d ? ledLevel(d.avg[0]) : 0;
+    const kg = d ? ledLevel(d.avg[1]) : 0;
+    const kb = d ? ledLevel(d.avg[2]) : 0;
+    const total = kr + kg + kb;
+    const redCh = Math.min(255, Math.round(kr * 255));
+    const greenCh = Math.min(255, Math.round(kg * 255));
+    const blueCh = Math.min(255, Math.round(kb * 255));
+    const rgbStr = `${redCh},${greenCh},${blueCh}`;
+
+    if (total > 0.02) {
+      glow(g, cx, cy, 3.8 * U, rgbStr, Math.min(1, total * 0.7));
+      glow(g, cx, cy, 1.8 * U, rgbStr, Math.min(1, total));
+    }
+    const baseColor = total > 0.02 ? `rgb(${Math.max(60, redCh)},${Math.max(60, greenCh)},${Math.max(60, blueCh)})` : '#d9dde3';
+    rr(g, cx - r - 2, cy + r - 3, 2 * r + 4, 4, 1.5);
+    g.fillStyle = baseColor; g.fill();
+    g.beginPath();
+    g.moveTo(cx - r, cy + r - 1); g.lineTo(cx - r, cy); g.arc(cx, cy, r, Math.PI, 0); g.lineTo(cx + r, cy + r - 1); g.closePath();
+    g.fillStyle = baseColor; g.fill();
+
+    if (total > 0.05) {
+      const core = g.createRadialGradient(cx, cy - r * 0.1, 0, cx, cy, r * 1.05);
+      core.addColorStop(0, `rgba(255,255,255,${Math.min(1, total * 0.5)})`);
+      core.addColorStop(0.5, `rgba(${rgbStr},0.7)`);
+      core.addColorStop(1, `rgba(${rgbStr},0)`);
+      g.fillStyle = core; g.fill();
+    }
+    g.fillStyle = 'rgba(255,255,255,0.4)';
+    g.beginPath(); g.ellipse(cx - r * 0.35, cy - r * 0.2, r * 0.2, r * 0.45, 0, 0, TAU); g.fill();
+    text(g, env, part.props.common === 'anode' ? 'CA' : 'CC', cx, -0.4 * U, { size: 6, color: '#8e96a3', weight: 700, font: MONO });
+  },
+  device: (part, nets) => {
+    const isAnode = part.props.common === 'anode';
+    const com = nets[1];
+    const pairs = [
+      isAnode ? [com, nets[0], 1.8, 12] : [nets[0], com, 1.8, 12],
+      isAnode ? [com, nets[2], 2.1, 15] : [nets[2], com, 2.1, 15],
+      isAnode ? [com, nets[3], 3.0, 18] : [nets[3], com, 3.0, 18],
+    ];
+    return dev.diodes(pairs, { maxA: LED_MAX_A, led: true, part, protect: ledProtected(part), protectR: TRAINER_R, name: 'RGB LED' });
+  },
+});
+
+register({
+  type: 'wokwi-slide-potentiometer', name: 'Slide Potentiometer', cat: 'Inputs', desc: 'Linear fader potentiometer. Pins: 1 (VCC), WIPER, 2 (GND).',
+  aliases: ['slide-potentiometer'],
+  defaults: { ohms: 10000, pos: 0.5 },
+  fields: [{ key: 'ohms', label: 'Resistance', kind: 'select', options: [[1000, '1 kΩ'], [10000, '10 kΩ'], [100000, '100 kΩ']] }],
+  pins: () => [{ x: 0, y: 0, name: '1' }, { x: 1, y: 0, name: 'WIPER' }, { x: 2, y: 0, name: '2' }],
+  bounds: () => [-0.6, -5.2, 2.6, 0.3],
+  draw(g, part, env) {
+    for (let i = 0; i < 3; i++) lead(g, i, -0.8, i, 0);
+    shadow(g, 6, 2, 0.25);
+    rr(g, -0.55 * U, -5.0 * U, 3.1 * U, 4.2 * U, 4);
+    g.fillStyle = lin(g, 0, -5.0 * U, 0, -0.8 * U, [[0, '#4a4d54'], [0.5, '#2e3035'], [1, '#1f2024']]);
+    g.fill(); noShadow(g);
+    rr(g, 0.85 * U, -4.6 * U, 0.3 * U, 3.4 * U, 2);
+    g.fillStyle = '#121316'; g.fill();
+    const pos = Math.max(0, Math.min(1, part.props.pos ?? 0.5));
+    const ky = -1.2 * U - pos * 3.0 * U;
+    shadow(g, 4, 1.5, 0.3);
+    rr(g, 0.2 * U, ky - 0.35 * U, 1.6 * U, 0.7 * U, 2);
+    g.fillStyle = lin(g, 0, ky - 0.35 * U, 0, ky + 0.35 * U, [[0, '#d1d5db'], [1, '#9ca3af']]);
+    g.fill(); noShadow(g);
+    g.fillStyle = '#0a84ff';
+    g.fillRect(0.3 * U, ky - 1, 1.4 * U, 2);
+    text(g, env, Math.round(pos * 100) + '%', U, -0.5 * U, { size: 6.5, color: '#f2f2f7', weight: 700 });
+  },
+  control: (part, l) => (l.y < -0.8 && l.y > -5.0 ? 'knob' : null),
+  device: (part, nets) => ({
+    stamp(S) {
+      const R = part.props.ohms || 10000;
+      const k = Math.max(1e-4, Math.min(1 - 1e-4, part.props.pos ?? 0.5));
+      S.G(nets[0], nets[1], 1 / Math.max(1, R * k));
+      S.G(nets[1], nets[2], 1 / Math.max(1, R * (1 - k)));
+    },
+  }),
+});
+
+register({
+  type: 'wokwi-analog-joystick', name: 'Analog Joystick', cat: 'Inputs', desc: 'Dual-axis joystick with push button. Pins: VCC, GND, VRX, VRY, SW.',
+  aliases: ['analog-joystick'],
+  defaults: { x: 0.5, y: 0.5 },
+  pins: () => [{ x: 0, y: 0, name: 'VCC' }, { x: 1, y: 0, name: 'GND' }, { x: 2, y: 0, name: 'VRX' }, { x: 3, y: 0, name: 'VRY' }, { x: 4, y: 0, name: 'SW' }],
+  bounds: () => [-0.6, -4.8, 4.6, 0.3],
+  draw(g, part, env) {
+    for (let i = 0; i < 5; i++) lead(g, i, -0.8, i, 0);
+    shadow(g, 8, 3, 0.28);
+    rr(g, -0.5 * U, -4.6 * U, 5.0 * U, 3.8 * U, 4);
+    g.fillStyle = lin(g, 0, -4.6 * U, 0, -0.8 * U, [[0, '#154a2a'], [1, '#0e311c']]);
+    g.fill(); noShadow(g);
+    const cx = 2 * U, cy = -2.7 * U, r = 1.4 * U;
+    g.fillStyle = '#1c1d22';
+    g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.fill();
+    const jx = (Math.max(0, Math.min(1, part.props.x ?? 0.5)) - 0.5) * 1.2 * U;
+    const jy = (0.5 - Math.max(0, Math.min(1, part.props.y ?? 0.5))) * 1.2 * U;
+    const on = !!part.ui.pressed;
+    shadow(g, 5, 2, 0.35);
+    g.fillStyle = on ? '#2c2d33' : lin(g, cx + jx, cy + jy - 0.9 * U, cx + jx, cy + jy + 0.9 * U, [[0, '#4f525d'], [1, '#2c2e35']]);
+    g.beginPath(); g.arc(cx + jx, cy + jy, on ? 0.8 * U : 0.9 * U, 0, TAU); g.fill(); noShadow(g);
+    g.fillStyle = '#1c1d22';
+    g.beginPath(); g.arc(cx + jx, cy + jy, 0.45 * U, 0, TAU); g.fill();
+    text(g, env, 'JOYSTICK', cx, -4.1 * U, { size: 6, color: '#a7f3d0', weight: 700 });
+  },
+  control: () => 'press',
+  device: (part, nets) => ({
+    stamp(S) {
+      const R = 10000;
+      const kx = Math.max(1e-4, Math.min(1 - 1e-4, part.props.x ?? 0.5));
+      const ky = Math.max(1e-4, Math.min(1 - 1e-4, part.props.y ?? 0.5));
+      S.G(nets[0], nets[2], 1 / Math.max(1, R * kx));
+      S.G(nets[2], nets[1], 1 / Math.max(1, R * (1 - kx)));
+      S.G(nets[0], nets[3], 1 / Math.max(1, R * ky));
+      S.G(nets[3], nets[1], 1 / Math.max(1, R * (1 - ky)));
+      if (part.ui && part.ui.pressed) {
+        S.G(nets[4], nets[1], 1 / 0.1);
+      } else {
+        S.G(nets[4], nets[1], 1e-9);
+      }
+    },
+  }),
+});
+
+register({
+  type: 'wokwi-relay-module', name: 'Relay Module', cat: 'Outputs', desc: 'Single-channel SPDT relay module. Pins: IN, VCC, GND; contacts: NO, COM, NC.',
+  aliases: ['relay-module'],
+  defaults: { threshold: 2.5, activeLow: false },
+  fields: [
+    { key: 'threshold', label: 'Coil threshold (V)', kind: 'select', options: [[1.5, '1.5 V'], [2.5, '2.5 V (typical)'], [3.3, '3.3 V']] },
+    { key: 'activeLow', label: 'Trigger', kind: 'select', options: [[false, 'Active HIGH'], [true, 'Active LOW']] },
+  ],
+  pins: () => [
+    { x: 0, y: 0, name: 'IN' }, { x: 1, y: 0, name: 'VCC' }, { x: 2, y: 0, name: 'GND' },
+    { x: 0, y: -4, name: 'NO' }, { x: 1, y: -4, name: 'COM' }, { x: 2, y: -4, name: 'NC' },
+  ],
+  bounds: () => [-0.6, -4.6, 2.6, 0.3],
+  draw(g, part, env) {
+    for (let i = 0; i < 3; i++) {
+      lead(g, i, -0.7, i, 0);
+      lead(g, i, -3.3, i, -4);
+    }
+    shadow(g, 8, 3, 0.3);
+    rr(g, -0.5 * U, -3.8 * U, 3.0 * U, 3.1 * U, 3);
+    g.fillStyle = lin(g, 0, -3.8 * U, 0, -0.7 * U, [[0, '#1a56db'], [1, '#1e40af']]);
+    g.fill(); noShadow(g);
+    const on = env.dev && env.dev.energized;
+    g.fillStyle = on ? '#30d158' : '#374151';
+    g.beginPath(); g.arc(0.4 * U, -1.2 * U, 2.5, 0, TAU); g.fill();
+    if (on) glow(g, 0.4 * U, -1.2 * U, 8, '48,209,88', 1);
+    text(g, env, 'RELAY 5V', 1 * U, -2.4 * U, { size: 7.5, color: '#ffffff', weight: 800, font: MONO });
+    text(g, env, on ? 'ON (NO)' : 'OFF (NC)', 1 * U, -1.5 * U, { size: 6, color: on ? '#86efac' : '#cbd5e1', weight: 700, font: MONO });
+    text(g, env, 'NO COM NC', 1 * U, -3.2 * U, { size: 5, color: '#e2e8f0', weight: 700, font: MONO });
+    text(g, env, 'IN VCC GND', 1 * U, -0.85 * U, { size: 5, color: '#e2e8f0', weight: 700, font: MONO });
+  },
+  device: (part, nets) => {
+    let energized = false;
+    return {
+      analog: true,
+      energized: false,
+      stamp(S) {
+        S.G(nets[1], nets[2], 1 / 70);
+        const rOn = 0.05, rOff = 1e9;
+        if (energized) {
+          S.G(nets[4], nets[3], 1 / rOn);
+          S.G(nets[4], nets[5], 1 / rOff);
+        } else {
+          S.G(nets[4], nets[3], 1 / rOff);
+          S.G(nets[4], nets[5], 1 / rOn);
+        }
+      },
+      update(V) {
+        const vin = nets[0] >= 0 && ok(V[nets[0]]) ? V[nets[0]] : 0;
+        const vgnd = nets[2] >= 0 && ok(V[nets[2]]) ? V[nets[2]] : 0;
+        const vdiff = vin - vgnd;
+        const th = part.props.threshold || 2.5;
+        const newState = part.props.activeLow ? (vdiff < th) : (vdiff >= th);
+        const changed = newState !== energized;
+        energized = newState;
+        this.energized = energized;
+        return changed;
+      },
+      commit() {
+        this.energized = energized;
+      },
+    };
+  },
+});
+
+register({
+  type: 'wokwi-logic-analyzer', name: 'Logic Analyzer (8-channel)', cat: 'Inputs', desc: '8-channel digital logic analyzer with timeline recording and CSV export.',
+  aliases: ['logic-analyzer'],
+  defaults: { rate: 24000000 },
+  pins: () => [
+    { x: 0, y: 0, name: 'GND' },
+    { x: 1, y: 0, name: 'D0' }, { x: 2, y: 0, name: 'D1' }, { x: 3, y: 0, name: 'D2' }, { x: 4, y: 0, name: 'D3' },
+    { x: 5, y: 0, name: 'D4' }, { x: 6, y: 0, name: 'D5' }, { x: 7, y: 0, name: 'D6' }, { x: 8, y: 0, name: 'D7' },
+  ],
+  bounds: () => [-0.6, -3.2, 8.6, 0.3],
+  draw(g, part, env) {
+    for (let i = 0; i <= 8; i++) lead(g, i, -0.8, i, 0);
+    shadow(g, 8, 3, 0.35);
+    rr(g, -0.5 * U, -3.0 * U, 9.0 * U, 2.2 * U, 4);
+    g.fillStyle = lin(g, 0, -3.0 * U, 0, -0.8 * U, [[0, '#2d3139'], [1, '#181a1f']]);
+    g.fill(); noShadow(g);
+    text(g, env, 'LOGIC ANALYZER · 8CH', 4 * U, -2.3 * U, { size: 6.5, color: '#f3f4f6', weight: 800, font: MONO });
+    const devLvl = env.dev && env.dev.levels;
+    for (let i = 0; i < 8; i++) {
+      const hi = devLvl ? devLvl[i] : 0;
+      g.fillStyle = hi ? '#06b6d4' : '#374151';
+      g.beginPath(); g.arc((i + 1) * U, -1.3 * U, 2.2, 0, TAU); g.fill();
+      if (hi) glow(g, (i + 1) * U, -1.3 * U, 6, '6,182,212', 0.8);
+      text(g, env, `D${i}`, (i + 1) * U, -0.6 * U, { size: 5, color: hi ? '#67e8f9' : '#9ca3af', weight: 700, font: MONO });
+    }
+  },
+  device: (part, nets) => {
+    const history = [];
+    return {
+      timeDependent: true,
+      history,
+      levels: new Uint8Array(8),
+      reset() { history.length = 0; this.levels.fill(0); },
+      commit(V, dt, engine) {
+        const vgnd = nets[0] >= 0 && ok(V[nets[0]]) ? V[nets[0]] : 0;
+        let mask = 0;
+        for (let i = 0; i < 8; i++) {
+          const n = nets[i + 1];
+          const v = n >= 0 && ok(V[n]) ? V[n] - vgnd : 0;
+          const lvl = v >= 1.6 ? 1 : 0;
+          this.levels[i] = lvl;
+          if (lvl) mask |= (1 << i);
+        }
+        if (history.length === 0 || history[history.length - 1].mask !== mask || history.length > 20000) {
+          history.push({ t: engine.time, mask, levels: Array.from(this.levels) });
+          if (history.length > 20000) history.shift();
+        }
+      },
+      exportCSV() {
+        let csv = 'time_s,D0,D1,D2,D3,D4,D5,D6,D7\n';
+        for (const entry of history) {
+          csv += `${entry.t.toFixed(6)},${entry.levels.join(',')}\n`;
+        }
+        return csv;
+      },
+    };
+  },
+});
+
+// ---------------------------------------------------------------- Tier 2 I2C Peripherals --
+register({
+  type: 'board-ssd1306', name: 'OLED Display (128x64 SSD1306)', cat: 'Outputs', desc: '0.96″ I2C monochrome OLED display with 128x64 resolution.',
+  aliases: ['wokwi-ssd1306', 'ssd1306'],
+  defaults: { i2cAddress: '0x3c' },
+  fields: [
+    { key: 'i2cAddress', label: 'I2C Address', kind: 'select', options: [['0x3c', '0x3C (default)'], ['0x3d', '0x3D (alternate)']] },
+  ],
+  pins: () => [{ x: 0, y: 0, name: 'GND' }, { x: 1, y: 0, name: 'VCC' }, { x: 2, y: 0, name: 'SCL' }, { x: 3, y: 0, name: 'SDA' }],
+  bounds: () => [-0.6, -5.6, 3.6, 0.4],
+  draw(g, part, env) {
+    for (let i = 0; i < 4; i++) lead(g, i, -0.8, i, 0);
+    shadow(g, 8, 3, 0.35);
+    rr(g, -0.5 * U, -5.4 * U, 4.0 * U, 4.6 * U, 4);
+    g.fillStyle = lin(g, 0, -5.4 * U, 0, -0.8 * U, [[0, '#1a2333'], [1, '#0e1420']]);
+    g.fill(); noShadow(g);
+    for (const [hx, hy] of [[-0.2, -5.1], [3.2, -5.1], [-0.2, -1.1], [3.2, -1.1]]) {
+      g.fillStyle = '#d97706'; g.beginPath(); g.arc(hx * U, hy * U, 2.5, 0, TAU); g.fill();
+      g.fillStyle = '#0f172a'; g.beginPath(); g.arc(hx * U, hy * U, 1.5, 0, TAU); g.fill();
+    }
+    const sx = -0.3 * U, sy = -4.9 * U, sw = 3.6 * U, sh = 3.6 * U;
+    rr(g, sx, sy, sw, sh, 2);
+    const d = env.dev;
+    const on = d && d.powered && d.displayOn;
+    g.fillStyle = on ? '#06080d' : '#11141a';
+    g.fill();
+    g.strokeStyle = '#272b35'; g.lineWidth = 1; g.stroke();
+    if (on && d.buffer) {
+      let hasPixels = false;
+      for (let i = 0; i < d.buffer.length; i++) {
+        if (d.buffer[i] !== 0) { hasPixels = true; break; }
+      }
+      if (hasPixels) {
+        g.fillStyle = '#00f0ff';
+        for (let page = 0; page < 8; page++) {
+          for (let col = 0; col < 128; col += 2) {
+            const byte = d.buffer[page * 128 + col];
+            if (!byte) continue;
+            for (let bit = 0; bit < 8; bit++) {
+              if (byte & (1 << bit)) {
+                const px = sx + (col / 128) * sw;
+                const py = sy + ((page * 8 + bit) / 64) * sh;
+                g.fillRect(px, py, 1.2, 1.2);
+              }
+            }
+          }
+        }
+      } else {
+        text(g, env, '128×64', 1.5 * U, -3.2 * U, { size: 6, color: '#38bdf8', weight: 600, font: MONO });
+        text(g, env, 'OLED', 1.5 * U, -2.5 * U, { size: 7, color: '#0284c7', weight: 700, font: MONO });
+      }
+    }
+    text(g, env, 'GND VCC SCL SDA', 1.5 * U, -0.6 * U, { size: 4.5, color: '#94a3b8', weight: 700, font: MONO });
+  },
+  device: (part, nets) => devI2C.oledDevice(part, nets, { width: 128, height: 64, type: 'ssd1306' }),
+});
+
+register({
+  type: 'wokwi-sh1107', name: 'OLED Display (128x128 SH1107)', cat: 'Outputs', desc: '1.28″ square I2C monochrome OLED display with 128x128 resolution.',
+  aliases: ['sh1107'],
+  defaults: { i2cAddress: '0x3c' },
+  fields: [
+    { key: 'i2cAddress', label: 'I2C Address', kind: 'select', options: [['0x3c', '0x3C (default)'], ['0x3d', '0x3D (alternate)']] },
+  ],
+  pins: () => [{ x: 0, y: 0, name: 'GND' }, { x: 1, y: 0, name: 'VCC' }, { x: 2, y: 0, name: 'SCL' }, { x: 3, y: 0, name: 'SDA' }],
+  bounds: () => [-0.6, -6.6, 3.6, 0.4],
+  draw(g, part, env) {
+    for (let i = 0; i < 4; i++) lead(g, i, -0.8, i, 0);
+    shadow(g, 8, 3, 0.35);
+    rr(g, -0.5 * U, -6.4 * U, 4.0 * U, 5.6 * U, 4);
+    g.fillStyle = lin(g, 0, -6.4 * U, 0, -0.8 * U, [[0, '#1e1e24'], [1, '#111215']]);
+    g.fill(); noShadow(g);
+    const sx = -0.3 * U, sy = -5.9 * U, sw = 3.6 * U, sh = 4.8 * U;
+    rr(g, sx, sy, sw, sh, 2);
+    const d = env.dev;
+    const on = d && d.powered && d.displayOn;
+    g.fillStyle = on ? '#06080d' : '#11141a';
+    g.fill();
+    if (on) {
+      text(g, env, '128×128', 1.5 * U, -3.8 * U, { size: 6, color: '#f8fafc', weight: 600, font: MONO });
+      text(g, env, 'SH1107', 1.5 * U, -3.0 * U, { size: 7, color: '#a78bfa', weight: 700, font: MONO });
+    }
+    text(g, env, 'GND VCC SCL SDA', 1.5 * U, -0.6 * U, { size: 4.5, color: '#94a3b8', weight: 700, font: MONO });
+  },
+  device: (part, nets) => devI2C.oledDevice(part, nets, { width: 128, height: 128, sh1107: true, type: 'sh1107' }),
+});
+
+register({
+  type: 'wokwi-lcd1602', name: 'LCD 16x2 (I2C)', cat: 'Outputs', desc: '16x2 character LCD display with PCF8574 I2C backpack.',
+  aliases: ['lcd1602'],
+  defaults: { i2cAddress: '0x27' },
+  fields: [
+    { key: 'i2cAddress', label: 'I2C Address', kind: 'select', options: [['0x27', '0x27 (default)'], ['0x3f', '0x3F (alternate)']] },
+  ],
+  pins: () => [{ x: 0, y: 0, name: 'GND' }, { x: 1, y: 0, name: 'VCC' }, { x: 2, y: 0, name: 'SDA' }, { x: 3, y: 0, name: 'SCL' }],
+  bounds: () => [-0.6, -4.8, 8.6, 0.4],
+  draw(g, part, env) {
+    for (let i = 0; i < 4; i++) lead(g, i, -0.8, i, 0);
+    shadow(g, 8, 3, 0.35);
+    rr(g, -0.5 * U, -4.6 * U, 9.0 * U, 3.8 * U, 4);
+    g.fillStyle = lin(g, 0, -4.6 * U, 0, -0.8 * U, [[0, '#1e3a8a'], [1, '#172554']]);
+    g.fill(); noShadow(g);
+    rr(g, 0.2 * U, -4.2 * U, 7.6 * U, 3.0 * U, 3);
+    g.fillStyle = '#111827'; g.fill();
+    const d = env.dev;
+    const bl = d && d.powered && d.backlight;
+    rr(g, 0.4 * U, -4.0 * U, 7.2 * U, 2.6 * U, 2);
+    g.fillStyle = bl ? '#0284c7' : '#1e293b'; g.fill();
+    if (bl) glow(g, 4.0 * U, -2.7 * U, 12, '2,132,199', 0.4);
+    const line1 = (d && d.lines ? d.lines[0] : '') || '';
+    const line2 = (d && d.lines ? d.lines[1] : '') || '';
+    text(g, env, line1.padEnd(16, ' '), 4.0 * U, -3.3 * U, { size: 6.5, color: bl ? '#ffffff' : '#475569', weight: 700, font: MONO });
+    text(g, env, line2.padEnd(16, ' '), 4.0 * U, -2.2 * U, { size: 6.5, color: bl ? '#ffffff' : '#475569', weight: 700, font: MONO });
+    text(g, env, 'GND VCC SDA SCL', 1.5 * U, -0.6 * U, { size: 4.5, color: '#93c5fd', weight: 700, font: MONO });
+    text(g, env, 'LCD1602 · I2C', 6.5 * U, -0.6 * U, { size: 5, color: '#60a5fa', weight: 700, font: MONO });
+  },
+  device: (part, nets) => devI2C.pcf8574LcdDevice(part, nets, { cols: 16, rows: 2, type: 'lcd1602' }),
+});
+
+register({
+  type: 'wokwi-lcd2004', name: 'LCD 20x4 (I2C)', cat: 'Outputs', desc: '20x4 character LCD display with PCF8574 I2C backpack.',
+  aliases: ['lcd2004'],
+  defaults: { i2cAddress: '0x27' },
+  fields: [
+    { key: 'i2cAddress', label: 'I2C Address', kind: 'select', options: [['0x27', '0x27 (default)'], ['0x3f', '0x3F (alternate)']] },
+  ],
+  pins: () => [{ x: 0, y: 0, name: 'GND' }, { x: 1, y: 0, name: 'VCC' }, { x: 2, y: 0, name: 'SDA' }, { x: 3, y: 0, name: 'SCL' }],
+  bounds: () => [-0.6, -6.8, 10.6, 0.4],
+  draw(g, part, env) {
+    for (let i = 0; i < 4; i++) lead(g, i, -0.8, i, 0);
+    shadow(g, 8, 3, 0.35);
+    rr(g, -0.5 * U, -6.6 * U, 11.0 * U, 5.8 * U, 4);
+    g.fillStyle = lin(g, 0, -6.6 * U, 0, -0.8 * U, [[0, '#064e3b'], [1, '#022c22']]);
+    g.fill(); noShadow(g);
+    rr(g, 0.2 * U, -6.2 * U, 9.6 * U, 5.0 * U, 3);
+    g.fillStyle = '#111827'; g.fill();
+    const d = env.dev;
+    const bl = d && d.powered && d.backlight;
+    rr(g, 0.4 * U, -6.0 * U, 9.2 * U, 4.6 * U, 2);
+    g.fillStyle = bl ? '#65a30d' : '#1e293b'; g.fill();
+    if (bl) glow(g, 5.0 * U, -3.7 * U, 14, '101,163,13', 0.4);
+    for (let r = 0; r < 4; r++) {
+      const line = (d && d.lines ? d.lines[r] : '') || '';
+      text(g, env, line.padEnd(20, ' '), 5.0 * U, (-5.3 + r * 1.1) * U, { size: 6.0, color: bl ? '#000000' : '#475569', weight: 700, font: MONO });
+    }
+    text(g, env, 'GND VCC SDA SCL', 1.5 * U, -0.6 * U, { size: 4.5, color: '#86efac', weight: 700, font: MONO });
+    text(g, env, 'LCD2004 · I2C', 8.0 * U, -0.6 * U, { size: 5, color: '#a7f3d0', weight: 700, font: MONO });
+  },
+  device: (part, nets) => devI2C.pcf8574LcdDevice(part, nets, { cols: 20, rows: 4, type: 'lcd2004' }),
+});
+
+register({
+  type: 'wokwi-mpu6050', name: 'MPU6050 Accelerometer & Gyro', cat: 'Inputs', desc: '6-axis motion tracking sensor with 3-axis gyroscope and 3-axis accelerometer.',
+  aliases: ['mpu6050'],
+  defaults: { i2cAddress: '0x68', accelX: 0.0, accelY: 0.0, accelZ: 1.0, gyroX: 0.0, gyroY: 0.0, gyroZ: 0.0, freefall: false, motion: false },
+  fields: [
+    { key: 'i2cAddress', label: 'I2C Address', kind: 'select', options: [['0x68', '0x68 (AD0 Low)'], ['0x69', '0x69 (AD0 High)']] },
+    { key: 'accelX', label: 'Accel X (g)', kind: 'number' },
+    { key: 'accelY', label: 'Accel Y (g)', kind: 'number' },
+    { key: 'accelZ', label: 'Accel Z (g)', kind: 'number' },
+    { key: 'freefall', label: 'Simulate Freefall', kind: 'boolean' },
+    { key: 'motion', label: 'Simulate Motion', kind: 'boolean' },
+  ],
+  pins: () => [
+    { x: 0, y: 0, name: 'VCC' }, { x: 1, y: 0, name: 'GND' }, { x: 2, y: 0, name: 'SCL' }, { x: 3, y: 0, name: 'SDA' },
+    { x: 4, y: 0, name: 'XDA' }, { x: 5, y: 0, name: 'XCL' }, { x: 6, y: 0, name: 'AD0' }, { x: 7, y: 0, name: 'INT' },
+  ],
+  bounds: () => [-0.6, -3.2, 7.6, 0.3],
+  draw(g, part, env) {
+    for (let i = 0; i < 8; i++) lead(g, i, -0.8, i, 0);
+    shadow(g, 8, 3, 0.3);
+    rr(g, -0.5 * U, -3.0 * U, 8.0 * U, 2.2 * U, 3);
+    g.fillStyle = lin(g, 0, -3.0 * U, 0, -0.8 * U, [[0, '#0284c7'], [1, '#0369a1']]);
+    g.fill(); noShadow(g);
+    rr(g, 3.2 * U, -2.4 * U, 1.6 * U, 1.2 * U, 1.5);
+    g.fillStyle = '#18181b'; g.fill();
+    text(g, env, 'MPU', 4.0 * U, -1.8 * U, { size: 5, color: '#a1a1aa', weight: 700, font: MONO });
+    const pNames = ['VCC', 'GND', 'SCL', 'SDA', 'XDA', 'XCL', 'AD0', 'INT'];
+    for (let i = 0; i < 8; i++) {
+      text(g, env, pNames[i], i * U, -0.6 * U, { size: 4, color: '#f0f9ff', weight: 700, font: MONO });
+    }
+    text(g, env, 'GY-521 · 6-DOF', 4.0 * U, -2.6 * U, { size: 4.5, color: '#e0f2fe', weight: 700, font: MONO });
+  },
+  device: (part, nets) => devI2C.mpu6050Device(part, nets),
+});
+
+register({
+  type: 'wokwi-ds1307', name: 'DS1307 Real-Time Clock', cat: 'Inputs', desc: 'I2C Real-Time Clock with 56-byte battery-backed NVRAM.',
+  aliases: ['ds1307'],
+  defaults: { mode: 'simulated' },
+  fields: [
+    { key: 'mode', label: 'Clock Mode', kind: 'select', options: [['simulated', 'Simulated Time'], ['wall', 'Host Wall Clock']] },
+  ],
+  pins: () => [
+    { x: 0, y: 0, name: 'VCC' }, { x: 1, y: 0, name: 'GND' }, { x: 2, y: 0, name: 'SDA' }, { x: 3, y: 0, name: 'SCL' }, { x: 4, y: 0, name: 'SQW' },
+  ],
+  bounds: () => [-0.6, -3.8, 4.6, 0.3],
+  draw(g, part, env) {
+    for (let i = 0; i < 5; i++) lead(g, i, -0.8, i, 0);
+    shadow(g, 8, 3, 0.3);
+    rr(g, -0.5 * U, -3.6 * U, 5.0 * U, 2.8 * U, 3);
+    g.fillStyle = lin(g, 0, -3.6 * U, 0, -0.8 * U, [[0, '#312e81'], [1, '#1e1b4b']]);
+    g.fill(); noShadow(g);
+    g.fillStyle = lin(g, 2.5 * U, -3.0 * U, 2.5 * U, -1.2 * U, [[0, '#d1d5db'], [1, '#9ca3af']]);
+    g.beginPath(); g.arc(3.4 * U, -2.1 * U, 0.9 * U, 0, TAU); g.fill();
+    text(g, env, 'CR2032', 3.4 * U, -2.0 * U, { size: 4, color: '#374151', weight: 700, font: MONO });
+    rr(g, 0.2 * U, -2.8 * U, 1.4 * U, 1.4 * U, 1.5);
+    g.fillStyle = '#18181b'; g.fill();
+    text(g, env, 'DS1307', 0.9 * U, -2.1 * U, { size: 4.5, color: '#a5b4fc', weight: 700, font: MONO });
+    const pNames = ['VCC', 'GND', 'SDA', 'SCL', 'SQW'];
+    for (let i = 0; i < 5; i++) {
+      text(g, env, pNames[i], i * U, -0.6 * U, { size: 4, color: '#e0e7ff', weight: 700, font: MONO });
+    }
+  },
+  device: (part, nets) => devI2C.ds1307Device(part, nets),
+});
+
+register({
+  type: 'wokwi-bmp180', name: 'BMP180 Barometer & Temperature', cat: 'Inputs', desc: 'Digital barometric pressure and temperature sensor.',
+  aliases: ['bmp180'],
+  defaults: { temperature: 25.0, pressure: 101325 },
+  fields: [
+    { key: 'temperature', label: 'Temperature (°C)', kind: 'number' },
+    { key: 'pressure', label: 'Pressure (Pa)', kind: 'number' },
+  ],
+  pins: () => [
+    { x: 0, y: 0, name: 'VCC' }, { x: 1, y: 0, name: 'GND' }, { x: 2, y: 0, name: 'SCL' }, { x: 3, y: 0, name: 'SDA' },
+  ],
+  bounds: () => [-0.6, -3.0, 3.6, 0.3],
+  draw(g, part, env) {
+    for (let i = 0; i < 4; i++) lead(g, i, -0.8, i, 0);
+    shadow(g, 8, 3, 0.3);
+    rr(g, -0.5 * U, -2.8 * U, 4.0 * U, 2.0 * U, 3);
+    g.fillStyle = lin(g, 0, -2.8 * U, 0, -0.8 * U, [[0, '#701a75'], [1, '#4a044e']]);
+    g.fill(); noShadow(g);
+    rr(g, 1.0 * U, -2.3 * U, 1.8 * U, 1.1 * U, 1.5);
+    g.fillStyle = lin(g, 1.0 * U, -2.3 * U, 2.8 * U, -1.2 * U, [[0, '#e4e4e7'], [1, '#a1a1aa']]);
+    g.fill();
+    g.fillStyle = '#18181b';
+    g.beginPath(); g.arc(2.3 * U, -1.75 * U, 1.5, 0, TAU); g.fill();
+    text(g, env, 'BMP180', 1.9 * U, -2.4 * U, { size: 5, color: '#f5d0fe', weight: 700, font: MONO });
+    const pNames = ['VCC', 'GND', 'SCL', 'SDA'];
+    for (let i = 0; i < 4; i++) {
+      text(g, env, pNames[i], i * U, -0.6 * U, { size: 4.5, color: '#fae8ff', weight: 700, font: MONO });
+    }
+  },
+  device: (part, nets) => devI2C.bmp180Device(part, nets),
 });
 
 // ---------------------------------------------------------------- Notes ----

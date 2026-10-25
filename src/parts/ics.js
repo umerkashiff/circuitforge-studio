@@ -153,20 +153,26 @@ const IC_LIST = [
   { id: '7473', name: 'JK FF', title: 'Dual JK flip-flop with clear, falling edge', cat: 'Flip-Flops', vcc: 4, gnd: 11,
     pins: L('1CLK 1CLR 1K VCC 2CLK 2CLR 2J 2Q̅ 2Q 2K GND 1Q 1Q̅ 1J'), init: () => [0, 0],
     ev: (c) => {
-      outQ(c, c.s[0], jk(c, c.s, 0, c.fall(1), 14, 3, null, 2), 12, 13);
-      outQ(c, c.s[1], jk(c, c.s, 1, c.fall(5), 7, 10, null, 6), 9, 8);
+      const b0 = jk(c, c.s, 0, c.fall(1), 14, 3, null, 2);
+      outQ(c, c.s[0], b0, 12, 13);
+      const b1 = jk(c, c.s, 1, c.fall(5), 7, 10, null, 6);
+      outQ(c, c.s[1], b1, 9, 8);
     } },
   { id: '7476', name: 'JK FF', title: 'Dual JK flip-flop, falling edge', cat: 'Flip-Flops', vcc: 5, gnd: 13,
     pins: L('1CLK 1PRE 1CLR 1J VCC 2CLK 2PRE 2CLR 2J 2Q̅ 2Q 2K GND 1Q̅ 1Q 1K'), init: () => [0, 0],
     ev: (c) => {
-      outQ(c, c.s[0], jk(c, c.s, 0, c.fall(1), 4, 16, 2, 3), 15, 14);
-      outQ(c, c.s[1], jk(c, c.s, 1, c.fall(6), 9, 12, 7, 8), 11, 10);
+      const b0 = jk(c, c.s, 0, c.fall(1), 4, 16, 2, 3);
+      outQ(c, c.s[0], b0, 15, 14);
+      const b1 = jk(c, c.s, 1, c.fall(6), 9, 12, 7, 8);
+      outQ(c, c.s[1], b1, 11, 10);
     } },
   { id: '74112', name: 'JK FF', title: 'Dual JK flip-flop, falling edge', cat: 'Flip-Flops',
     pins: L('1CLK 1K 1J 1PRE 1Q 1Q̅ 2Q̅ GND 2Q 2PRE 2J 2K 2CLK 2CLR 1CLR VCC'), init: () => [0, 0],
     ev: (c) => {
-      outQ(c, c.s[0], jk(c, c.s, 0, c.fall(1), 3, 2, 4, 15), 5, 6);
-      outQ(c, c.s[1], jk(c, c.s, 1, c.fall(13), 11, 12, 10, 14), 9, 7);
+      const b0 = jk(c, c.s, 0, c.fall(1), 3, 2, 4, 15);
+      outQ(c, c.s[0], b0, 5, 6);
+      const b1 = jk(c, c.s, 1, c.fall(13), 11, 12, 10, 14);
+      outQ(c, c.s[1], b1, 9, 7);
     } },
   { id: '74175', name: '4× D FF', title: 'Quad D flip-flop with clear', cat: 'Flip-Flops',
     pins: L('CLR 1Q 1Q̅ 1D 2D 2Q̅ 2Q GND CLK 3Q 3Q̅ 3D 4D 4Q̅ 4Q VCC'), init: () => [0],
