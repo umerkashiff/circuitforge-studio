@@ -696,11 +696,11 @@ console.log('========================================');
 // Simplified boolean function: F = x'z + xz' + yz'
 {
   const c = new Circuit();
-  c.name = 'Lab 4 - Task 2: Simplified SOP Circuit (7408 AND + 7432 OR) (Individual Switches)';
+  c.name = 'Lab 4 - Task 2: Simplified SOP Circuit (7400 NAND Inverters + 7408 AND + 7432 OR)';
   
   const pVcc = new Part('vcc', 0, 0);
   const pGnd = new Part('gnd', 0, 5);
-  const ic7404 = new Part('ic7404', 10, 10); // NOT
+  const ic7400 = new Part('ic7400', 10, 10); // NAND gates wired as inverters for primes
   const ic7408 = new Part('ic7408', 25, 10); // AND
   const ic7432 = new Part('ic7432', 40, 10); // OR
   const swX = new Part('toggle', 5, 25, 0, { label: 'S7 (x)' });
@@ -708,37 +708,41 @@ console.log('========================================');
   const swZ = new Part('toggle', 11, 25, 0, { label: 'S9 (z)' });
   const outLed = new Part('led', 55, 10, 0, { color: 'green' });
   
-  c.parts.push(pVcc, pGnd, ic7404, ic7408, ic7432, swX, swY, swZ, outLed);
+  c.parts.push(pVcc, pGnd, ic7400, ic7408, ic7432, swX, swY, swZ, outLed);
   
-  const p04 = ic7404.worldPins();
+  const p00 = ic7400.worldPins();
   const p08 = ic7408.worldPins();
   const p32 = ic7432.worldPins();
   
   // Power
-  c.wires.push(new Wire(pVcc.worldPins()[0], p04[13]));
-  c.wires.push(new Wire(pGnd.worldPins()[0], p04[6]));
-  c.wires.push(new Wire(pVcc.worldPins()[0], p08[13]));
-  c.wires.push(new Wire(pGnd.worldPins()[0], p08[6]));
-  c.wires.push(new Wire(pVcc.worldPins()[0], p32[13]));
-  c.wires.push(new Wire(pGnd.worldPins()[0], p32[6]));
+  c.wires.push(new Wire(pVcc.worldPins()[0], p00[13])); // 7400 pin 14 VCC
+  c.wires.push(new Wire(pGnd.worldPins()[0], p00[6]));   // 7400 pin 7 GND
+  c.wires.push(new Wire(pVcc.worldPins()[0], p08[13])); // 7408 pin 14 VCC
+  c.wires.push(new Wire(pGnd.worldPins()[0], p08[6]));   // 7408 pin 7 GND
+  c.wires.push(new Wire(pVcc.worldPins()[0], p32[13])); // 7432 pin 14 VCC
+  c.wires.push(new Wire(pGnd.worldPins()[0], p32[6]));   // 7432 pin 7 GND
   
-  // Invert x (swX) and z (swZ):
-  // x -> 7404 pin 1 (idx 0), x' -> pin 2 (idx 1)
-  // z -> 7404 pin 3 (idx 2), z' -> pin 4 (idx 3)
-  c.wires.push(new Wire(swX.worldPins()[0], p04[0]));
-  c.wires.push(new Wire(swZ.worldPins()[0], p04[2]));
+  // 7400 Gate 1 as inverter for x' (tie inputs 1A and 1B together to x)
+  // Pin 1 (idx 0), Pin 2 (idx 1) -> Output 1Y on Pin 3 (idx 2) is x'
+  c.wires.push(new Wire(swX.worldPins()[0], p00[0]));
+  c.wires.push(new Wire(swX.worldPins()[0], p00[1]));
+  
+  // 7400 Gate 2 as inverter for z' (tie inputs 2A and 2B together to z)
+  // Pin 4 (idx 3), Pin 5 (idx 4) -> Output 2Y on Pin 6 (idx 5) is z'
+  c.wires.push(new Wire(swZ.worldPins()[0], p00[3]));
+  c.wires.push(new Wire(swZ.worldPins()[0], p00[4]));
   
   // AND 1: x' * z -> 7408 pin 1, 2 -> pin 3 (idx 0, 1 -> 2)
-  c.wires.push(new Wire(p04[1], p08[0]));             // x'
+  c.wires.push(new Wire(p00[2], p08[0]));             // x' from 7400 pin 3
   c.wires.push(new Wire(swZ.worldPins()[0], p08[1])); // z
   
   // AND 2: x * z' -> 7408 pin 4, 5 -> pin 6 (idx 3, 4 -> 5)
   c.wires.push(new Wire(swX.worldPins()[0], p08[3])); // x
-  c.wires.push(new Wire(p04[3], p08[4]));             // z'
+  c.wires.push(new Wire(p00[5], p08[4]));             // z' from 7400 pin 6
   
   // AND 3: y * z' -> 7408 pin 9, 10 -> pin 8 (idx 8, 9 -> 7)
   c.wires.push(new Wire(swY.worldPins()[0], p08[8])); // y
-  c.wires.push(new Wire(p04[3], p08[9]));             // z'
+  c.wires.push(new Wire(p00[5], p08[9]));             // z' from 7400 pin 6
   
   // OR 1: (x'z) + (xz') -> 7432 pin 1, 2 -> pin 3 (idx 0, 1 -> 2)
   c.wires.push(new Wire(p08[2], p32[0]));             // x'z
