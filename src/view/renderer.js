@@ -21,6 +21,8 @@ export class Renderer {
     this.cv = canvas;
     this.g = canvas.getContext('2d');
     this.dpr = 1;
+    this._bgCache = { dark: null, color: '#f2f2f4' };
+    this._boardCache = new Map();
   }
 
   resize() {
@@ -40,9 +42,12 @@ export class Renderer {
   draw() {
     const { g, app } = this;
     const cam = app.cam, dark = this.theme === 'dark';
-    const css = getComputedStyle(document.documentElement);
+    if (this._bgCache.dark !== dark) {
+      this._bgCache.dark = dark;
+      this._bgCache.color = getComputedStyle(document.documentElement).getPropertyValue('--canvas').trim() || '#f2f2f4';
+    }
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    g.fillStyle = css.getPropertyValue('--canvas').trim() || '#f2f2f4';
+    g.fillStyle = this._bgCache.color;
     g.fillRect(0, 0, this.w, this.h);
     this.drawGrid(dark);
 
@@ -107,64 +112,107 @@ export class Renderer {
     for (let x = ox; x < this.w; x += s) for (let y = oy; y < this.h; y += s) g.fillRect(x - r / 2, y - r / 2, r, r);
   }
 
-  drawBoard(b, dark, selected, hoverNet) {
-    const g = this.g;
-    const x = b.x * P, y = b.y * P, w = b.w * P, h = b.h * P;
-    g.save();
-    g.shadowColor = 'rgba(20,25,35,0.16)'; g.shadowBlur = 24; g.shadowOffsetY = 8;
-    g.beginPath(); g.roundRect(x, y, w, h, 10);
-    const bc = this.app.settings.get('boardColor');
+  _getBoardSprite(b, dark, bc) {
+    if (typeof document === 'undefined') return null;
+    const key = `${b.size}:${b.cols}:${dark}:${bc}`;
+    let entry = this._boardCache.get(key);
+    if (entry) return entry;
+    const w = b.w * P, h = b.h * P;
+    const pad = 36, scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil((w + pad * 2) * scale);
+    canvas.height = Math.ceil((h + pad * 2) * scale);
+    const cg = canvas.getContext('2d');
+    cg.scale(scale, scale);
+    cg.translate(pad, pad);
+
     const blackBoard = bc === '#2a2c31';
-    g.fillStyle = bc === '#fbfbfc' && dark ? '#e9e9ec' : bc; g.fill();
-    g.restore();
-    g.strokeStyle = selected ? this.accent : 'rgba(0,0,0,0.08)'; g.lineWidth = selected ? 2 : 1;
-    g.beginPath(); g.roundRect(x, y, w, h, 10); g.stroke();
+    cg.save();
+    cg.shadowColor = 'rgba(20,25,35,0.16)'; cg.shadowBlur = 24; cg.shadowOffsetY = 8;
+    cg.beginPath(); cg.roundRect(0, 0, w, h, 10);
+    cg.fillStyle = bc === '#fbfbfc' && dark ? '#e9e9ec' : bc; cg.fill();
+    cg.restore();
 
     // centre channel
-    const cy = (b.y + b.rowY(4) + 1.5) * P;
-    g.fillStyle = blackBoard ? '#1f2024' : 'rgba(0,0,0,0.055)';
-    g.fillRect(x + 6, cy - P * 0.55, w - 12, P * 1.1);
+    const cy = (b.rowY(4) + 1.5) * P;
+    cg.fillStyle = blackBoard ? '#1f2024' : 'rgba(0,0,0,0.055)';
+    cg.fillRect(6, cy - P * 0.55, w - 12, P * 1.1);
 
     // rails
     const ry = b.railY();
-    const hx0 = (b.x + 1.5) * P, hx1 = (b.x + b.cols + 1.5) * P;
+    const hx0 = 1.5 * P, hx1 = (b.cols + 1.5) * P;
     if (ry) {
       for (const [k, yy] of Object.entries(ry)) {
         const pos = k[1] === 'p';
-        const lineY = (b.y + yy + (k[0] === 't' ? (pos ? -0.62 : 0.62) : (pos ? -0.62 : 0.62))) * P;
-        g.strokeStyle = pos ? 'rgba(229,72,77,0.75)' : 'rgba(10,132,255,0.75)';
-        g.lineWidth = 1.6;
-        g.beginPath(); g.moveTo(hx0, lineY); g.lineTo(hx1, lineY); g.stroke();
-        g.font = `700 11px -apple-system, "SF Pro Text", Inter, sans-serif`;
-        g.fillStyle = pos ? '#d93036' : '#0a6fdf'; g.textAlign = 'center'; g.textBaseline = 'middle';
-        g.fillText(pos ? '+' : '−', x + P * 0.8, (b.y + yy) * P);
-        g.fillText(pos ? '+' : '−', x + w - P * 0.8, (b.y + yy) * P);
+        const lineY = (yy + (pos ? -0.62 : 0.62)) * P;
+        cg.strokeStyle = pos ? 'rgba(229,72,77,0.75)' : 'rgba(10,132,255,0.75)';
+        cg.lineWidth = 1.6;
+        cg.beginPath(); cg.moveTo(hx0, lineY); cg.lineTo(hx1, lineY); cg.stroke();
+        cg.font = `700 11px -apple-system, "SF Pro Text", Inter, sans-serif`;
+        cg.fillStyle = pos ? '#d93036' : '#0a6fdf'; cg.textAlign = 'center'; cg.textBaseline = 'middle';
+        cg.fillText(pos ? '+' : '−', P * 0.8, yy * P);
+        cg.fillText(pos ? '+' : '−', w - P * 0.8, yy * P);
       }
     }
     // labels
-    g.font = `600 8.5px "SF Mono", ui-monospace, Menlo, monospace`;
-    g.fillStyle = '#9a9aa2'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    cg.font = `600 8.5px "SF Mono", ui-monospace, Menlo, monospace`;
+    cg.fillStyle = '#9a9aa2'; cg.textAlign = 'center'; cg.textBaseline = 'middle';
     for (let r = 0; r < 10; r++) {
-      const yy = (b.y + b.rowY(r)) * P;
-      g.fillText(ROW_LETTERS[r], x + P * 0.85, yy);
-      g.fillText(ROW_LETTERS[r], x + w - P * 0.85, yy);
+      const yy = b.rowY(r) * P;
+      cg.fillText(ROW_LETTERS[r], P * 0.85, yy);
+      cg.fillText(ROW_LETTERS[r], w - P * 0.85, yy);
     }
     for (let c = 0; c < b.cols; c++) {
       if (c !== 0 && (c + 1) % 5) continue;
-      const xx = (b.x + 2 + c) * P;
-      g.fillText(String(c + 1), xx, (b.y + b.rowY(0) - 0.85) * P);
-      g.fillText(String(c + 1), xx, (b.y + b.rowY(9) + 0.85) * P);
+      const xx = (2 + c) * P;
+      cg.fillText(String(c + 1), xx, (b.rowY(0) - 0.85) * P);
+      cg.fillText(String(c + 1), xx, (b.rowY(9) + 0.85) * P);
     }
-    if (this.app.mode === 'sim' && this.app.settings.get('wireStyle') !== 'off') this.tintLiveStrips(b);
-    // holes
-    const sim = this.app.engine;
-    const running = this.app.running;
+    // holes (in local board coords)
+    const bezel = blackBoard ? '#55575e' : dark ? '#3a3b40' : '#4a4c52';
+    const pit = blackBoard ? '#0b0b0c' : dark ? '#16171a' : '#26282c';
     for (const hole of b.holes()) {
-      const hx = hole.x * P, hy = hole.y * P;
-      g.fillStyle = blackBoard ? '#55575e' : dark ? '#3a3b40' : '#4a4c52';
-      g.fillRect(hx - 2.6, hy - 2.6, 5.2, 5.2);
-      g.fillStyle = blackBoard ? '#0b0b0c' : dark ? '#16171a' : '#26282c';
-      g.fillRect(hx - 1.8, hy - 1.6, 3.6, 3.6);
+      const hx = (hole.x - b.x) * P, hy = (hole.y - b.y) * P;
+      cg.fillStyle = bezel;
+      cg.fillRect(hx - 2.6, hy - 2.6, 5.2, 5.2);
+      cg.fillStyle = pit;
+      cg.fillRect(hx - 1.8, hy - 1.6, 3.6, 3.6);
+    }
+    entry = { canvas, pad, w: w + pad * 2, h: h + pad * 2 };
+    this._boardCache.set(key, entry);
+    return entry;
+  }
+
+  drawBoard(b, dark, selected, hoverNet) {
+    const g = this.g;
+    const x = b.x * P, y = b.y * P, w = b.w * P, h = b.h * P;
+    const bc = this.app.settings.get('boardColor');
+    const sprite = this._getBoardSprite(b, dark, bc);
+    if (sprite) {
+      g.drawImage(sprite.canvas, x - sprite.pad, y - sprite.pad, sprite.w, sprite.h);
+      g.strokeStyle = selected ? this.accent : 'rgba(0,0,0,0.08)'; g.lineWidth = selected ? 2 : 1;
+      g.beginPath(); g.roundRect(x, y, w, h, 10); g.stroke();
+      if (this.app.mode === 'sim' && this.app.settings.get('wireStyle') !== 'off') this.tintLiveStrips(b);
+    } else {
+      g.save();
+      g.shadowColor = 'rgba(20,25,35,0.16)'; g.shadowBlur = 24; g.shadowOffsetY = 8;
+      g.beginPath(); g.roundRect(x, y, w, h, 10);
+      const blackBoard = bc === '#2a2c31';
+      g.fillStyle = bc === '#fbfbfc' && dark ? '#e9e9ec' : bc; g.fill();
+      g.restore();
+      g.strokeStyle = selected ? this.accent : 'rgba(0,0,0,0.08)'; g.lineWidth = selected ? 2 : 1;
+      g.beginPath(); g.roundRect(x, y, w, h, 10); g.stroke();
+      const cy = (b.y + b.rowY(4) + 1.5) * P;
+      g.fillStyle = blackBoard ? '#1f2024' : 'rgba(0,0,0,0.055)';
+      g.fillRect(x + 6, cy - P * 0.55, w - 12, P * 1.1);
+      if (this.app.mode === 'sim' && this.app.settings.get('wireStyle') !== 'off') this.tintLiveStrips(b);
+      for (const hole of b.holes()) {
+        const hx = hole.x * P, hy = hole.y * P;
+        g.fillStyle = blackBoard ? '#55575e' : dark ? '#3a3b40' : '#4a4c52';
+        g.fillRect(hx - 2.6, hy - 2.6, 5.2, 5.2);
+        g.fillStyle = blackBoard ? '#0b0b0c' : dark ? '#16171a' : '#26282c';
+        g.fillRect(hx - 1.8, hy - 1.6, 3.6, 3.6);
+      }
     }
     // grip handle (drag the whole board from here)
     const gx = x + 8, gy = y + 8;
@@ -252,9 +300,7 @@ export class Renderer {
     if (state === 'high' || state === 'mid') {
       g.strokeStyle = state === 'high' ? 'rgba(255,69,58,0.32)' : 'rgba(255,159,10,0.45)'; g.lineWidth = 10 * ww; g.stroke();
     }
-    g.shadowColor = 'rgba(0,0,0,0.25)'; g.shadowBlur = 4; g.shadowOffsetY = 2;
     g.strokeStyle = shadeHex(color, -0.35); g.lineWidth = 5.4 * ww; g.stroke();
-    g.shadowColor = 'transparent';
     g.strokeStyle = color; g.lineWidth = 4 * ww; g.stroke();
     if (state && state !== 'float') {
       g.strokeStyle = state === 'high' ? '#ff6b61' : state === 'low' ? '#64d2ff' : '#ffb340'; g.lineWidth = 1.6;
@@ -290,17 +336,32 @@ export class Renderer {
   /** Faint red/blue band behind every breadboard strip that belongs to a live net. */
   tintLiveStrips(b) {
     const g = this.g, sim = this.app.engine;
-    const strips = new Map();
-    for (const h of b.holes()) {
-      const s = strips.get(h.strip);
-      if (!s) strips.set(h.strip, { x0: h.x, y0: h.y, x1: h.x, y1: h.y });
-      else { s.x0 = Math.min(s.x0, h.x); s.x1 = Math.max(s.x1, h.x); s.y0 = Math.min(s.y0, h.y); s.y1 = Math.max(s.y1, h.y); }
+    let meta = b._stripMeta;
+    if (!meta || meta.cols !== b.cols || meta.size !== b.size) {
+      const strips = new Map();
+      for (const h of b.holes()) {
+        const dx = h.x - b.x, dy = h.y - b.y;
+        const s = strips.get(h.strip);
+        if (!s) strips.set(h.strip, { sx: dx, sy: dy, x0: dx, y0: dy, x1: dx, y1: dy });
+        else { s.x0 = Math.min(s.x0, dx); s.x1 = Math.max(s.x1, dx); s.y0 = Math.min(s.y0, dy); s.y1 = Math.max(s.y1, dy); }
+      }
+      meta = {
+        cols: b.cols,
+        size: b.size,
+        list: [...strips.values()].map(s => ({
+          sx: s.sx, sy: s.sy,
+          rx: (s.x0 - 0.42) * P, ry: (s.y0 - 0.42) * P,
+          rw: (s.x1 - s.x0 + 0.84) * P, rh: (s.y1 - s.y0 + 0.84) * P,
+        })),
+      };
+      b._stripMeta = meta;
     }
-    for (const s of strips.values()) {
-      const v = sim.voltage(sim.netAt(s.x0, s.y0));
+    const bx = b.x, by = b.y, bxP = bx * P, byP = by * P;
+    for (const s of meta.list) {
+      const v = sim.voltage(sim.netAt(bx + s.sx, by + s.sy));
       if (Number.isNaN(v)) continue;
       g.fillStyle = v >= 2 ? 'rgba(255,69,58,0.11)' : v <= 0.8 ? 'rgba(10,132,255,0.09)' : 'rgba(255,159,10,0.14)';
-      g.beginPath(); g.roundRect((s.x0 - 0.42) * P, (s.y0 - 0.42) * P, (s.x1 - s.x0 + 0.84) * P, (s.y1 - s.y0 + 0.84) * P, 5); g.fill();
+      g.beginPath(); g.roundRect(bxP + s.rx, byP + s.ry, s.rw, s.rh, 5); g.fill();
     }
   }
 

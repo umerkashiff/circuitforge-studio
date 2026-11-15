@@ -1413,36 +1413,160 @@ for (let c = 0; c < TRAINER_COLS.length; c++) {
   }
 }
 
-function drawTrainerToggle(g, env, x, y, on, labelStr) {
+const TRAINER_CLK_COL = TRAINER_COLS.findIndex(c => c.kind === 'clk');
+
+const TRAINER_STATIC_CACHE = new Map();
+const TRAINER_CACHE_BOX = { x: -28, y: -236, w: 870, h: 266, scale: 2 };
+
+function drawTrainerToggleBat(g, env, x, y, on) {
   // Mini LED indicator above toggle
   g.fillStyle = on ? '#22c55e' : '#475569';
   g.beginPath(); g.arc(x, y - 34, 3, 0, TAU); g.fill();
   if (on) glow(g, x, y - 34, 9, '34,197,94', 0.9);
-  // Metal hex bushing / mounting nut
-  g.fillStyle = '#9ca3af';
-  g.beginPath();
-  for (let i = 0; i < 6; i++) {
-    const a = (i * Math.PI) / 3;
-    const vx = x + Math.cos(a) * 9.5, vy = y + Math.sin(a) * 9.5;
-    if (i === 0) g.moveTo(vx, vy); else g.lineTo(vx, vy);
-  }
-  g.closePath(); g.fill();
-  g.strokeStyle = '#6b7280'; g.lineWidth = 0.8; g.stroke();
-  g.fillStyle = '#374151'; g.beginPath(); g.arc(x, y, 5.2, 0, TAU); g.fill();
   // Bat handle toggle pointing DOWN (on / 1) or UP (off / 0)
   const tipY = on ? y + 18 : y - 18;
-  g.save();
-  shadow(g, 4, on ? 3 : 2, 0.35);
+  // Soft offset drop shadow without per-frame shadowBlur
+  g.lineCap = 'round';
+  g.strokeStyle = 'rgba(15,20,30,0.28)';
+  g.lineWidth = 6.2;
+  g.beginPath(); g.moveTo(x + 1, y + 1); g.lineTo(x + 1, tipY + (on ? 3 : -1)); g.stroke();
   g.strokeStyle = lin(g, x - 4, y, x + 4, tipY, [[0, '#f3f4f6'], [0.5, '#cbd5e1'], [1, '#64748b']]);
-  g.lineWidth = 5.4; g.lineCap = 'round';
+  g.lineWidth = 5.4;
   g.beginPath(); g.moveTo(x, y); g.lineTo(x, tipY); g.stroke();
-  noShadow(g);
   g.fillStyle = '#f8fafc';
   g.beginPath(); g.arc(x, tipY, 3.2, 0, TAU); g.fill();
-  g.restore();
-  // Switch label on white trainer strip
-  text(g, env, labelStr, x, y + 46, { size: 7.5, color: '#111827', weight: 800, font: MONO });
   text(g, env, on ? '1' : '0', x, y + 32, { size: 6.5, color: on ? '#16a34a' : '#64748b', weight: 800, font: MONO });
+}
+
+function drawTrainerStatic(g, env) {
+  // Upper chassis aluminum panel
+  shadow(g, 10, 4, 0.25);
+  rr(g, -0.7 * U, -11.2 * U, 41.4 * U, 6.45 * U, 6);
+  g.fillStyle = lin(g, 0, -11.2 * U, 0, -4.75 * U, [[0, '#e5e7eb'], [0.5, '#d1d5db'], [1, '#bcc2cc']]);
+  g.fill();
+  noShadow(g);
+  g.strokeStyle = 'rgba(0,0,0,0.18)'; g.lineWidth = 1.2; g.stroke();
+
+  // Panel screws
+  for (const [sx, sy] of [[-0.35, -10.85], [40.35, -10.85], [-0.35, -5.1], [40.35, -5.1]]) {
+    g.fillStyle = '#9ca3af'; g.beginPath(); g.arc(sx * U, sy * U, 3.5, 0, TAU); g.fill();
+    g.strokeStyle = '#6b7280'; g.lineWidth = 0.9;
+    g.beginPath(); g.moveTo(sx * U - 2.2, sy * U - 2.2); g.lineTo(sx * U + 2.2, sy * U + 2.2); g.stroke();
+  }
+
+  // Section dividers on chassis
+  g.strokeStyle = 'rgba(0,0,0,0.14)'; g.lineWidth = 1;
+  for (const dx of [15.5, 19.65, 37.8]) {
+    g.beginPath(); g.moveTo(dx * U, -10.9 * U); g.lineTo(dx * U, -5.0 * U); g.stroke();
+  }
+
+  // 1. State Monitor LEDs bezels & unlit state (L0..L15)
+  text(g, env, 'STATE MONITORS', 7.45 * U, -10.65 * U, { size: 7.5, color: '#374151', weight: 800, font: MONO });
+  for (let i = 0; i < 16; i++) {
+    const col = i % 8, row = (i / 8) | 0;
+    const lx = (0.95 + col * 1.86) * U;
+    const ly = (-9.45 + row * 2.35) * U;
+    g.fillStyle = '#374151'; g.beginPath(); g.arc(lx, ly, 7.2, 0, TAU); g.fill();
+    g.fillStyle = '#5c1f1f'; g.beginPath(); g.arc(lx, ly, 5.2, 0, TAU); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.3)'; g.beginPath(); g.arc(lx - 1.5, ly - 1.5, 1.4, 0, TAU); g.fill();
+    text(g, env, 'L' + i, lx, ly + 11.5, { size: 6.5, color: '#1f2937', weight: 700, font: MONO });
+  }
+
+  // 2. Pushbutton Pulsers bezels & labels (P1, P2)
+  text(g, env, 'PUSH SW', 17.6 * U, -10.65 * U, { size: 7.5, color: '#374151', weight: 800, font: MONO });
+  for (let i = 0; i < 2; i++) {
+    const px = (16.65 + i * 1.9) * U, py = -8.4 * U;
+    g.fillStyle = '#9ca3af'; g.beginPath(); g.arc(px, py, 11, 0, TAU); g.fill();
+    g.fillStyle = '#4b5563'; g.beginPath(); g.arc(px, py, 8.8, 0, TAU); g.fill();
+    text(g, env, 'P' + (i + 1), px, -5.95 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+  }
+
+  // 3. Logic Switches white label strip & hex bushings (S0..S9)
+  text(g, env, 'LOGIC SWITCHES', 28.8 * U, -10.65 * U, { size: 7.5, color: '#374151', weight: 800, font: MONO });
+  rr(g, 20.0 * U, -6.35 * U, 17.5 * U, 0.85 * U, 2);
+  g.fillStyle = '#f8fafc'; g.fill();
+  g.strokeStyle = 'rgba(0,0,0,0.12)'; g.lineWidth = 0.8; g.stroke();
+  for (let k = 0; k < 10; k++) {
+    const x = (20.9 + k * 1.76) * U, y = -8.25 * U;
+    g.fillStyle = '#9ca3af';
+    g.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i * Math.PI) / 3;
+      const vx = x + Math.cos(a) * 9.5, vy = y + Math.sin(a) * 9.5;
+      if (i === 0) g.moveTo(vx, vy); else g.lineTo(vx, vy);
+    }
+    g.closePath(); g.fill();
+    g.strokeStyle = '#6b7280'; g.lineWidth = 0.8; g.stroke();
+    g.fillStyle = '#374151'; g.beginPath(); g.arc(x, y, 5.2, 0, TAU); g.fill();
+    text(g, env, 'S' + k, x, y + 46, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+  }
+
+  // 4. Clock & Power static labels
+  text(g, env, 'CLK / PWR', 39.25 * U, -10.65 * U, { size: 6.5, color: '#374151', weight: 800, font: MONO });
+  text(g, env, '+5V', 39.25 * U, -5.95 * U, { size: 7, color: '#991b1b', weight: 800, font: MONO });
+
+  // Lower Terminal Socket Strip (4 rows per column)
+  shadow(g, 8, 3, 0.28);
+  rr(g, -0.65 * U, -4.55 * U, 41.3 * U, 5.0 * U, 5);
+  g.fillStyle = lin(g, 0, -4.55 * U, 0, 0.45 * U, [[0, '#272a30'], [1, '#1b1d22']]);
+  g.fill();
+  noShadow(g);
+  g.strokeStyle = 'rgba(255,255,255,0.08)'; g.lineWidth = 1; g.stroke();
+
+  // Label band background
+  rr(g, -0.5 * U, -4.4 * U, 41.0 * U, 1.0 * U, 2);
+  g.fillStyle = '#14161a'; g.fill();
+
+  // Vertical divider ticks between groups on socket strip
+  g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 1.2;
+  for (const gx of [15.5, 19.5, 37.5]) {
+    g.beginPath(); g.moveTo(gx * U, -4.4 * U); g.lineTo(gx * U, 0.35 * U); g.stroke();
+  }
+
+  // Draw 4 sockets + column label for all 41 columns
+  const rotAngle = (env.rot === 2 || env.rot === 3) ? Math.PI / 2 : -Math.PI / 2;
+  for (let c = 0; c < TRAINER_COLS.length; c++) {
+    const col = TRAINER_COLS[c];
+    const cx = c * U;
+    const lblColor = col.kind === 'led' ? '#fbbf24'
+      : col.kind === 'pulse' ? '#7dd3fc'
+        : col.kind === 'clk' ? '#4ade80'
+          : col.kind === 'vcc' ? '#f87171'
+            : col.kind === 'gnd' ? '#93c5fd'
+              : col.inv ? '#86efac' : '#f8fafc';
+    g.save();
+    g.translate(cx, -3.9 * U);
+    g.rotate(rotAngle);
+    g.font = `700 6.8px ${MONO}`;
+    g.fillStyle = lblColor;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(col.name, 0, 0);
+    g.restore();
+
+    for (let r = 0; r < 4; r++) {
+      const hy = (r - 3) * U;
+      g.fillStyle = '#383b42'; g.fillRect(cx - 5.2, hy - 5.2, 10.4, 10.4);
+      g.fillStyle = '#0e1013'; g.fillRect(cx - 3.3, hy - 3.3, 6.6, 6.6);
+      g.fillStyle = '#6b7280'; g.fillRect(cx - 1.2, hy - 1.2, 2.4, 2.4);
+    }
+  }
+}
+
+function getTrainerStaticCanvas(env) {
+  if (typeof document === 'undefined') return null;
+  const key = env.rot & 3;
+  let canvas = TRAINER_STATIC_CACHE.get(key);
+  if (canvas) return canvas;
+  const { x, y, w, h, scale } = TRAINER_CACHE_BOX;
+  canvas = document.createElement('canvas');
+  canvas.width = w * scale;
+  canvas.height = h * scale;
+  const cg = canvas.getContext('2d');
+  cg.scale(scale, scale);
+  cg.translate(-x, -y);
+  drawTrainerStatic(cg, env);
+  TRAINER_STATIC_CACHE.set(key, canvas);
+  return canvas;
 }
 
 register({
@@ -1465,72 +1589,51 @@ register({
   draw(g, part, env) {
     const bits = part.props.bits || [];
     const d = env.dev;
-    // Upper chassis aluminum panel
-    shadow(g, 10, 4, 0.25);
-    rr(g, -0.7 * U, -11.2 * U, 41.4 * U, 6.45 * U, 6);
-    g.fillStyle = lin(g, 0, -11.2 * U, 0, -4.75 * U, [[0, '#e5e7eb'], [0.5, '#d1d5db'], [1, '#bcc2cc']]);
-    g.fill();
-    noShadow(g);
-    g.strokeStyle = 'rgba(0,0,0,0.18)'; g.lineWidth = 1.2; g.stroke();
-
-    // Panel screws
-    for (const [sx, sy] of [[-0.35, -10.85], [40.35, -10.85], [-0.35, -5.1], [40.35, -5.1]]) {
-      g.fillStyle = '#9ca3af'; g.beginPath(); g.arc(sx * U, sy * U, 3.5, 0, TAU); g.fill();
-      g.strokeStyle = '#6b7280'; g.lineWidth = 0.9;
-      g.beginPath(); g.moveTo(sx * U - 2.2, sy * U - 2.2); g.lineTo(sx * U + 2.2, sy * U + 2.2); g.stroke();
+    const cached = getTrainerStaticCanvas(env);
+    if (cached) {
+      const { x, y, w, h } = TRAINER_CACHE_BOX;
+      g.drawImage(cached, x, y, w, h);
+    } else {
+      drawTrainerStatic(g, env);
     }
 
-    // Section dividers on chassis
-    g.strokeStyle = 'rgba(0,0,0,0.14)'; g.lineWidth = 1;
-    for (const dx of [15.5, 19.65, 37.8]) {
-      g.beginPath(); g.moveTo(dx * U, -10.9 * U); g.lineTo(dx * U, -5.0 * U); g.stroke();
+    // Dynamic LEDs (only redraw lit ones; unlit state is baked in static cache)
+    const levels = d && d.ledLevels;
+    if (levels) {
+      for (let i = 0; i < 16; i++) {
+        const lvl = levels[i];
+        if (lvl <= 0.02) continue;
+        const col = i % 8, row = (i / 8) | 0;
+        const lx = (0.95 + col * 1.86) * U;
+        const ly = (-9.45 + row * 2.35) * U;
+        glow(g, lx, ly, 16, '255,59,48', lvl);
+        g.fillStyle = `rgb(255,${Math.round(59 + lvl * 40)},${Math.round(48 + lvl * 20)})`;
+        g.beginPath(); g.arc(lx, ly, 5.2, 0, TAU); g.fill();
+        g.fillStyle = 'rgba(255,255,255,0.3)';
+        g.beginPath(); g.arc(lx - 1.5, ly - 1.5, 1.4, 0, TAU); g.fill();
+      }
     }
 
-    // 1. State Monitor LEDs (L0..L15) in 2 rows of 8
-    text(g, env, 'STATE MONITORS', 7.45 * U, -10.65 * U, { size: 7.5, color: '#374151', weight: 800, font: MONO });
-    for (let i = 0; i < 16; i++) {
-      const col = i % 8, row = (i / 8) | 0;
-      const lx = (0.95 + col * 1.86) * U;
-      const ly = (-9.45 + row * 2.35) * U;
-      const lvl = d && d.ledLevels ? d.ledLevels[i] : 0;
-      g.fillStyle = '#374151'; g.beginPath(); g.arc(lx, ly, 7.2, 0, TAU); g.fill();
-      if (lvl > 0.02) glow(g, lx, ly, 16, '255,59,48', lvl);
-      g.fillStyle = lvl > 0.02 ? `rgb(255,${Math.round(59 + lvl * 40)},${Math.round(48 + lvl * 20)})` : '#5c1f1f';
-      g.beginPath(); g.arc(lx, ly, 5.2, 0, TAU); g.fill();
-      g.fillStyle = 'rgba(255,255,255,0.3)';
-      g.beginPath(); g.arc(lx - 1.5, ly - 1.5, 1.4, 0, TAU); g.fill();
-      text(g, env, 'L' + i, lx, ly + 11.5, { size: 6.5, color: '#1f2937', weight: 700, font: MONO });
-    }
-
-    // 2. Pushbutton Pulsers (P1, P2)
-    text(g, env, 'PUSH SW', 17.6 * U, -10.65 * U, { size: 7.5, color: '#374151', weight: 800, font: MONO });
+    // Dynamic Pushbuttons (P1, P2)
     for (let i = 0; i < 2; i++) {
       const px = (16.65 + i * 1.9) * U, py = -8.4 * U;
       const pressed = !!(part.ui && part.ui.pressKey === ('p' + (i + 1)));
       g.fillStyle = pressed ? '#ef4444' : '#475569';
       g.beginPath(); g.arc(px, py - 24, 2.8, 0, TAU); g.fill();
       if (pressed) glow(g, px, py - 24, 8, '239,68,68', 0.9);
-      g.fillStyle = '#9ca3af'; g.beginPath(); g.arc(px, py, 11, 0, TAU); g.fill();
-      g.fillStyle = '#4b5563'; g.beginPath(); g.arc(px, py, 8.8, 0, TAU); g.fill();
-      shadow(g, pressed ? 1 : 3, pressed ? 0 : 2, 0.35);
+      const r = pressed ? 6.4 : 7.0;
+      g.fillStyle = 'rgba(15,20,30,0.3)';
+      g.beginPath(); g.arc(px + 0.5, py + (pressed ? 1 : 2.5), r, 0, TAU); g.fill();
       g.fillStyle = pressed ? '#b91c1c' : lin(g, px, py - 7, px, py + 7, [[0, '#ef4444'], [1, '#dc2626']]);
-      g.beginPath(); g.arc(px, py, pressed ? 6.4 : 7.0, 0, TAU); g.fill();
-      noShadow(g);
-      text(g, env, 'P' + (i + 1), px, -5.95 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+      g.beginPath(); g.arc(px, py, r, 0, TAU); g.fill();
     }
 
-    // 3. Toggle Switches (S0..S9) + White Strip Labels
-    text(g, env, 'LOGIC SWITCHES', 28.8 * U, -10.65 * U, { size: 7.5, color: '#374151', weight: 800, font: MONO });
-    rr(g, 20.0 * U, -6.35 * U, 17.5 * U, 0.85 * U, 2);
-    g.fillStyle = '#f8fafc'; g.fill();
-    g.strokeStyle = 'rgba(0,0,0,0.12)'; g.lineWidth = 0.8; g.stroke();
+    // Dynamic Toggle Bats (S0..S9)
     for (let k = 0; k < 10; k++) {
-      const sx = (20.9 + k * 1.76) * U;
-      drawTrainerToggle(g, env, sx, -8.25 * U, !!bits[k], 'S' + k);
+      drawTrainerToggleBat(g, env, (20.9 + k * 1.76) * U, -8.25 * U, !!bits[k]);
     }
 
-    // 4. Clock & Power Section
-    text(g, env, 'CLK / PWR', 39.25 * U, -10.65 * U, { size: 6.5, color: '#374151', weight: 800, font: MONO });
+    // Dynamic CLK & Power LEDs + Hz label
     const clkOn = !!(d && d.clkHigh);
     g.fillStyle = clkOn ? '#22c55e' : '#374151';
     g.beginPath(); g.arc(39.25 * U, -9.35 * U, 4.5, 0, TAU); g.fill();
@@ -1540,52 +1643,6 @@ register({
     g.fillStyle = pwrOn ? '#ef4444' : '#5c1f1f';
     g.beginPath(); g.arc(39.25 * U, -7.0 * U, 4.5, 0, TAU); g.fill();
     if (pwrOn) glow(g, 39.25 * U, -7.0 * U, 12, '239,68,68', 0.9);
-    text(g, env, '+5V', 39.25 * U, -5.95 * U, { size: 7, color: '#991b1b', weight: 800, font: MONO });
-
-    // Lower Terminal Socket Strip (4 rows per column)
-    shadow(g, 8, 3, 0.28);
-    rr(g, -0.65 * U, -4.55 * U, 41.3 * U, 5.0 * U, 5);
-    g.fillStyle = lin(g, 0, -4.55 * U, 0, 0.45 * U, [[0, '#272a30'], [1, '#1b1d22']]);
-    g.fill();
-    noShadow(g);
-    g.strokeStyle = 'rgba(255,255,255,0.08)'; g.lineWidth = 1; g.stroke();
-
-    // Label band background
-    rr(g, -0.5 * U, -4.4 * U, 41.0 * U, 1.0 * U, 2);
-    g.fillStyle = '#14161a'; g.fill();
-
-    // Vertical divider ticks between groups on socket strip
-    g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 1.2;
-    for (const gx of [15.5, 19.5, 37.5]) {
-      g.beginPath(); g.moveTo(gx * U, -4.4 * U); g.lineTo(gx * U, 0.35 * U); g.stroke();
-    }
-
-    // Draw 4 sockets + column label for all 41 columns
-    for (let c = 0; c < TRAINER_COLS.length; c++) {
-      const col = TRAINER_COLS[c];
-      const cx = c * U;
-      const lblColor = col.kind === 'led' ? '#fbbf24'
-        : col.kind === 'pulse' ? '#7dd3fc'
-          : col.kind === 'clk' ? '#4ade80'
-            : col.kind === 'vcc' ? '#f87171'
-              : col.kind === 'gnd' ? '#93c5fd'
-                : col.inv ? '#86efac' : '#f8fafc';
-      g.save();
-      g.translate(cx, -3.9 * U);
-      g.rotate((env.rot === 2 || env.rot === 3) ? Math.PI / 2 : -Math.PI / 2);
-      g.font = `700 6.8px ${MONO}`;
-      g.fillStyle = lblColor;
-      g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText(col.name, 0, 0);
-      g.restore();
-
-      for (let r = 0; r < 4; r++) {
-        const hy = (r - 3) * U;
-        g.fillStyle = '#383b42'; g.fillRect(cx - 5.2, hy - 5.2, 10.4, 10.4);
-        g.fillStyle = '#0e1013'; g.fillRect(cx - 3.3, hy - 3.3, 6.6, 6.6);
-        g.fillStyle = '#6b7280'; g.fillRect(cx - 1.2, hy - 1.2, 2.4, 2.4);
-      }
-    }
   },
   control(part, l) {
     if (l.x >= 15.65 && l.x <= 19.65 && l.y >= -10.5 && l.y <= -5.0) {
@@ -1607,7 +1664,7 @@ register({
     }
     return false;
   },
-  device(part, nets) {
+  device(part, nets, e) {
     if (!part.props.bits) part.props.bits = Array(10).fill(false);
     const vccDev = dev.supply([nets[39 * 4]], 5);
     const gndDev = dev.supply([nets[40 * 4]], 0);
@@ -1633,7 +1690,8 @@ register({
     }
 
     return {
-      timeDependent: true,
+      // Only trigger fine time-stepping if the trainer CLK pin is wired to something.
+      timeDependent: !e || e.isNetConnected(nets[TRAINER_CLK_COL * 4]),
       clkHigh: false,
       ledLevels: new Float32Array(16),
       warning: null,

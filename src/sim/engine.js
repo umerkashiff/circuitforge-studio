@@ -67,7 +67,7 @@ class Stamps {
   anchor(a) { if (a >= 0) this.anchors.push(a); }
 }
 
-function gaussSolve(A, z, n) {
+function gaussSolve(A, z, n, xOut) {
   for (let c = 0; c < n; c++) {
     let piv = c, best = Math.abs(A[c * n + c]);
     for (let r = c + 1; r < n; r++) {
@@ -89,7 +89,7 @@ function gaussSolve(A, z, n) {
       z[r] -= f * z[c];
     }
   }
-  const x = new Float64Array(n);
+  const x = xOut && xOut.length >= n ? xOut : new Float64Array(n);
   for (let r = n - 1; r >= 0; r--) {
     let s = z[r];
     for (let k = r + 1; k < n; k++) s -= A[r * n + k] * x[k];
@@ -152,17 +152,38 @@ export class Engine {
     this.devices = [];
     this.byPart = new Map();
     this.timeDependent = false;
+    this.hasMcu = false;
+    this.hasCap = false;
     this.resistorNets = new Set();   // nets touching a resistor — lets LEDs tell "no resistor" from "resistor too small"
-    for (const [p, def, pins] of partPins) {
-      const pinNets = pins.map(pin => idxOf(key(pin.x, pin.y)));
+
+    // Track nets with wire endpoints or shared across >1 part so optional clocks (e.g. trainer CLK) don't idle-spin the solver.
+    this._wireNets = new Set();
+    for (const w of circuit.wires) {
+      const na = pointNet.get(key(w.a.x, w.a.y));
+      const nb = pointNet.get(key(w.b.x, w.b.y));
+      if (na !== undefined) this._wireNets.add(na);
+      if (nb !== undefined) this._wireNets.add(nb);
+    }
+    this._netPartCount = new Map();
+    const allPartPinNets = partPins.map(([, , pins]) => pins.map(pin => idxOf(key(pin.x, pin.y))));
+    for (const pinNets of allPartPinNets) {
+      const seen = new Set(pinNets);
+      for (const net of seen) this._netPartCount.set(net, (this._netPartCount.get(net) || 0) + 1);
+    }
+
+    for (let idx = 0; idx < partPins.length; idx++) {
+      const [p, def] = partPins[idx];
+      const pinNets = allPartPinNets[idx];
       if (p.type === 'resistor' || p.type === 'pot') for (const n of pinNets) this.resistorNets.add(n);
       let device = null;
       if (def.device) {
-        device = def.device(p, pinNets);
+        device = def.device(p, pinNets, this);
         const old = prevState.get(p.id);
         if (old && old.type === p.type && device.adopt) device.adopt(old);
         device.type = p.type;
         device.part = p;
+        if (p.type === 'capacitor') this.hasCap = true;
+        if (device.rt !== undefined) this.hasMcu = true;
         if (device.timeDependent) this.timeDependent = true;
         this.devices.push(device);
       }
@@ -171,12 +192,37 @@ export class Engine {
 
     this.pointNet = pointNet;
     this.nets = rootIdx.size;
+    const n = this.nets;
+    this._buf = {
+      n,
+      gsum: new Float64Array(n),
+      parent: new Int32Array(n),
+      touched: new Uint8Array(n),
+      isRoot: new Uint8Array(n),
+      local: new Int32Array(n),
+      islandOf: new Int32Array(n),
+      strong: new Int32Array(n),
+      live: new Uint8Array(n),
+      diag1: new Float64Array(n),
+      rhs1: new Float64Array(n),
+      groupHead: new Int32Array(n),
+      groupNext: new Int32Array(n),
+      groupSize: new Int32Array(n),
+      pool: [],
+    };
     const oldV = this.V;
-    this.V = new Float64Array(this.nets).fill(NaN);
-    this.defined = new Uint8Array(this.nets);
+    this.V = new Float64Array(n).fill(NaN);
+    this.defined = new Uint8Array(n);
     if (oldV.length === this.V.length) this.V.set(oldV);
     this.solve();
     for (const d of this.devices) if (d.update) d.update(this.V, this);
+  }
+
+  /** True when a wire or another part connects to this net (unused trainer pins won't spin slow-mo). */
+  isNetConnected(net) {
+    if (net < 0) return false;
+    if (this._wireNets && this._wireNets.has(net)) return true;
+    return !!this._netPartCount && (this._netPartCount.get(net) || 0) > 1;
   }
 
   netAt(x, y) {
@@ -199,16 +245,20 @@ export class Engine {
     for (const d of this.devices) if (d.stamp) d.stamp(S, V, this);
 
     const n = this.nets;
+    const B = this._buf;
     // Total conductance at each net; capacitors use it to estimate their RC time constant.
-    const gsum = new Float64Array(n);
-    for (let k = 0; k < S.g.length; k += 3) { gsum[S.g[k]] += S.g[k + 2]; if (S.g[k + 1] >= 0) gsum[S.g[k + 1]] += S.g[k + 2]; }
+    const gsum = B.gsum; gsum.fill(0);
+    const g = S.g;
+    for (let k = 0; k < g.length; k += 3) { gsum[g[k]] += g[k + 2]; if (g[k + 1] >= 0) gsum[g[k + 1]] += g[k + 2]; }
     this.gsum = gsum;
     // Islands: union nets joined by real conductances.
-    const parent = new Int32Array(n);
+    const parent = B.parent;
+    const touched = B.touched; touched.fill(0);
+    const isRoot = B.isRoot; isRoot.fill(0);
+    const groupHead = B.groupHead; groupHead.fill(-1);
+    const groupSize = B.groupSize; groupSize.fill(0);
     for (let k = 0; k < n; k++) parent[k] = k;
     const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
-    const touched = new Uint8Array(n);
-    const g = S.g;
     for (let k = 0; k < g.length; k += 3) {
       const a = g[k], b = g[k + 1];
       touched[a] = 1;
@@ -218,37 +268,70 @@ export class Engine {
         if (ra !== rb) parent[rb] = ra;
       }
     }
-    const isRoot = new Uint8Array(n);
     for (const r of S.roots) isRoot[find(r)] = 1;
 
-    // Group nodes by island.
-    const groups = new Map();
+    // Group touched nodes by island using zero-alloc linked list.
+    const groupNext = B.groupNext;
+    const local = B.local; local.fill(-1);
+    const islandOf = B.islandOf; islandOf.fill(-1);
+    const diag1 = B.diag1, rhs1 = B.rhs1;
+    let multiCount = 0;
     for (let k = 0; k < n; k++) {
       if (!touched[k]) continue;
       const r = find(k);
-      let arr = groups.get(r);
-      if (!arr) { arr = []; groups.set(r, arr); }
-      arr.push(k);
+      groupNext[k] = groupHead[r];
+      groupHead[r] = k;
+      groupSize[r]++;
     }
-    const local = new Int32Array(n).fill(-1);
-    const islandOf = new Int32Array(n).fill(-1);
-    const mats = new Map();
-    for (const [r, nodes] of groups) {
-      const m = nodes.length;
-      nodes.forEach((node, i) => { local[node] = i; islandOf[node] = r; });
-      const A = new Float64Array(m * m);
-      for (let i = 0; i < m; i++) A[i * m + i] = LEAK;
-      mats.set(r, { nodes, A, z: new Float64Array(m), m });
+
+    const pool = B.pool;
+    const rootToMat = new Map();
+    let poolIdx = 0;
+    for (let r = 0; r < n; r++) {
+      const m = groupSize[r];
+      if (!m) continue;
+      if (m === 1) {
+        const node = groupHead[r];
+        islandOf[node] = -2;
+        diag1[node] = LEAK;
+        rhs1[node] = 0;
+        continue;
+      }
+      multiCount++;
+      let slot = pool[poolIdx];
+      if (!slot) { slot = { nodes: [], A: new Float64Array(m * m), z: new Float64Array(m), x: new Float64Array(m), m: 0 }; pool[poolIdx] = slot; }
+      if (slot.A.length < m * m) slot.A = new Float64Array(m * m);
+      if (slot.z.length < m) { slot.z = new Float64Array(m); slot.x = new Float64Array(m); }
+      slot.m = m;
+      slot.nodes.length = m;
+      const A = slot.A, z = slot.z;
+      A.fill(0, 0, m * m);
+      z.fill(0, 0, m);
+      let i = 0;
+      for (let node = groupHead[r]; node !== -1; node = groupNext[node]) {
+        local[node] = i;
+        islandOf[node] = r;
+        slot.nodes[i] = node;
+        A[i * m + i] = LEAK;
+        i++;
+      }
+      rootToMat.set(r, slot);
+      poolIdx++;
     }
+
     for (const a of S.anchors) {
       const r = islandOf[a];
-      if (r < 0 || isRoot[r]) continue;
-      const M = mats.get(r);
+      if (r === -1) continue;
+      if (r === -2) { if (!isRoot[a]) diag1[a] += 1e-3; continue; }
+      if (isRoot[r]) continue;
+      const M = rootToMat.get(r);
       M.A[local[a] * M.m + local[a]] += 1e-3;
     }
     for (let k = 0; k < g.length; k += 3) {
       const a = g[k], b = g[k + 1], c = g[k + 2];
-      const M = mats.get(islandOf[a]);
+      const ra = islandOf[a];
+      if (ra === -2) { diag1[a] += c; continue; }
+      const M = rootToMat.get(ra);
       const ia = local[a];
       M.A[ia * M.m + ia] += c;
       if (b >= 0) {
@@ -261,20 +344,32 @@ export class Engine {
     const cur = S.i;
     for (let k = 0; k < cur.length; k += 3) {
       const a = cur[k], b = cur[k + 1], i = cur[k + 2];
-      if (a >= 0 && islandOf[a] >= 0) { const M = mats.get(islandOf[a]); M.z[local[a]] -= i; }
-      if (b >= 0 && islandOf[b] >= 0) { const M = mats.get(islandOf[b]); M.z[local[b]] += i; }
+      if (a >= 0) {
+        const ra = islandOf[a];
+        if (ra === -2) rhs1[a] -= i;
+        else if (ra >= 0) rootToMat.get(ra).z[local[a]] -= i;
+      }
+      if (b >= 0) {
+        const rb = islandOf[b];
+        if (rb === -2) rhs1[b] += i;
+        else if (rb >= 0) rootToMat.get(rb).z[local[b]] += i;
+      }
     }
 
     const defined = this.defined;
     defined.fill(0);
     V.fill(NaN);
-    for (const [r, M] of mats) {
-      const x = gaussSolve(M.A, M.z, M.m);
+    for (let k = 0; k < n; k++) {
+      if (islandOf[k] === -2) V[k] = diag1[k] < 1e-300 ? 0 : rhs1[k] / diag1[k];
+    }
+    for (let p = 0; p < multiCount; p++) {
+      const M = pool[p];
+      const x = gaussSolve(M.A, M.z, M.m, M.x);
       // An island is "defined" only if real conductances reach a source.
       for (let i = 0; i < M.m; i++) V[M.nodes[i]] = x[i];
     }
     // Defined = reachable from a source through non-negligible conductances.
-    const strong = new Int32Array(n);
+    const strong = B.strong;
     for (let k = 0; k < n; k++) strong[k] = k;
     const sfind = (a) => { while (strong[a] !== a) { strong[a] = strong[strong[a]]; a = strong[a]; } return a; };
     for (let k = 0; k < g.length; k += 3) {
@@ -284,7 +379,7 @@ export class Engine {
         if (ra !== rb) strong[rb] = ra;
       }
     }
-    const live = new Uint8Array(n);
+    const live = B.live; live.fill(0);
     for (const r of S.roots) live[sfind(r)] = 1;
     for (const a of S.anchors) live[sfind(a)] = 1;
     for (let k = 0; k < n; k++) {
@@ -322,7 +417,7 @@ export class Engine {
 
   /** Time step that resolves the fastest RC constant and clock in the circuit. */
   suggestDt() {
-    let dt = 5e-4;
+    let dt = (this.hasMcu || this.hasCap) ? 5e-4 : 5e-3;
     if (Number.isFinite(this.minTau)) dt = Math.min(dt, this.minTau / 20);
     if (this.maxHz > 0) dt = Math.min(dt, 1 / (40 * this.maxHz));
     return Math.max(2e-6, dt);

@@ -39,14 +39,11 @@ const antiTamperCode = `
     }
   }, true);
 
-  // Anti-debugging loop: triggers if DevTools is opened
-  function _0xdbg() {
-    function _0xt() {
-      (function() {}['constructor']('debugger')());
-    }
-    setInterval(_0xt, 100);
-  }
-  try { _0xdbg(); } catch (err) {}
+  // Anti-debugging loop: hoist compiled Function once to avoid per-tick GC overhead
+  try {
+    var _0xdbgFn = Function('debugger');
+    setInterval(_0xdbgFn, 1000);
+  } catch (err) {}
 
   // Console poisoning: suppress sensitive debugging logs
   try {
@@ -57,8 +54,57 @@ const antiTamperCode = `
 })();
 `;
 
-// 3. Bundle JS using esbuild
-console.log('📦 Bundling JavaScript modules into a single stream...');
+const obfuscatedAntiTamper = JavaScriptObfuscator.obfuscate(antiTamperCode, {
+  compact: true,
+  controlFlowFlattening: true,
+  controlFlowFlatteningThreshold: 0.5,
+  identifierNamesGenerator: 'hexadecimal',
+  stringArray: true,
+  stringArrayEncoding: ['rc4'],
+  splitStrings: true,
+  splitStringsChunkLength: 10,
+  selfDefending: true,
+}).getObfuscatedCode();
+
+// Keep hot MNA math and Canvas2D frame loops at native minified esbuild speed;
+// apply RC4 string encryption & hex obfuscation to the UI, app, parts, and MCU layers.
+const HOT_NATIVE_PATHS = new Set([
+  'src/sim/engine.js',
+  'src/sim/devices.js',
+  'src/view/renderer.js',
+]);
+
+const selectiveObfuscatePlugin = {
+  name: 'selective-obfuscate',
+  setup(build) {
+    build.onLoad({ filter: /\.js$/ }, (args) => {
+      const rel = path.relative(root, args.path).replace(/\\/g, '/');
+      if (!rel.startsWith('src/') || HOT_NATIVE_PATHS.has(rel)) return null;
+      const src = fs.readFileSync(args.path, 'utf8');
+      const obf = JavaScriptObfuscator.obfuscate(src, {
+        compact: true,
+        ignoreImports: true,
+        controlFlowFlattening: false,
+        deadCodeInjection: false,
+        numbersToExpressions: false,
+        selfDefending: false,
+        identifierNamesGenerator: 'hexadecimal',
+        renameGlobals: false,
+        stringArray: true,
+        stringArrayEncoding: ['rc4'],
+        stringArrayThreshold: 0.75,
+        splitStrings: true,
+        splitStringsChunkLength: 10,
+        disableConsoleOutput: false,
+        simplify: true,
+      }).getObfuscatedCode();
+      return { contents: obf, loader: 'js' };
+    });
+  },
+};
+
+// 3. Bundle & selectively obfuscate JS using esbuild
+console.log('📦 Bundling + selectively obfuscating modules into single native-fast stream...');
 const bundleResult = await esbuild.build({
   entryPoints: [path.join(root, 'src', 'main.js')],
   bundle: true,
@@ -66,36 +112,15 @@ const bundleResult = await esbuild.build({
   minify: true,
   sourcemap: false,
   legalComments: 'none',
+  plugins: [selectiveObfuscatePlugin],
   write: false,
 });
 
-const bundledJs = antiTamperCode + '\n' + bundleResult.outputFiles[0].text;
-
-// 4. Heavy Obfuscation using javascript-obfuscator
-console.log('🔒 Applying advanced code obfuscation (string encryption, mangling, control flow)...');
-const obfuscationResult = JavaScriptObfuscator.obfuscate(bundledJs, {
-  compact: true,
-  controlFlowFlattening: true,
-  controlFlowFlatteningThreshold: 0.75,
-  deadCodeInjection: false,
-  identifierNamesGenerator: 'hexadecimal',
-  renameGlobals: false,
-  stringArray: true,
-  stringArrayEncoding: ['base64'],
-  stringArrayThreshold: 0.85,
-  splitStrings: true,
-  splitStringsChunkLength: 10,
-  selfDefending: true,
-  disableConsoleOutput: true,
-  numbersToExpressions: true,
-  simplify: true,
-});
-
-const finalJs = obfuscationResult.getObfuscatedCode();
+const finalJs = obfuscatedAntiTamper + '\n' + bundleResult.outputFiles[0].text;
 const jsHash = crypto.createHash('md5').update(finalJs).digest('hex').slice(0, 8);
 const jsFileName = `app.${jsHash}.js`;
 fs.writeFileSync(path.join(assetsDir, jsFileName), finalJs, 'utf8');
-console.log(`✅ Obfuscated JS generated: assets/${jsFileName} (${(finalJs.length / 1024).toFixed(1)} KB)`);
+console.log(`✅ Built JS: assets/${jsFileName} (${(finalJs.length / 1024).toFixed(1)} KB)`);
 
 // 5. Minify and bundle CSS
 console.log('🎨 Minifying stylesheet...');
