@@ -178,7 +178,8 @@ export class Editor {
     if (part) {
       const def = getDef(part.type);
       const ctrl = def.control ? def.control(part, part.toLocal(w.x, w.y)) : null;
-      if (ctrl === 'press') { part.ui.pressed = true; this.app.stateChanged(true); }
+      if (ctrl === 'press') { part.ui.pressed = true; this.app.stateChanged(!def.staticLinks); }
+      else if (typeof ctrl === 'string' && ctrl.startsWith('press:')) { part.ui.pressKey = ctrl.slice(6); this.app.stateChanged(false); }
       if (ctrl === 'knob') { this.mode = { kind: 'knob', part, v0: part.props.pos }; return; }
       if (!this.selection.has(part.id) && !ctrl) this.select([part.id], e.shiftKey);
       this.mode = { kind: 'partDown', part, ctrl, shift: e.shiftKey, alt: e.altKey };
@@ -202,7 +203,8 @@ export class Editor {
     this.mx = w.x; this.my = w.y;
     this.shift = e.shiftKey;
     const m = this.mode;
-    if (this.downAt && !this.moved && Math.hypot(e.clientX - this.downAt.sx, e.clientY - this.downAt.sy) > DRAG_PX) this.moved = true;
+    const dragPx = m && m.kind === 'partDown' && m.ctrl ? (/^(sw|bit|press:)/.test(m.ctrl) ? 20 : 12) : DRAG_PX;
+    if (this.downAt && !this.moved && Math.hypot(e.clientX - this.downAt.sx, e.clientY - this.downAt.sy) > dragPx) this.moved = true;
 
     if (m && m.kind === 'pan') {
       this.app.cam.x = m.cx + (e.clientX - this.downAt.sx);
@@ -219,7 +221,8 @@ export class Editor {
     if (m && this.moved) {
       if (m.kind === 'wireStart') this.mode = { kind: 'wire', from: m.from, pts: [], dragged: true };
       else if (m.kind === 'partDown') {
-        if (m.ctrl === 'press') { m.part.ui.pressed = false; this.app.stateChanged(true); }
+        if (m.ctrl === 'press') { m.part.ui.pressed = false; this.app.stateChanged(!getDef(m.part.type).staticLinks); }
+        else if (typeof m.ctrl === 'string' && m.ctrl.startsWith('press:')) { m.part.ui.pressKey = null; this.app.stateChanged(false); }
         if (this.sim) { this.mode = { kind: 'pan', cx: this.app.cam.x - (e.clientX - this.downAt.sx), cy: this.app.cam.y - (e.clientY - this.downAt.sy) }; return this.move(e); }
         if (m.part && !this.selection.has(m.part.id)) this.select([m.part.id], m.shift);
         if (m.alt && this.copy()) { this.paste(0, true); }
@@ -271,10 +274,11 @@ export class Editor {
         }
         break;
       case 'partDown':
-        if (m.ctrl === 'press') { m.part.ui.pressed = false; this.app.stateChanged(true); }
+        if (m.ctrl === 'press') { m.part.ui.pressed = false; this.app.stateChanged(!getDef(m.part.type).staticLinks); }
+        else if (typeof m.ctrl === 'string' && m.ctrl.startsWith('press:')) { m.part.ui.pressKey = null; this.app.stateChanged(false); }
         else if (m.ctrl) {
           const def = getDef(m.part.type);
-          if (def.click && def.click(m.part, m.ctrl)) this.app.stateChanged(!!def.links);
+          if (def.click && def.click(m.part, m.ctrl)) this.app.stateChanged(!!def.links && !def.staticLinks);
         }
         this.mode = null;
         break;

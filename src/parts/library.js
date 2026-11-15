@@ -1378,6 +1378,296 @@ register({
   device: (part, nets) => devI2C.bmp180Device(part, nets),
 });
 
+// ---------------------------------------------------------- Lab Trainer ----
+const TRAINER_COLS = [
+  ...Array.from({ length: 16 }, (_, i) => ({ name: 'L' + i, kind: 'led', idx: i })),
+  { name: 'P1', kind: 'pulse', idx: 0, inv: false },
+  { name: "P1'", kind: 'pulse', idx: 0, inv: true },
+  { name: 'P2', kind: 'pulse', idx: 1, inv: false },
+  { name: "P2'", kind: 'pulse', idx: 1, inv: true },
+  { name: 'S0', kind: 'sw', idx: 0, inv: false },
+  { name: 'S1', kind: 'sw', idx: 1, inv: false },
+  ...Array.from({ length: 8 }, (_, k) => {
+    const s = k + 2;
+    return [
+      { name: 'S' + s, kind: 'sw', idx: s, inv: false },
+      { name: "S" + s + "'", kind: 'sw', idx: s, inv: true },
+    ];
+  }).flat(),
+  { name: 'CLK', kind: 'clk' },
+  { name: '+5V', kind: 'vcc' },
+  { name: 'GND', kind: 'gnd' },
+];
+
+const TRAINER_PINS = [];
+const TRAINER_LINKS = [];
+const TRAINER_SUPPLIES = [];
+for (let c = 0; c < TRAINER_COLS.length; c++) {
+  const base = c * 4;
+  const col = TRAINER_COLS[c];
+  for (let r = 0; r < 4; r++) {
+    TRAINER_PINS.push({ x: c, y: r - 3, name: col.name });
+    if (r > 0) TRAINER_LINKS.push([base + r - 1, base + r]);
+    if (col.kind === 'vcc') TRAINER_SUPPLIES.push({ i: base + r, kind: 'V:5' });
+    else if (col.kind === 'gnd') TRAINER_SUPPLIES.push({ i: base + r, kind: 'G' });
+  }
+}
+
+function drawTrainerToggle(g, env, x, y, on, labelStr) {
+  // Mini LED indicator above toggle
+  g.fillStyle = on ? '#22c55e' : '#475569';
+  g.beginPath(); g.arc(x, y - 34, 3, 0, TAU); g.fill();
+  if (on) glow(g, x, y - 34, 9, '34,197,94', 0.9);
+  // Metal hex bushing / mounting nut
+  g.fillStyle = '#9ca3af';
+  g.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = (i * Math.PI) / 3;
+    const vx = x + Math.cos(a) * 9.5, vy = y + Math.sin(a) * 9.5;
+    if (i === 0) g.moveTo(vx, vy); else g.lineTo(vx, vy);
+  }
+  g.closePath(); g.fill();
+  g.strokeStyle = '#6b7280'; g.lineWidth = 0.8; g.stroke();
+  g.fillStyle = '#374151'; g.beginPath(); g.arc(x, y, 5.2, 0, TAU); g.fill();
+  // Bat handle toggle pointing DOWN (on / 1) or UP (off / 0)
+  const tipY = on ? y + 18 : y - 18;
+  g.save();
+  shadow(g, 4, on ? 3 : 2, 0.35);
+  g.strokeStyle = lin(g, x - 4, y, x + 4, tipY, [[0, '#f3f4f6'], [0.5, '#cbd5e1'], [1, '#64748b']]);
+  g.lineWidth = 5.4; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(x, y); g.lineTo(x, tipY); g.stroke();
+  noShadow(g);
+  g.fillStyle = '#f8fafc';
+  g.beginPath(); g.arc(x, tipY, 3.2, 0, TAU); g.fill();
+  g.restore();
+  // Switch label on white trainer strip
+  text(g, env, labelStr, x, y + 46, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+  text(g, env, on ? '1' : '0', x, y + 32, { size: 6.5, color: on ? '#16a34a' : '#64748b', weight: 800, font: MONO });
+}
+
+register({
+  type: 'trainer-board',
+  name: 'Lab Trainer Board',
+  short: 'Trainer',
+  title: 'Digital Logic Trainer (LEDs L0–L15, Switches S0–S9 / S2′–S9′, CLK, +5V, GND)',
+  cat: 'Boards',
+  aliases: ['logic-trainer', 'trainer'],
+  desc: 'Digital trainer panel: 16 State Monitor LEDs (L0–L15), 2 pulse buttons (P1/P1′, P2/P2′), 10 switches (S0–S9) with side-by-side complementary outputs (S2′–S9′), 4 tie sockets per column, CLK, +5V and GND.',
+  defaults: { bits: Array(10).fill(false), hz: 1 },
+  fields: [
+    { key: 'hz', label: 'CLK Frequency', kind: 'select', options: [[0.5, '0.5 Hz'], [1, '1 Hz'], [2, '2 Hz'], [5, '5 Hz'], [10, '10 Hz'], [25, '25 Hz']] },
+  ],
+  pins: () => TRAINER_PINS,
+  links: () => TRAINER_LINKS,
+  staticLinks: true,
+  supply: () => TRAINER_SUPPLIES,
+  bounds: () => [-0.8, -11.3, 40.8, 0.55],
+  draw(g, part, env) {
+    const bits = part.props.bits || [];
+    const d = env.dev;
+    // Upper chassis aluminum panel
+    shadow(g, 10, 4, 0.25);
+    rr(g, -0.7 * U, -11.2 * U, 41.4 * U, 6.45 * U, 6);
+    g.fillStyle = lin(g, 0, -11.2 * U, 0, -4.75 * U, [[0, '#e5e7eb'], [0.5, '#d1d5db'], [1, '#bcc2cc']]);
+    g.fill();
+    noShadow(g);
+    g.strokeStyle = 'rgba(0,0,0,0.18)'; g.lineWidth = 1.2; g.stroke();
+
+    // Panel screws
+    for (const [sx, sy] of [[-0.35, -10.85], [40.35, -10.85], [-0.35, -5.1], [40.35, -5.1]]) {
+      g.fillStyle = '#9ca3af'; g.beginPath(); g.arc(sx * U, sy * U, 3.5, 0, TAU); g.fill();
+      g.strokeStyle = '#6b7280'; g.lineWidth = 0.9;
+      g.beginPath(); g.moveTo(sx * U - 2.2, sy * U - 2.2); g.lineTo(sx * U + 2.2, sy * U + 2.2); g.stroke();
+    }
+
+    // Section dividers on chassis
+    g.strokeStyle = 'rgba(0,0,0,0.14)'; g.lineWidth = 1;
+    for (const dx of [15.5, 19.65, 37.8]) {
+      g.beginPath(); g.moveTo(dx * U, -10.9 * U); g.lineTo(dx * U, -5.0 * U); g.stroke();
+    }
+
+    // 1. State Monitor LEDs (L0..L15) in 2 rows of 8
+    text(g, env, 'STATE MONITORS', 7.45 * U, -10.65 * U, { size: 7.5, color: '#374151', weight: 800, font: MONO });
+    for (let i = 0; i < 16; i++) {
+      const col = i % 8, row = (i / 8) | 0;
+      const lx = (0.95 + col * 1.86) * U;
+      const ly = (-9.45 + row * 2.35) * U;
+      const lvl = d && d.ledLevels ? d.ledLevels[i] : 0;
+      g.fillStyle = '#374151'; g.beginPath(); g.arc(lx, ly, 7.2, 0, TAU); g.fill();
+      if (lvl > 0.02) glow(g, lx, ly, 16, '255,59,48', lvl);
+      g.fillStyle = lvl > 0.02 ? `rgb(255,${Math.round(59 + lvl * 40)},${Math.round(48 + lvl * 20)})` : '#5c1f1f';
+      g.beginPath(); g.arc(lx, ly, 5.2, 0, TAU); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.3)';
+      g.beginPath(); g.arc(lx - 1.5, ly - 1.5, 1.4, 0, TAU); g.fill();
+      text(g, env, 'L' + i, lx, ly + 11.5, { size: 6.5, color: '#1f2937', weight: 700, font: MONO });
+    }
+
+    // 2. Pushbutton Pulsers (P1, P2)
+    text(g, env, 'PUSH SW', 17.6 * U, -10.65 * U, { size: 7.5, color: '#374151', weight: 800, font: MONO });
+    for (let i = 0; i < 2; i++) {
+      const px = (16.65 + i * 1.9) * U, py = -8.4 * U;
+      const pressed = !!(part.ui && part.ui.pressKey === ('p' + (i + 1)));
+      g.fillStyle = pressed ? '#ef4444' : '#475569';
+      g.beginPath(); g.arc(px, py - 24, 2.8, 0, TAU); g.fill();
+      if (pressed) glow(g, px, py - 24, 8, '239,68,68', 0.9);
+      g.fillStyle = '#9ca3af'; g.beginPath(); g.arc(px, py, 11, 0, TAU); g.fill();
+      g.fillStyle = '#4b5563'; g.beginPath(); g.arc(px, py, 8.8, 0, TAU); g.fill();
+      shadow(g, pressed ? 1 : 3, pressed ? 0 : 2, 0.35);
+      g.fillStyle = pressed ? '#b91c1c' : lin(g, px, py - 7, px, py + 7, [[0, '#ef4444'], [1, '#dc2626']]);
+      g.beginPath(); g.arc(px, py, pressed ? 6.4 : 7.0, 0, TAU); g.fill();
+      noShadow(g);
+      text(g, env, 'P' + (i + 1), px, -5.95 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+    }
+
+    // 3. Toggle Switches (S0..S9) + White Strip Labels
+    text(g, env, 'LOGIC SWITCHES', 28.8 * U, -10.65 * U, { size: 7.5, color: '#374151', weight: 800, font: MONO });
+    rr(g, 20.0 * U, -6.35 * U, 17.5 * U, 0.85 * U, 2);
+    g.fillStyle = '#f8fafc'; g.fill();
+    g.strokeStyle = 'rgba(0,0,0,0.12)'; g.lineWidth = 0.8; g.stroke();
+    for (let k = 0; k < 10; k++) {
+      const sx = (20.9 + k * 1.76) * U;
+      drawTrainerToggle(g, env, sx, -8.25 * U, !!bits[k], 'S' + k);
+    }
+
+    // 4. Clock & Power Section
+    text(g, env, 'CLK / PWR', 39.25 * U, -10.65 * U, { size: 6.5, color: '#374151', weight: 800, font: MONO });
+    const clkOn = !!(d && d.clkHigh);
+    g.fillStyle = clkOn ? '#22c55e' : '#374151';
+    g.beginPath(); g.arc(39.25 * U, -9.35 * U, 4.5, 0, TAU); g.fill();
+    if (clkOn) glow(g, 39.25 * U, -9.35 * U, 12, '34,197,94', 1);
+    text(g, env, `${part.props.hz || 1}Hz`, 39.25 * U, -8.35 * U, { size: 6.5, color: '#1f2937', weight: 700, font: MONO });
+    const pwrOn = !!d;
+    g.fillStyle = pwrOn ? '#ef4444' : '#5c1f1f';
+    g.beginPath(); g.arc(39.25 * U, -7.0 * U, 4.5, 0, TAU); g.fill();
+    if (pwrOn) glow(g, 39.25 * U, -7.0 * U, 12, '239,68,68', 0.9);
+    text(g, env, '+5V', 39.25 * U, -5.95 * U, { size: 7, color: '#991b1b', weight: 800, font: MONO });
+
+    // Lower Terminal Socket Strip (4 rows per column)
+    shadow(g, 8, 3, 0.28);
+    rr(g, -0.65 * U, -4.55 * U, 41.3 * U, 5.0 * U, 5);
+    g.fillStyle = lin(g, 0, -4.55 * U, 0, 0.45 * U, [[0, '#272a30'], [1, '#1b1d22']]);
+    g.fill();
+    noShadow(g);
+    g.strokeStyle = 'rgba(255,255,255,0.08)'; g.lineWidth = 1; g.stroke();
+
+    // Label band background
+    rr(g, -0.5 * U, -4.4 * U, 41.0 * U, 1.0 * U, 2);
+    g.fillStyle = '#14161a'; g.fill();
+
+    // Vertical divider ticks between groups on socket strip
+    g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 1.2;
+    for (const gx of [15.5, 19.5, 37.5]) {
+      g.beginPath(); g.moveTo(gx * U, -4.4 * U); g.lineTo(gx * U, 0.35 * U); g.stroke();
+    }
+
+    // Draw 4 sockets + column label for all 41 columns
+    for (let c = 0; c < TRAINER_COLS.length; c++) {
+      const col = TRAINER_COLS[c];
+      const cx = c * U;
+      const lblColor = col.kind === 'led' ? '#fbbf24'
+        : col.kind === 'pulse' ? '#7dd3fc'
+          : col.kind === 'clk' ? '#4ade80'
+            : col.kind === 'vcc' ? '#f87171'
+              : col.kind === 'gnd' ? '#93c5fd'
+                : col.inv ? '#86efac' : '#f8fafc';
+      g.save();
+      g.translate(cx, -3.9 * U);
+      g.rotate((env.rot === 2 || env.rot === 3) ? Math.PI / 2 : -Math.PI / 2);
+      g.font = `700 6.8px ${MONO}`;
+      g.fillStyle = lblColor;
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(col.name, 0, 0);
+      g.restore();
+
+      for (let r = 0; r < 4; r++) {
+        const hy = (r - 3) * U;
+        g.fillStyle = '#383b42'; g.fillRect(cx - 5.2, hy - 5.2, 10.4, 10.4);
+        g.fillStyle = '#0e1013'; g.fillRect(cx - 3.3, hy - 3.3, 6.6, 6.6);
+        g.fillStyle = '#6b7280'; g.fillRect(cx - 1.2, hy - 1.2, 2.4, 2.4);
+      }
+    }
+  },
+  control(part, l) {
+    if (l.x >= 15.65 && l.x <= 19.65 && l.y >= -10.5 && l.y <= -5.0) {
+      for (let i = 0; i < 2; i++) {
+        if (Math.hypot(l.x - (16.65 + i * 1.9), l.y + 8.4) <= 0.95) return 'press:p' + (i + 1);
+      }
+    }
+    if (l.x >= 19.9 && l.x <= 37.7 && l.y >= -10.5 && l.y <= -5.0) {
+      return 'sw' + Math.max(0, Math.min(9, Math.round((l.x - 20.9) / 1.76)));
+    }
+    return null;
+  },
+  click(part, ctrl) {
+    if (typeof ctrl === 'string' && ctrl.startsWith('sw')) {
+      const k = +ctrl.slice(2);
+      if (!part.props.bits) part.props.bits = Array(10).fill(false);
+      part.props.bits[k] = !part.props.bits[k];
+      return true;
+    }
+    return false;
+  },
+  device(part, nets) {
+    if (!part.props.bits) part.props.bits = Array(10).fill(false);
+    const vccDev = dev.supply([nets[39 * 4]], 5);
+    const gndDev = dev.supply([nets[40 * 4]], 0);
+    const sources = [];
+    let clkHigh = false;
+
+    for (let c = 0; c < TRAINER_COLS.length; c++) {
+      const col = TRAINER_COLS[c];
+      const net = nets[c * 4];
+      if (col.kind === 'sw') {
+        sources.push(dev.logicSource(net, () => {
+          const on = !!(part.props.bits && part.props.bits[col.idx]);
+          return col.inv ? !on : on;
+        }));
+      } else if (col.kind === 'pulse') {
+        sources.push(dev.logicSource(net, () => {
+          const on = !!(part.ui && part.ui.pressKey === ('p' + (col.idx + 1)));
+          return col.inv ? !on : on;
+        }));
+      } else if (col.kind === 'clk') {
+        sources.push(dev.logicSource(net, () => clkHigh));
+      }
+    }
+
+    return {
+      timeDependent: true,
+      clkHigh: false,
+      ledLevels: new Float32Array(16),
+      warning: null,
+      reset() {
+        clkHigh = false;
+        this.clkHigh = false;
+        this.ledLevels.fill(0);
+        this.warning = null;
+      },
+      begin(e) {
+        const hz = part.props.hz || 1;
+        clkHigh = ((e.time * hz) % 1) < 0.5;
+        this.clkHigh = clkHigh;
+        e.maxHz = Math.max(e.maxHz, hz);
+      },
+      stamp(S, V, e) {
+        vccDev.stamp(S, V, e);
+        gndDev.stamp(S, V, e);
+        for (const s of sources) s.stamp(S, V, e);
+      },
+      commit(V, dt, e) {
+        vccDev.commit(V, dt, e);
+        gndDev.commit(V, dt, e);
+        this.warning = vccDev.warning || gndDev.warning || null;
+        for (let k = 0; k < 16; k++) {
+          const n = nets[k * 4];
+          const v = n >= 0 && ok(V[n]) ? V[n] : NaN;
+          this.ledLevels[k] = ok(v) && v >= 1.8 ? Math.min(1, 0.35 + 0.65 * Math.min(1, (v - 1.8) / 1.5)) : 0;
+        }
+      },
+    };
+  },
+});
+
 // ---------------------------------------------------------------- Notes ----
 register({
   type: 'label', name: 'Text Label', cat: 'Notes', desc: 'A note on the canvas. Double-click to edit.',
