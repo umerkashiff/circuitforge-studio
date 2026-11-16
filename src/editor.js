@@ -31,6 +31,104 @@ function segDist(px, py, ax, ay, bx, by) {
   return Math.sqrt(x * x + y * y);
 }
 
+function isBenchtopPart(p) {
+  const d = getDef(p.type);
+  return d.cat === 'Instruments' || p.type === 'trainer-board';
+}
+function boxForPart(p, pad = 0) {
+  const b = p.bounds();
+  return { x0: b.x0 - pad, y0: b.y0 - pad, x1: b.x1 + pad, y1: b.y1 + pad };
+}
+function boxForBoard(b, pad = 0) {
+  return { x0: b.x - pad, y0: b.y - pad, x1: b.x + b.w + pad, y1: b.y + b.h + pad };
+}
+function rectsOverlap(a, b) {
+  return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+}
+
+/** Standalone DRC/placement validator reusable by both Editor and headless AI sandboxes. */
+export function findProblems(app, parts, movingBoards = []) {
+  const ix = app.index, c = app.circuit;
+  const ids = new Set(parts.map(p => p.id));
+  const bad = new Map();
+  const badBoxes = [];
+  let msg = null;
+  const flag = (k, why) => { if (!bad.has(k)) bad.set(k, why); if (!msg) msg = why; };
+  const flagBox = (part, why) => {
+    badBoxes.push(part.bounds());
+    for (const q of part.worldPins()) flag(key(q.x, q.y), why);
+    if (!msg) msg = why;
+  };
+
+  for (const p of parts) {
+    if (isBenchtopPart(p)) {
+      const pBoxBoard = boxForPart(p, 0.5);
+      for (const b of c.boards) {
+        if (rectsOverlap(pBoxBoard, boxForBoard(b, 0))) {
+          flagBox(p, 'Benchtop instruments cannot be placed on or touching a breadboard.');
+          break;
+        }
+      }
+      const pBoxPart = boxForPart(p, 0.25);
+      for (const other of c.parts) {
+        if (other.id === p.id || ids.has(other.id)) continue;
+        if (rectsOverlap(pBoxPart, boxForPart(other, 0))) {
+          flagBox(p, 'Instruments cannot overlap other components.');
+          break;
+        }
+      }
+    } else {
+      const pBox = boxForPart(p, 0);
+      for (const inst of c.parts) {
+        if (inst.id === p.id || ids.has(inst.id) || !isBenchtopPart(inst)) continue;
+        if (rectsOverlap(pBox, boxForPart(inst, 0.25))) {
+          flagBox(p, 'Components cannot be placed on top of an instrument.');
+          break;
+        }
+      }
+    }
+
+    const def = getDef(p.type);
+    const pins = p.worldPins();
+    const allowed = new Set((def.links ? def.links(p) : []).map(([i, j]) => i < j ? `${i}-${j}` : `${j}-${i}`));
+    const strips = new Map();
+    for (const q of pins) {
+      const k = key(q.x, q.y);
+      if ((ix.pins.get(k) || []).some(o => !ids.has(o.part.id))) flag(k, 'Those holes are taken by another part.');
+      const hole = ix.holes.get(k);
+      if (hole) {
+        const prev = strips.get(hole.strip);
+        if (prev !== undefined && !allowed.has(prev < q.i ? `${prev}-${q.i}` : `${q.i}-${prev}`) && !def.allowSharedStrip) {
+          const a = pins[prev].name, b = q.name;
+          flag(k, def.ic ? `Pins ${prev + 1} (${a}) and ${q.i + 1} (${b}) would be shorted in one row — place the chip across the centre gap.`
+            : `${a} and ${b} would be shorted together in the same row.`);
+          flag(key(pins[prev].x, pins[prev].y), msg);
+        } else strips.set(hole.strip, q.i);
+      }
+    }
+    for (const s of (def.supply ? def.supply(p) : [])) {
+      const q = pins[s.i];
+      const why = app.supplyClash(q.x, q.y, s.kind, ids);
+      if (why) flag(key(q.x, q.y), why);
+    }
+  }
+
+  if (movingBoards.length) {
+    const bench = c.parts.filter(inst => isBenchtopPart(inst) && !ids.has(inst.id));
+    for (const b of movingBoards) {
+      const bb = boxForBoard(b, 0);
+      for (const inst of bench) {
+        if (rectsOverlap(boxForPart(inst, 0.5), bb)) {
+          badBoxes.push(bb, inst.bounds());
+          if (!msg) msg = 'Benchtop instruments cannot be placed on or touching a breadboard.';
+        }
+      }
+    }
+  }
+
+  return { bad, badBoxes, msg };
+}
+
 export class Editor {
   constructor(app, canvas) {
     this.app = app;
@@ -513,20 +611,10 @@ export class Editor {
   }
 
   // ------------------------------------------------------------ validation --
-  isBenchtop(p) {
-    const d = getDef(p.type);
-    return d.cat === 'Instruments' || p.type === 'trainer-board';
-  }
-  partBoxWorld(p, pad = 0) {
-    const b = p.bounds();
-    return { x0: b.x0 - pad, y0: b.y0 - pad, x1: b.x1 + pad, y1: b.y1 + pad };
-  }
-  boardBoxWorld(b, pad = 0) {
-    return { x0: b.x - pad, y0: b.y - pad, x1: b.x + b.w + pad, y1: b.y + b.h + pad };
-  }
-  boxesOverlap(a, b) {
-    return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
-  }
+  isBenchtop(p) { return isBenchtopPart(p); }
+  partBoxWorld(p, pad = 0) { return boxForPart(p, pad); }
+  boardBoxWorld(b, pad = 0) { return boxForBoard(b, pad); }
+  boxesOverlap(a, b) { return rectsOverlap(a, b); }
 
   /**
    * Why `parts` (or `movingBoards`) can't sit where they are. Checks: landing on another
@@ -535,85 +623,7 @@ export class Editor {
    * overlapping/touching breadboards or components.
    */
   problems(parts, movingBoards = []) {
-    const app = this.app, ix = app.index, c = app.circuit;
-    const ids = new Set(parts.map(p => p.id));
-    const bad = new Map();
-    const badBoxes = [];
-    let msg = null;
-    const flag = (k, why) => { if (!bad.has(k)) bad.set(k, why); if (!msg) msg = why; };
-    const flagBox = (part, why) => {
-      badBoxes.push(part.bounds());
-      for (const q of part.worldPins()) flag(key(q.x, q.y), why);
-      if (!msg) msg = why;
-    };
-
-    for (const p of parts) {
-      if (this.isBenchtop(p)) {
-        const pBoxBoard = this.partBoxWorld(p, 0.5);
-        for (const b of c.boards) {
-          if (this.boxesOverlap(pBoxBoard, this.boardBoxWorld(b, 0))) {
-            flagBox(p, 'Benchtop instruments cannot be placed on or touching a breadboard.');
-            break;
-          }
-        }
-        const pBoxPart = this.partBoxWorld(p, 0.25);
-        for (const other of c.parts) {
-          if (other.id === p.id || ids.has(other.id)) continue;
-          if (this.boxesOverlap(pBoxPart, this.partBoxWorld(other, 0))) {
-            flagBox(p, 'Instruments cannot overlap other components.');
-            break;
-          }
-        }
-      } else {
-        const pBox = this.partBoxWorld(p, 0);
-        for (const inst of c.parts) {
-          if (inst.id === p.id || ids.has(inst.id) || !this.isBenchtop(inst)) continue;
-          if (this.boxesOverlap(pBox, this.partBoxWorld(inst, 0.25))) {
-            flagBox(p, 'Components cannot be placed on top of an instrument.');
-            break;
-          }
-        }
-      }
-
-      const def = getDef(p.type);
-      const pins = p.worldPins();
-      const allowed = new Set((def.links ? def.links(p) : []).map(([i, j]) => i < j ? `${i}-${j}` : `${j}-${i}`));
-      const strips = new Map();
-      for (const q of pins) {
-        const k = key(q.x, q.y);
-        if ((ix.pins.get(k) || []).some(o => !ids.has(o.part.id))) flag(k, 'Those holes are taken by another part.');
-        const hole = ix.holes.get(k);
-        if (hole) {
-          const prev = strips.get(hole.strip);
-          if (prev !== undefined && !allowed.has(prev < q.i ? `${prev}-${q.i}` : `${q.i}-${prev}`) && !def.allowSharedStrip) {
-            const a = pins[prev].name, b = q.name;
-            flag(k, def.ic ? `Pins ${prev + 1} (${a}) and ${q.i + 1} (${b}) would be shorted in one row — place the chip across the centre gap.`
-              : `${a} and ${b} would be shorted together in the same row.`);
-            flag(key(pins[prev].x, pins[prev].y), msg);
-          } else strips.set(hole.strip, q.i);
-        }
-      }
-      for (const s of (def.supply ? def.supply(p) : [])) {
-        const q = pins[s.i];
-        const why = app.supplyClash(q.x, q.y, s.kind, ids);
-        if (why) flag(key(q.x, q.y), why);
-      }
-    }
-
-    if (movingBoards.length) {
-      const bench = c.parts.filter(inst => this.isBenchtop(inst) && !ids.has(inst.id));
-      for (const b of movingBoards) {
-        const bb = this.boardBoxWorld(b, 0);
-        for (const inst of bench) {
-          if (this.boxesOverlap(this.partBoxWorld(inst, 0.5), bb)) {
-            badBoxes.push(bb, inst.bounds());
-            if (!msg) msg = 'Benchtop instruments cannot be placed on or touching a breadboard.';
-          }
-        }
-      }
-    }
-
-    return { bad, badBoxes, msg };
+    return findProblems(this.app, parts, movingBoards);
   }
   liveProblemHint(parts, movingBoards = []) {
     const { msg } = this.problems(parts, movingBoards);
@@ -893,6 +903,7 @@ export class Editor {
       else if (k === 's') { e.preventDefault(); this.app.saveFile(); }
       else if (k === 'o') { e.preventDefault(); this.app.openFile(); }
       else if (k === ',') { e.preventDefault(); this.app.ui.showSettings(); }
+      else if (k === 'k') { e.preventDefault(); this.app.ui.toggleAiTab?.(); }
       else if (k === 'enter') { e.preventDefault(); this.app.setMode(this.sim ? 'build' : 'sim'); }
       else if (k === '0') { e.preventDefault(); this.app.fit(); }
       else if (k === '=' || k === '+') { e.preventDefault(); this.app.zoomBy(1.2); }
@@ -1001,6 +1012,7 @@ export class Editor {
       g.strokeStyle = R.accent; g.lineWidth = 2 / Math.max(z, 1);
       g.beginPath(); g.arc(this.hover.x * P, this.hover.y * P, 6.5, 0, TAU); g.stroke();
     }
+    if (this.app.aiGuide) this.app.aiGuide.drawOverlay(g, env);
   }
   /** Pin names around a hovered chip: compact, translucent, holes underneath always visible. */
   drawPinHalo(g, part, target = -1, wiring = false, env = null) {

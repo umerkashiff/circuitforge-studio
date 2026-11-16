@@ -34,6 +34,9 @@ export const DEFAULTS = {
   sound: true,
   volume: 0.6,
   defaultSpeed: 1,
+  groqKey: '',
+  aiModel: 'openai/gpt-oss-120b',
+  aiMode: 'auto',             // auto | build | guide
 };
 
 export class Settings {

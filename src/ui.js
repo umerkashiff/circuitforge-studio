@@ -6,6 +6,7 @@ import { compile } from './mcu/transpile.js';
 import { COLOR_KEYS } from './editor.js';
 import { ACCENTS, BOARD_COLORS } from './settings.js';
 import { SCOPE_VDIV, SCOPE_TDIV, computeScopeWindow, measureChannelStats, fmtUnits } from './parts/library.js';
+import { mountAiPanel } from './ai/panel.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => {
@@ -63,12 +64,15 @@ export class UI {
     this.toastEl = $('#toast');
     this.menuEl = $('#menu');
     this.insp = $('#inspector-body');
+    this.aiEl = $('#ai-body');
+    this.inspTab = 'inspector';
     this.lastInspect = '';
     this.buildLibrary();
     this.buildToolbar();
     this.bindPaneResizers();
     this.buildAnalyzer();
     this.bindCode();
+    this.buildAiCopilot();
     this.instWins = new Map();
     this.instZ = 10;
     this.instLayer = h('div', { class: 'inst-layer' });
@@ -300,7 +304,38 @@ export class UI {
   closeMenus() { document.querySelectorAll('.popover.open, .menu.open').forEach(e => e.classList.remove('open')); }
 
   // -------------------------------------------------------------- inspector --
-  focusFirstField() { const f = this.insp.querySelector('input, select'); if (f) f.focus(); }
+  buildAiCopilot() {
+    const tabInsp = $('#tab-inspector');
+    const tabAi = $('#tab-ai');
+    if (tabInsp) tabInsp.addEventListener('click', () => this.setInspectorTab('inspector'));
+    if (tabAi) tabAi.addEventListener('click', () => this.setInspectorTab('ai'));
+    if (this.aiEl && this.app.ai) {
+      this._aiCtrl = mountAiPanel(this, this.aiEl);
+    }
+  }
+  syncAiPanel() { this._aiCtrl?.sync(); }
+  setInspectorTab(tab) {
+    this.inspTab = tab === 'ai' ? 'ai' : 'inspector';
+    const isAi = this.inspTab === 'ai';
+    document.body.classList.remove('no-inspector');
+    $('#tab-inspector')?.classList.toggle('on', !isAi);
+    $('#tab-ai')?.classList.toggle('on', isAi);
+    if ($('#tab-inspector')) $('#tab-inspector').setAttribute('aria-selected', String(!isAi));
+    if ($('#tab-ai')) $('#tab-ai').setAttribute('aria-selected', String(isAi));
+    if (this.insp) this.insp.hidden = isAi;
+    if (this.aiEl) this.aiEl.hidden = !isAi;
+    this.syncToolbar();
+    if (isAi) {
+      this._aiCtrl?.sync();
+      setTimeout(() => this._aiCtrl?.focusInput(), 20);
+    }
+  }
+  toggleAiTab() {
+    if (document.body.classList.contains('no-inspector') || this.inspTab !== 'ai') this.setInspectorTab('ai');
+    else this.setInspectorTab('inspector');
+  }
+
+  focusFirstField() { this.setInspectorTab('inspector'); const f = this.insp.querySelector('input, select'); if (f) f.focus(); }
 
   inspect() {
     const app = this.app, ed = app.editor;
@@ -570,6 +605,19 @@ export class UI {
           row('Landing markers', toggle('landingMarks'), 'Green / red dots under pins while dragging.'),
           row('Hole tooltips', toggle('tooltips')),
           row('Ask before deleting', toggle('confirmDelete'))),
+        h('div', { class: 'set-sub' }, 'AI Copilot (Groq)'),
+        box(row('Personal Groq API Key', h('input', {
+          type: 'password',
+          class: 'input',
+          style: 'max-width:210px',
+          placeholder: 'gsk_...',
+          value: st.get('groqKey') || '',
+          onchange: async (e) => {
+            st.set('groqKey', e.target.value.trim());
+            await app.ai?.refreshModels();
+            this.syncAiPanel();
+          },
+        }), 'Optional locally; saved only in this browser. Also editable from the AI Copilot tab.')),
       ],
       Simulation: () => [
         box(row('Wire states', seg('wireStyle', [['recolor', 'Recolor'], ['overlay', 'Overlay'], ['off', 'Off']]), 'Recolor paints each wire by its state: red HIGH, blue LOW, grey dashed = no power.'),
@@ -755,7 +803,7 @@ export class UI {
       ['Wiring', [['drag hole → hole', 'Draw a wire'], ['click, click…', 'Wire with your own bends'], ['⇧ while drawing', 'Straight / routed (opposite of setting)'], ['T', 'Tidy selected (or all) wires'], ['⇧T', 'Auto-route new wires on/off'], ['⌫ while drawing', 'Remove last bend'], ['Esc', 'Cancel']]],
       ['Wire colours', [['R', 'Red'], ['B / K', 'Black'], ['U', 'Blue'], ['G', 'Green'], ['Y', 'Yellow'], ['O', 'Orange'], ['P', 'Purple'], ['W', 'White'], ['1 – 8', 'Same, by number']]],
       ['Parts', [['E / ⇧E', 'Rotate ↻ / ↺'], ['⌥ drag', 'Duplicate while dragging'], ['⌘D', 'Duplicate'], ['⌘C ⌘X ⌘V', 'Copy, cut, paste'], ['← ↑ → ↓', 'Nudge (⇧ = 5 holes)'], ['⌫', 'Delete'], ['↵', 'Open code (boards)'], ['⌘A', 'Select all']]],
-      ['View', [['Ctrl-drag', 'Pan canvas'], ['Trackpad / Scroll', 'Zoom'], ['F or ⌘0', 'Fit to screen'], ['+ / −', 'Zoom'], ['L', 'Logic analyzer'], ['/', 'Search parts']]],
+      ['View', [['Ctrl-drag', 'Pan canvas'], ['Trackpad / Scroll', 'Zoom'], ['F or ⌘0', 'Fit to screen'], ['+ / −', 'Zoom'], ['L', 'Logic analyzer'], ['⌘K', 'AI Copilot'], ['/', 'Search parts']]],
       ['File', [['⌘Z / ⇧⌘Z', 'Undo / redo'], ['⌘S', 'Save (or Upload in the code editor)'], ['⌘O', 'Open']]],
     ];
     const sheet = h('div', { class: 'sheet-back', onclick: (e) => { if (e.target === sheet) sheet.remove(); } },

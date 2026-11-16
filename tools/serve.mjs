@@ -2,6 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import aiHandler from '../api/ai.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,6 +29,15 @@ const server = http.createServer((req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
 
   let urlPath = req.url.split('?')[0].split('#')[0];
+  if (urlPath === '/api/ai') {
+    if (req.method === 'OPTIONS') {
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-groq-key');
+      res.writeHead(204);
+      return res.end();
+    }
+    return aiHandler(req, res);
+  }
   if (urlPath === '/' || urlPath === '') {
     urlPath = '/index.html';
   }

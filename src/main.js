@@ -7,6 +7,8 @@ import { Editor } from './editor.js';
 import { UI } from './ui.js';
 import { getDef } from './parts/registry.js';
 import { Settings } from './settings.js';
+import { AiGuide } from './ai/guide.js';
+import { AiCopilot } from './ai/copilot.js';
 
 const STORE = 'cf.v2.circuit';
 const PROBE_COLORS = ['#ff9f0a', '#30d158', '#0a84ff', '#ff375f', '#bf5af2', '#64d2ff', '#ffd60a', '#ac8e68'];
@@ -88,6 +90,8 @@ class App {
     document.body.dataset.mode = this.mode;
     this.renderer = new Renderer(this, this.canvas);
     this.editor = new Editor(this, this.canvas);
+    this.aiGuide = new AiGuide(this);
+    this.ai = new AiCopilot(this);
     this.ui = new UI(this);
 
     const urlParams = new URLSearchParams(window.location.search);
@@ -112,6 +116,7 @@ class App {
     window.addEventListener('resize', () => this.resize());
     new ResizeObserver(() => this.resize()).observe(this.canvas.parentElement);
     window.addEventListener('beforeunload', () => this.save());
+    this.ai.init().then(() => this.ui.syncAiPanel?.());
     this.last = performance.now();
     requestAnimationFrame((t) => this.frame(t));
     setInterval(() => { this.ui.renderIssues(); this.ui.updatePins(); this.ui.updateBoardLive(); }, 250);
@@ -219,6 +224,7 @@ class App {
     this.ui.inspect();
     this.ui.syncToolbar();
     this.ui.renderProbes();
+    this.aiGuide?.onCircuitChanged();
   }
   /** Interactive state changed (switch flipped, button pressed) — not an undo step. */
   stateChanged(topology) {
@@ -226,6 +232,7 @@ class App {
     if (topology) this.engine.build(this.circuit);
     clearTimeout(this._saveT);
     this._saveT = setTimeout(() => this.save(), 400);
+    this.aiGuide?.onCircuitChanged();
     this.redraw();
   }
   load(json, keepHistory = false) {
@@ -239,6 +246,7 @@ class App {
     this.ui.inspect();
     this.ui.syncToolbar();
     this.ui.renderProbes();
+    this.aiGuide?.onCircuitChanged();
   }
   undo() { const s = this.history.undo(); if (s) this.load(s, true); }
   redo() { const s = this.history.redo(); if (s) this.load(s, true); }
@@ -466,6 +474,7 @@ class App {
       if (buzzing) this.audio.tone(hz || 2300); else this.audio.stopTone();
       this.dirty = true;
     } else if (this.mode !== 'sim') this.audio.stopTone();
+    if (this.aiGuide?.activeStep) this.dirty = true;
     if (this.dirty) {
       this.dirty = false;
       this.renderer.draw();

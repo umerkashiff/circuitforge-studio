@@ -130,7 +130,17 @@
     </section>
   </main>
 
-  <aside class="inspector" id="inspector"><div class="pane-resizer insp-resizer" id="insp-resizer" title="Drag to resize Inspector · Double-click to reset"></div><div id="inspector-body"></div></aside>
+  <aside class="inspector" id="inspector">
+    <div class="pane-resizer insp-resizer" id="insp-resizer" title="Drag to resize Inspector · Double-click to reset"></div>
+    <div class="insp-tabs" role="tablist">
+      <button class="insp-tab on" id="tab-inspector" role="tab" aria-selected="true">Inspector</button>
+      <button class="insp-tab" id="tab-ai" role="tab" aria-selected="false" title="AI Copilot (⌘K)">
+        <span class="ai-spark">✦</span> AI Copilot
+      </button>
+    </div>
+    <div id="inspector-body"></div>
+    <div id="ai-body" class="ai-body" hidden></div>
+  </aside>
 
   <div id="tip" class="tip"></div>
   <div id="toast" class="toast"></div>
