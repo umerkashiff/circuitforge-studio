@@ -111,7 +111,7 @@ export class Editor {
     cv.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
     cv.addEventListener('contextmenu', (e) => { e.preventDefault(); this.context(e); });
     cv.addEventListener('dblclick', (e) => this.dblclick(e));
-    cv.addEventListener('pointerleave', () => { this.hover = null; this.hoverNet = -1; this.hoverPart = null; this.app.ui.tip(null); this.app.redraw(); });
+    cv.addEventListener('pointerleave', () => this.clearHover());
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Control' || e.key === 'Meta') { this.ctrl = true; this.cursor(); }
       this.key(e);
@@ -211,6 +211,11 @@ export class Editor {
   }
 
   move(e) {
+    const overCanvas = e.target === this.cv;
+    if (!overCanvas && !this.mode) {
+      this.clearHover();
+      return;
+    }
     const w = this.toWorld(e.clientX, e.clientY);
     this.mx = w.x; this.my = w.y;
     this.shift = e.shiftKey;
@@ -249,7 +254,7 @@ export class Editor {
       if (mm.kind === 'place') { this.positionGhost(); this.liveProblemHint(mm.ghost ? [mm.ghost] : [], mm.board ? [mm.board] : []); }
       else if (mm.kind === 'drag') this.dragTo(w);
       else if (mm.kind === 'wireEnd') {
-        const pt = this.pointAt(w.x, w.y, mm.wire[mm.end]);
+        const pt = overCanvas ? this.pointAt(w.x, w.y, mm.wire[mm.end]) : null;
         mm.wire[mm.end].x = pt ? pt.x : w.x; mm.wire[mm.end].y = pt ? pt.y : w.y;
       } else if (mm.kind === 'bend') {
         mm.wire.pts[mm.i] = { x: Math.round(w.x * 2) / 2, y: Math.round(w.y * 2) / 2 };
@@ -278,6 +283,7 @@ export class Editor {
         break;
       case 'wire':
         if (m.dragged) {
+          if (e.target !== this.cv) { this.cancel(); break; }
           const pt = this.pointAt(w.x, w.y);
           if (pt && !(pt.x === m.from.x && pt.y === m.from.y)) this.finishWire(pt);
           else if (!pt) { m.dragged = false; m.pts.push({ x: Math.round(w.x), y: Math.round(w.y) }); this.app.ui.hint('Click to add bends · click a hole or pin to finish · Esc to cancel'); }
@@ -296,7 +302,7 @@ export class Editor {
         break;
       case 'drag': this.endDrag(); break;
       case 'wireEnd': {
-        const pt = this.pointAt(w.x, w.y, m.wire[m.end]);
+        const pt = e.target === this.cv ? this.pointAt(w.x, w.y, m.wire[m.end]) : null;
         const other = m.end === 'a' ? m.wire.b : m.wire.a;
         const why = pt && this.app.shortReason(pt, other, m.wire);
         if (pt && !why) { m.wire[m.end] = this.endFor(pt); this.app.commit('Move wire end'); }
@@ -390,7 +396,21 @@ export class Editor {
     if (this.app.ui.updateInstrumentWindows) this.app.ui.updateInstrumentWindows();
   }
 
+  clearHover() {
+    const had = !!(this.hover || this.hoverNet !== -1 || this.hoverPart || this.haloTarget);
+    this.hover = null;
+    this.hoverNet = -1;
+    this.hoverPart = null;
+    this.haloTarget = null;
+    this.app.ui.tip(null);
+    if (had) this.app.redraw();
+  }
+
   updateHover(e) {
+    if (e && e.target !== this.cv) {
+      this.clearHover();
+      return;
+    }
     const m = this.mode;
     const ignore = m && m.kind === 'wireEnd' ? m.wire[m.end] : null;
     let pt = this.pointAt(this.mx, this.my, ignore);
