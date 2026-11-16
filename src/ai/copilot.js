@@ -125,14 +125,17 @@ export class AiCopilot {
       let guideSummary = null;
       let selfFixed = false;
 
-      // If caller forced build/guide mode (or model declared it) but omitted parts/connections, retry once asking for JSON build arrays
+      // Only retry for missing JSON build arrays when the model declared build/guide OR the prompt actually requests hardware work
       const explicitAction = activeMode === 'build' || activeMode === 'guide';
-      const wantsOps = explicitAction || parsed.intent === 'build' || parsed.intent === 'guide';
-      const refuses = /sorry|cannot|can't|comply|clarify|understand/i.test(String(parsed.reply || ''));
-      if (wantsOps && !this._hasBuildOperations(parsed) && !(explicitAction && refuses && !this.app.circuit.parts.length)) {
+      const modelDeclaredOps = parsed.intent === 'build' || parsed.intent === 'guide';
+      const refuses = /sorry|cannot|can't|comply|clarify|understand|off[- ]topic|non[- ]circuit|assist with electronics|circuitforge ai/i.test(String(parsed.reply || ''));
+      const hardwareRequest = /\b(build|make|create|wire|connect|add|remove|delete|fix|repair|update|change|modify|guide|walk|step|555|ne555|led|resistor|capacitor|gate|nand|nor|and|or|xor|adder|mux|decoder|encoder|counter|flip|arduino|uno|nano|esp32|scope|oscilloscope|funcgen|psu|circuit|boolean|truth|lab|pin|breadboard|ic|chip|switch)\b/i.test(prompt);
+      const wantsOps = modelDeclaredOps || (explicitAction && hardwareRequest && !refuses);
+      if (wantsOps && !this._hasBuildOperations(parsed)) {
+        const retryMode = explicitAction ? activeMode : effectiveIntent;
         const opsRetry = await this._tryFollowUp(
           res, llmMessages,
-          `You chose intent="${effectiveIntent}" but omitted "parts" and "connections" arrays! Output the complete STRICT JSON including all "parts" and 2-element "connections" arrays (and "steps" if guide).`,
+          `You chose intent="${retryMode}" but omitted "parts" and "connections" arrays! Output the complete STRICT JSON including all "parts" and 2-element "connections" arrays (and "steps" if guide).`,
         );
         if (opsRetry) {
           res = opsRetry;
@@ -271,9 +274,11 @@ export class AiCopilot {
   }
 
   _resolveIntent(parsed, activeMode) {
-    if (activeMode === 'build' || activeMode === 'guide') return activeMode;
     const raw = String(parsed?.intent || '').toLowerCase();
     const hasOps = this._hasBuildOperations(parsed);
+    if ((activeMode === 'build' || activeMode === 'guide') && (hasOps || raw === 'build' || raw === 'guide')) {
+      return activeMode;
+    }
     if ((raw === 'build' || raw === 'guide') && !hasOps) return 'analyze';
     if (raw === 'build' || raw === 'guide' || raw === 'analyze') return raw;
     return hasOps ? 'build' : 'analyze';

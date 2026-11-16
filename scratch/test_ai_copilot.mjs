@@ -644,4 +644,51 @@ assert.equal(deadCombo.ok, false);
 assert.match(deadCombo.errors.join(' '), /Combinational logic check failed/);
 console.log('   [PASS] Universal pin disambiguation, IC floating DRC, output contention, Boolean & 7474 liveness checks passed.');
 
+console.log('12. Testing Unloaded 555 Load Removal & Off-Topic Chat in Build Mode...');
+// Build a 555 astable + LED, then remove LED + its series resistor so ne555.OUT is legitimately open
+const astBuild = applyAiBuildPlan(app, {
+  clearExisting: true,
+  board: 'half',
+  parts: [
+    { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'U1', type: 'ne555' },
+    { ref: 'R1', type: 'resistor', props: { ohms: 10000 } }, { ref: 'R2', type: 'resistor', props: { ohms: 47000 } },
+    { ref: 'C1', type: 'capacitor', props: { uf: 10 } },
+    { ref: 'R3', type: 'resistor', props: { ohms: 330 } }, { ref: 'D1', type: 'led' },
+  ],
+  connections: [
+    ['V1.1', '+'], ['G1.1', '-'], ['U1.VCC', '+'], ['U1.GND', '-'], ['U1.RESET', '+'],
+    ['R1.1', '+'], ['R1.2', 'U1.DIS'], ['R2.1', 'U1.DIS'], ['R2.2', 'U1.THR'],
+    ['U1.TRIG', 'U1.THR'], ['C1.1', 'U1.THR'], ['C1.2', '-'],
+    ['U1.OUT', 'R3.1'], ['R3.2', 'D1.A'], ['D1.K', '-'],
+  ],
+});
+assert.equal(astBuild.ok, true);
+const r3RealId = astBuild.placedParts.find(p => p.ref === 'R3').partId;
+const d1RealId = astBuild.placedParts.find(p => p.ref === 'D1').partId;
+const rmLedRes = applyAiBuildPlan(app, {
+  clearExisting: false,
+  remove: [d1RealId, r3RealId],
+  connections: [],
+});
+assert.equal(rmLedRes.ok, true, 'Removing LED & its resistor leaving ne555.OUT open must pass: ' + JSON.stringify(rmLedRes.errors));
+
+// Off-topic prompt in Build mode on non-empty board must NOT trigger forced build retry or errors
+const origFetchSave = globalThis.fetch;
+let chatCalls = 0;
+globalThis.fetch = async () => {
+  chatCalls++;
+  return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"intent":"analyze","reply":"I am an electronics assistant — ask me about circuits!"}' } }] }) };
+};
+try {
+  const chatCop = new AiCopilot(copApp);
+  chatCop.hasServerKey = true;
+  const chatRes = await chatCop.ask('hello there', 'build');
+  assert.equal(chatCalls, 1, 'Off-topic/greeting in Build mode must NOT fire forced build follow-up');
+  assert.equal(chatRes.intent, 'analyze');
+  assert.equal(chatRes.meta?.build, null);
+} finally {
+  globalThis.fetch = origFetchSave;
+}
+console.log('   [PASS] Unloaded 555 removal & non-circuit chat in Build mode passed.');
+
 console.log('\nALL AI COPILOT AUTOMATED TESTS PASSED 100%!');

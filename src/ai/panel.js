@@ -230,7 +230,7 @@ export function mountAiPanel(ui, container) {
           actionHtml = `<div class="ai-action err">⚠ Guide check failed: ${esc((g.errors || []).join('; '))}</div>`;
         }
 
-        const warnHtml = (b?.warnings?.length)
+        const warnHtml = (b?.ok && b?.warnings?.length)
           ? `<div class="ai-action warn">${esc(b.warnings.slice(0, 2).join(' · '))}</div>`
           : '';
 

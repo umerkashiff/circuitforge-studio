@@ -635,7 +635,7 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
       if (nDis >= 0 && supplyNets.has(nDis)) {
         errors.push(`ne555 ("${tag}") DIS (pin 7) must NOT be wired directly to +5V or GND (connect R1 from + to DIS and R2 from DIS to THR).`);
       }
-      for (const [idx, nm] of [[1, 'TRIG'], [2, 'OUT'], [5, 'THR']]) {
+      for (const [idx, nm] of [[1, 'TRIG'], [5, 'THR']]) {
         const pn = ent.pinNets?.[idx] ?? -1;
         if (pn >= 0 && !sim.isNetConnected(pn)) {
           errors.push(`ne555 ("${tag}") ${nm} pin is unconnected — for astable, tie THR to TRIG, R1(+->DIS), R2(DIS->THR), C(THR->-), RESET->+.`);
