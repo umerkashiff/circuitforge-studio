@@ -78,10 +78,15 @@ export class AiCopilot {
     try { this.onChange?.(); } catch { /* UI hook */ }
 
     try {
-      const recentHistory = this.history.slice(-6);
+      const snapshotObj = serializeCircuitState(this.app);
+      const snapshot = JSON.stringify(snapshotObj);
+      const recentHistory = snapshot.length > 3500 ? this.history.slice(-2) : this.history.slice(-6);
+      const prevUserText = this.messages.slice(0, -1).reverse().find(m => m.role === 'user')?.text || '';
+      const verifyPrompt = (prompt.length < 65 && /\b(meant|instead|not oled|not arduino|lit|square|shape|smiley)\b/i.test(prompt) && prevUserText)
+        ? `${prevUserText}\n${prompt}`
+        : prompt;
       const queryContext = `${prompt} ${recentHistory.map(m => m.content).join(' ')}`;
       const systemPrompt = buildSystemPrompt({ mode: activeMode, query: queryContext, app: this.app });
-      const snapshot = JSON.stringify(serializeCircuitState(this.app));
       const userPayload = `CIRCUIT_STATE:\n${snapshot}\n\nUSER_REQUEST:\n${prompt}`;
 
       const llmMessages = [
@@ -180,7 +185,7 @@ export class AiCopilot {
 
       const MAX_REPAIRS = 2;
       if (effectiveIntent === 'build' && this._hasBuildOperations(parsed)) {
-        buildSummary = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true, prompt });
+        buildSummary = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true, prompt: verifyPrompt });
         for (let attempt = 0; attempt < MAX_REPAIRS && !buildSummary.ok && buildSummary.errors?.length; attempt++) {
           const powerHint = buildSummary.errors.some(e => /no power|vcc|gnd/i.test(e))
             ? '\nHint: Breadboard "+"/"-" rails need BOTH a "vcc" part wired to "+" AND a "gnd" part wired to "-", and every IC VCC->"+" and GND->"-".'
@@ -191,12 +196,12 @@ export class AiCopilot {
           res = retry;
           if (!retry.parsed) continue;
           parsed = retry.parsed;
-          buildSummary = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true, prompt });
+          buildSummary = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true, prompt: verifyPrompt });
           if (buildSummary.ok) selfFixed = true;
         }
       } else if (effectiveIntent === 'guide' && this._hasBuildOperations(parsed)) {
         const title = parsed.title || prompt.slice(0, 48);
-        guideSummary = this.app.aiGuide.start(parsed, title, { prompt });
+        guideSummary = this.app.aiGuide.start(parsed, title, { prompt: verifyPrompt });
         for (let attempt = 0; attempt < MAX_REPAIRS && !guideSummary.ok && guideSummary.errors?.length; attempt++) {
           const fixPrompt = `Your previous guided circuit JSON failed verification:\nErrors:\n- ${guideSummary.errors.join('\n- ')}\n\nFix ONLY these problems using EXACT pin names from the schemas and output complete STRICT JSON objects (parts as {"ref","type","props"}, connections, steps).`;
           const retry = await this._tryFollowUp(res, llmMessages, fixPrompt);
@@ -204,7 +209,7 @@ export class AiCopilot {
           res = retry;
           if (!retry.parsed) continue;
           parsed = retry.parsed;
-          guideSummary = this.app.aiGuide.start(parsed, title, { prompt });
+          guideSummary = this.app.aiGuide.start(parsed, title, { prompt: verifyPrompt });
           if (guideSummary.ok) selfFixed = true;
         }
       }

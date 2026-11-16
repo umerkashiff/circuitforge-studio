@@ -228,10 +228,10 @@ export async function callGroq({
   if (!candidates.length) candidates.push(PREFERRED_MODELS[0]);
 
   const totalChars = (messages || []).reduce((acc, m) => acc + String(m?.content || '').length + 24, 0);
-  const estInputTokens = Math.ceil(totalChars / 3.0) + 120;
+  const estInputTokens = Math.ceil(totalChars / 2.2) + 180;
   const adaptiveMax = maxTokens !== null
     ? maxTokens
-    : Math.min(3500, Math.max(900, 7200 - estInputTokens));
+    : Math.min(3500, Math.max(350, 7700 - estInputTokens));
 
   let lastErr = null;
   let lastRateLimitErr = null;

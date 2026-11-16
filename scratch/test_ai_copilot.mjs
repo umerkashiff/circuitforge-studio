@@ -792,4 +792,41 @@ assert.equal(new Set(gridLeds.map(p => p.x)).size, 3, 'Must occupy 3 distinct X 
 assert.equal(new Set(gridLeds.map(p => p.y)).size, 3, 'Must occupy 3 distinct Y rows in 3x3 square');
 console.log('   [PASS] 2D 3x3 LED grid placement & static smiley pattern check passed.');
 
+console.log('15. Testing Unpowered LED Rejection, 5x5 Auto-Grid Fallback & Large-Circuit TPM Cap...');
+// Unpowered LED array (missing vcc/gnd parts) must be rejected cleanly
+const noPowerLeds = applyAiBuildPlan(app, {
+  clearExisting: true,
+  board: 'half',
+  parts: [{ ref: 'D1', type: 'led' }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }],
+  connections: [['+', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', '-']],
+}, { prompt: 'i meant leds not oled' });
+assert.equal(noPowerLeds.ok, false, 'Circuit with LEDs and missing VCC/GND parts must fail');
+assert.match(noPowerLeds.errors.join(' '), /NO power supply/);
+
+// Powered 5x5 square where LLM omitted row/col must auto-grid into 5x5 and pass when smiley LEDs lit
+const lit5 = new Set(['1,1', '1,3', '3,0', '3,4', '4,1', '4,2', '4,3']);
+const p5 = [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }];
+const c5 = [['V1.1', '+'], ['G1.1', '-']];
+for (let r = 0; r < 5; r++) {
+  for (let c = 0; c < 5; c++) {
+    p5.push({ ref: `L${r}${c}`, type: 'led' });
+    if (lit5.has(`${r},${c}`)) {
+      p5.push({ ref: `R${r}${c}`, type: 'resistor', props: { ohms: 220 } });
+      c5.push(['+', `R${r}${c}.1`], [`R${r}${c}.2`, `L${r}${c}.A`], [`L${r}${c}.K`, '-']);
+    } else {
+      c5.push([`L${r}${c}.A`, '-'], [`L${r}${c}.K`, '-']);
+    }
+  }
+}
+const auto5x5 = applyAiBuildPlan(app, { clearExisting: true, board: 'full', parts: p5, connections: c5 }, { prompt: 'place leds in a square 5x5 smiley face' });
+assert.equal(auto5x5.ok, true, 'Auto-gridded 5x5 smiley must succeed: ' + JSON.stringify(auto5x5.errors));
+const leds5 = auto5x5.placedParts.filter(p => p.type === 'led');
+assert.equal(new Set(leds5.map(p => p.x)).size, 5, '5x5 must auto-arrange across 5 distinct X cols');
+assert.equal(new Set(leds5.map(p => p.y)).size, 5, '5x5 must auto-arrange across 5 distinct Y rows');
+
+// Serializing a huge 5x5 (34 parts + 25+ wires) board must fit cleanly inside 4800 chars (never TPM 9271!)
+const hugeSnap = JSON.stringify(serializeCircuitState(app));
+assert.ok(hugeSnap.length <= 4850, `Large board snapshot too large (${hugeSnap.length} chars) — risks Groq 8k TPM overflow`);
+console.log(`   [PASS] Unpowered rejection, 5x5 auto-grid & large-board serialization cap (${hugeSnap.length} chars) passed.`);
+
 console.log('\nALL AI COPILOT AUTOMATED TESTS PASSED 100%!');

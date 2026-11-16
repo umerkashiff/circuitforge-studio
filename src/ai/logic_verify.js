@@ -623,23 +623,29 @@ export function verifyCombinationalSwitchLiveness(sim, circuit) {
   return [];
 }
 
-/** Verify static LED visual patterns (e.g. smiley face, heart, arrow) aren't all lit or all dark. */
+/** Verify static LED circuits actually light up and pattern/shape prompts don't light 100% identically. */
 export function verifyStaticLedPattern(prompt, sim, circuit) {
   const txt = String(prompt || '');
-  if (!/\b(smiley|smile|face|heart|arrow|cross|checker|shape|pattern|unlit|off)\b/i.test(txt)) return [];
   const hasDynamic = circuit.parts.some(p => ['toggle', 'button', 'dip4', 'dip8', 'clock', 'ne555', 'uno', 'nano', 'esp32', 'esp32s3', 'bluepill'].includes(p.type));
   if (hasDynamic) return [];
-  const leds = circuit.parts.filter(p => p.type === 'led');
-  if (leds.length < 4) return [];
+  const wiredLeds = circuit.parts.filter(p => {
+    if (p.type !== 'led') return false;
+    const ent = sim.byPart.get(p.id);
+    return ent && sim.isNetConnected(ent.pinNets[0]) && sim.isNetConnected(ent.pinNets[1]);
+  });
+  if (wiredLeds.length < 1) return [];
 
   let lit = 0;
-  let dark = 0;
-  for (const led of leds) {
+  for (const led of wiredLeds) {
     const mA = (sim.byPart.get(led.id)?.device?.cur?.[0] || 0) * 1000;
-    if (mA > 0.5) lit++; else dark++;
+    if (mA > 0.5) lit++;
   }
-  if (lit === leds.length || dark === leds.length) {
-    return [`Visual LED pattern check failed: ${lit}/${leds.length} LEDs are ${lit ? 'lit' : 'off'}! Wire ONLY the active pattern pixels to + (via 220Ω resistors) and wire unlit/background LEDs to "-" (not "+") so the shape actually appears.`];
+  if (lit === 0) {
+    return [`None of the ${wiredLeds.length} wired LED(s) lit up (all 0 mA)! Check that "vcc"->"+", "gnd"->"-", and LED Anodes reach "+" (via resistor) and Cathodes reach "-".`];
+  }
+  const allLeds = circuit.parts.filter(p => p.type === 'led');
+  if (allLeds.length >= 4 && lit === allLeds.length && /\b(smiley|smile|face|heart|arrow|cross|checker|shape|pattern|unlit|off)\b/i.test(txt)) {
+    return [`Visual LED pattern check failed: all ${allLeds.length}/${allLeds.length} LEDs are lit! Wire ONLY active pattern pixels to + (via 220Ω resistors) and tie unlit background LEDs to "-" so the shape actually appears.`];
   }
   return [];
 }

@@ -642,8 +642,13 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
       if (n >= 0) supplyNets.add(n);
     }
   }
-  const hasVccPart = app.circuit.parts.some(p => p.type === 'vcc' || p.type === 'power-supply' || getDef(p.type).mcu || p.type === 'trainer-board');
-  const hasGndPart = app.circuit.parts.some(p => p.type === 'gnd' || p.type === 'power-supply' || getDef(p.type).mcu || p.type === 'trainer-board');
+  const hasVccPart = app.circuit.parts.some(p => p.type === 'vcc' || p.type === 'battery' || p.type === 'power-supply' || getDef(p.type).mcu || p.type === 'trainer-board');
+  const hasGndPart = app.circuit.parts.some(p => p.type === 'gnd' || p.type === 'battery' || p.type === 'power-supply' || getDef(p.type).mcu || p.type === 'trainer-board');
+  const needsSupply = app.circuit.parts.some(p => ['led', 'buzzer', 'seg7', 'bargraph', 'ne555', 'board-ssd1306', 'wokwi-lcd1602'].includes(p.type) || getDef(p.type).ic);
+  if (!incremental && needsSupply && (!hasVccPart || !hasGndPart)) {
+    const missingBoth = !hasVccPart && !hasGndPart ? 'BOTH "vcc" (wired to "+") AND "gnd" (wired to "-")' : (!hasVccPart ? '"vcc" wired to "+"' : '"gnd" wired to "-"');
+    errors.push(`Breadboard has NO power supply! Add ${missingBoth} so the LEDs/components have power.`);
+  }
   for (const p of app.circuit.parts) {
     const ent = sim.byPart.get(p.id);
     if (!ent) continue;
@@ -882,6 +887,21 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
 
     // Track breadboard allocation state (seeding existing occupied strips)
     const b0 = app.circuit.boards[0];
+    // Auto-assign 2D row/col grid coordinates if prompt asks for a square/NxM LED array and LLM omitted row/col
+    const ledSpecsNoGrid = rawParts.filter(s => {
+      const rt = resolvePartType(s.type, s.props)?.type;
+      return rt === 'led' && !(Number.isInteger(s.row) && Number.isInteger(s.col));
+    });
+    if (ledSpecsNoGrid.length >= 4 && ledSpecsNoGrid.length <= 25 && /\b(\d+\s*[x×]\s*\d+|square|grid|matrix)\b/i.test(prompt)) {
+      const mGrid = /\b(\d+)\s*[x×]\s*(\d+)\b/i.exec(prompt);
+      let gCols = mGrid ? parseInt(mGrid[2], 10) : Math.round(Math.sqrt(ledSpecsNoGrid.length));
+      if (gCols >= 2 && gCols <= 6 && (!mGrid || parseInt(mGrid[1], 10) * gCols === ledSpecsNoGrid.length) && (mGrid || gCols * gCols === ledSpecsNoGrid.length)) {
+        ledSpecsNoGrid.forEach((sp, idx) => {
+          sp.row = Math.floor(idx / gCols);
+          sp.col = idx % gCols;
+        });
+      }
+    }
     const gridRows = rawParts.filter(s => Number.isInteger(s.row) && Number.isInteger(s.col));
     const layoutState = {
       icCol: 3,
