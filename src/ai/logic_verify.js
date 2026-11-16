@@ -338,6 +338,17 @@ export function verifyFloatingIcInputs(sim, circuit, refById = null) {
       const u2Used = [8, 9, 10, 11, 12, 13].some(conn);
       if (u1Used && !conn(0)) errors.push(`${p.type} ("${tag}") 1G enable is floating — wire "${tag}.1G" to "-".`);
       if (u2Used && !conn(14)) errors.push(`${p.type} ("${tag}") 2G enable is floating — wire "${tag}.2G" to "-".`);
+    } else if (p.type === 'ic7493' || p.type === 'ic7490') {
+      const nR1 = ent.pinNets?.[1] ?? -1;
+      const nR2 = ent.pinNets?.[2] ?? -1;
+      const vR1 = nR1 >= 0 ? sim.voltage(nR1) : NaN;
+      const vR2 = nR2 >= 0 ? sim.voltage(nR2) : NaN;
+      if (vR1 >= 3.0 && vR2 >= 3.0 && sim.netAt !== null) {
+        const usedClkOrOut = conn(0) || conn(13) || conn(11) || conn(8) || conn(7) || conn(10);
+        if (usedClkOrOut) {
+          errors.push(`${p.type} ("${tag}") active-HIGH reset pins R0(1) and R0(2) are BOTH HIGH — this freezes the counter at 0 forever! Wire R0(1) and R0(2) to "-" to count (or decode count bits).`);
+        }
+      }
     }
   }
   return errors;

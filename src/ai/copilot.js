@@ -103,10 +103,28 @@ export class AiCopilot {
         this.app.settings.set('aiModel', res.modelUsed);
       }
 
+      let selfFixed = false;
+      const explicitAction = activeMode === 'build' || activeMode === 'guide';
+      const hardwareRequest = /\b(build|make|create|wire|connect|add|remove|delete|fix|repair|update|change|modify|guide|walk|step|555|ne555|led|resistor|capacitor|gate|nand|nor|and|or|xor|adder|mux|decoder|encoder|counter|flip|arduino|uno|nano|esp32|scope|oscilloscope|funcgen|psu|circuit|boolean|truth|lab|pin|breadboard|ic|chip|switch|oled|lcd|display|matrix|name|text)\b/i.test(prompt);
+
+      // Recover truncated JSON responses first (including truncated rawText where parsed was null!)
+      if (res.truncated && (explicitAction || hardwareRequest || res.parsed?.intent === 'build' || res.parsed?.intent === 'guide') && !this._hasBuildOperations(res.parsed)) {
+        const compactRetry = await this._tryFollowUp(
+          res, llmMessages,
+          'Your previous JSON was cut off before finishing! Output MINIFIED SINGLE-LINE STRICT JSON with NO "steps" or empty fields, brief 1-sentence "reply", all "parts", and all "connections". If an array of discrete LEDs/parts (>16 LEDs or text display) would not fit a 63-col breadboard cleanly, use `uno` + `board-ssd1306` OLED (or `wokwi-lcd1602`) instead!',
+          { reasoningEffort: 'low' },
+        );
+        if (compactRetry) {
+          res = compactRetry;
+          if (compactRetry.parsed && this._hasBuildOperations(compactRetry.parsed)) selfFixed = true;
+        }
+      }
+
       if (!res.parsed && res.truncated) {
+        const sameModel120b = /^openai\/gpt-oss-120b/i.test(res.modelUsed);
         const msgText = res.partialReply
-          ? `${res.partialReply}\n\n*(Response hit the token limit — try splitting into smaller steps or switching model.)*`
-          : 'Response hit the output token limit before finishing. Try a simpler request or build one section at a time.';
+          ? `${res.partialReply}\n\n*(Response hit the token limit${sameModel120b ? '' : ' — try switching to openai/gpt-oss-120b'} or split into smaller steps.)*`
+          : `Circuit generation hit the output token limit on \`${res.modelUsed}\` before finishing. ${sameModel120b ? 'Try asking for a smaller step or using `uno` + `board-ssd1306` OLED for matrices/text.' : 'Switch to `openai/gpt-oss-120b` or break it into smaller steps.'}`;
         const aiMsg = {
           id: 'a' + Date.now(),
           role: 'assistant',
@@ -123,13 +141,10 @@ export class AiCopilot {
 
       let buildSummary = null;
       let guideSummary = null;
-      let selfFixed = false;
 
       // Only retry for missing JSON build arrays when the model declared build/guide OR the prompt actually requests hardware work
-      const explicitAction = activeMode === 'build' || activeMode === 'guide';
       const modelDeclaredOps = parsed.intent === 'build' || parsed.intent === 'guide';
-      const refuses = /sorry|cannot|can't|comply|clarify|understand|off[- ]topic|non[- ]circuit|assist with electronics|circuitforge ai/i.test(String(parsed.reply || ''));
-      const hardwareRequest = /\b(build|make|create|wire|connect|add|remove|delete|fix|repair|update|change|modify|guide|walk|step|555|ne555|led|resistor|capacitor|gate|nand|nor|and|or|xor|adder|mux|decoder|encoder|counter|flip|arduino|uno|nano|esp32|scope|oscilloscope|funcgen|psu|circuit|boolean|truth|lab|pin|breadboard|ic|chip|switch)\b/i.test(prompt);
+      const refuses = /sorry|cannot|can't|comply|clarify|understand|off[- ]topic|non[- ]circuit|assist with electronics|circuitforge ai|not possible|cannot fit/i.test(String(parsed.reply || ''));
       const wantsOps = modelDeclaredOps || (explicitAction && hardwareRequest && !refuses);
       if (wantsOps && !this._hasBuildOperations(parsed)) {
         const retryMode = explicitAction ? activeMode : effectiveIntent;
@@ -148,33 +163,19 @@ export class AiCopilot {
       }
 
       if (res.truncated && wantsOps && !parsed?.connections?.length && !parsed?.updates?.length && !parsed?.remove?.length) {
-        const compactRetry = await this._tryFollowUp(
-          res, llmMessages,
-          'Your previous JSON was cut off before finishing "connections". Output MINIFIED SINGLE-LINE JSON with NO "steps" or empty fields, brief 1-sentence "reply", all "parts", and all "connections".',
-        );
-        if (compactRetry) {
-          res = compactRetry;
-          if (compactRetry.parsed) {
-            parsed = compactRetry.parsed;
-            effectiveIntent = this._resolveIntent(parsed, activeMode);
-            if (compactRetry.parsed.connections?.length) selfFixed = true;
-          }
-        }
-        // Still truncated with 0 connections -> do NOT place unwired parts cleanly
-        if (!parsed?.connections?.length && !parsed?.updates?.length && !parsed?.remove?.length) {
-          const tip = /^qwen\/qwen3/i.test(res.modelUsed)
-            ? 'Switch to `openai/gpt-oss-120b` or ask me to build it in two smaller steps (e.g., switches & ICs first, then outputs).'
-            : 'Ask me to build it in two smaller steps (e.g., inputs & ICs first, then outputs & wiring).';
-          const aiMsg = {
-            id: 'a' + Date.now(),
-            role: 'assistant',
-            intent: 'analyze',
-            text: `Circuit generation hit the output token limit on \`${res.modelUsed}\` before finishing wiring. ${tip}`,
-            meta: { modelUsed: res.modelUsed, switchedFrom: res.switchedFrom, truncated: true, selfFixed: false },
-          };
-          this.messages.push(aiMsg);
-          return aiMsg;
-        }
+        const sameModel120b = /^openai\/gpt-oss-120b/i.test(res.modelUsed);
+        const tip = sameModel120b
+          ? 'Ask to build one section at a time (or use `uno` + `board-ssd1306` OLED for grids/text).'
+          : 'Switch to `openai/gpt-oss-120b` or ask to build one section at a time.';
+        const aiMsg = {
+          id: 'a' + Date.now(),
+          role: 'assistant',
+          intent: 'analyze',
+          text: `Circuit generation hit the output token limit on \`${res.modelUsed}\` before finishing wiring. ${tip}`,
+          meta: { modelUsed: res.modelUsed, switchedFrom: res.switchedFrom, truncated: true, selfFixed: false },
+        };
+        this.messages.push(aiMsg);
+        return aiMsg;
       }
 
       const MAX_REPAIRS = 2;
@@ -214,6 +215,9 @@ export class AiCopilot {
         parsed = { ...parsed, reply: `I couldn't produce a circuit that passes verification (${errs}). Nothing on your board was changed. Try rephrasing or breaking it into smaller steps, or pick a different model.` };
       }
 
+      const safeReply = String(parsed.reply || '').trim()
+        || (buildSummary?.ok ? (parsed.plan || 'Updated the circuit.') : guideSummary?.ok ? (parsed.plan || 'Started guided steps.') : (parsed.plan || (res.parsed ? 'Completed.' : res.rawText)));
+
       // Persist compact conversation context (including what edits/guides were applied so follow-ups know)
       const actionNote = buildSummary?.ok
         ? ` [Canvas update: +${buildSummary.partsAdded} parts, +${buildSummary.wiresAdded} wires, -${buildSummary.wiresRemoved || 0} wires, ${buildSummary.updatedCount || 0} updates]`
@@ -222,14 +226,14 @@ export class AiCopilot {
           : '';
       if (!failedAction) {
         this.history.push({ role: 'user', content: prompt.slice(0, 600) });
-        this.history.push({ role: 'assistant', content: `${String(parsed.reply || res.rawText).slice(0, 450)}${actionNote}` });
+        this.history.push({ role: 'assistant', content: `${safeReply.slice(0, 450)}${actionNote}` });
       }
 
       const aiMsg = {
         id: 'a' + Date.now(),
         role: 'assistant',
         intent: effectiveIntent,
-        text: parsed.reply || res.rawText,
+        text: safeReply,
         meta: {
           modelUsed: res.modelUsed,
           switchedFrom: res.switchedFrom,
@@ -245,7 +249,7 @@ export class AiCopilot {
     }
   }
 
-  async _tryFollowUp(res, llmMessages, userContent) {
+  async _tryFollowUp(res, llmMessages, userContent, extraOpts = {}) {
     try {
       return await callGroq({
         apiKey: this.apiKey,
@@ -257,6 +261,7 @@ export class AiCopilot {
         ],
         jsonMode: true,
         availableModels: this.models,
+        ...extraOpts,
       });
     } catch {
       return null;

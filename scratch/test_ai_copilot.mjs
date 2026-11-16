@@ -691,4 +691,66 @@ try {
 }
 console.log('   [PASS] Unloaded 555 removal & non-circuit chat in Build mode passed.');
 
+console.log('13. Testing Display Catalog Match, 7493 Stuck-Reset DRC, Truncation Retry & Clean Non-JSON Reply...');
+const dispCat = buildPartsCatalogPrompt('9x9 leds in a square displaying my name Umer');
+assert.match(dispCat, /board-ssd1306/);
+assert.match(dispCat, /uno/);
+
+const badReset7493 = applyAiBuildPlan(app, {
+  clearExisting: true,
+  board: 'half',
+  parts: [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'U1', type: 'ic7493' }, { ref: 'CLK', type: 'clock' }],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['U1.VCC', '+'], ['U1.GND', '-'], ['CLK.CLK', 'U1.CKA'], ['U1.R0(1)', '+'], ['U1.R0(2)', '+']],
+});
+assert.equal(badReset7493.ok, false);
+assert.match(badReset7493.errors.join(' '), /active-HIGH reset/);
+
+// Verify truncated initial response triggers compactRetry AND missing reply never dumps raw JSON into UI
+const origFetch13 = globalThis.fetch;
+let truncCalls = 0;
+globalThis.fetch = async () => {
+  truncCalls++;
+  if (truncCalls === 1) {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ finish_reason: 'length', message: { content: '{"intent":"build","parts":[{"ref":"V1","type":"vcc"' } }] }),
+    };
+  }
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      choices: [{
+        finish_reason: 'stop',
+        message: {
+          content: JSON.stringify({
+            intent: 'build',
+            plan: 'Built clean LED circuit via compact retry.',
+            clearExisting: true,
+            board: 'half',
+            parts: [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'D1', type: 'led' }],
+            connections: [['V1.1', '+'], ['G1.1', '-'], ['+', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', '-']],
+          }),
+        },
+      }],
+    }),
+  };
+};
+try {
+  const { app: fresh13 } = createHeadlessApp ? { app: createHeadlessApp() } : { app: copApp };
+  fresh13.settings = { get: (k) => (k === 'groqKey' ? 'gsk_mock' : k === 'aiModel' ? 'openai/gpt-oss-120b' : 'auto'), set: () => {} };
+  const cop13 = new AiCopilot(fresh13);
+  cop13.hasServerKey = true;
+  const r13 = await cop13.ask('build simple led circuit', 'build');
+  assert.equal(truncCalls, 2, 'Truncated raw JSON must fire compactRetry');
+  assert.equal(r13.meta?.build?.ok, true);
+  assert.equal(r13.meta?.selfFixed, true);
+  assert.doesNotMatch(r13.text, /^\{.*"intent":/);
+  assert.equal(r13.text, 'Built clean LED circuit via compact retry.');
+} finally {
+  globalThis.fetch = origFetch13;
+}
+console.log('   [PASS] Display catalog, 7493 reset DRC, truncation compactRetry & non-JSON reply passed.');
+
 console.log('\nALL AI COPILOT AUTOMATED TESTS PASSED 100%!');

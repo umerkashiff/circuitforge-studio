@@ -206,6 +206,7 @@ export async function callGroq({
   jsonMode = true,
   temperature = 0.2,
   maxTokens = null,
+  reasoningEffort = null,
   availableModels = null,
   fetchFn = fetch,
 }) {
@@ -230,7 +231,7 @@ export async function callGroq({
   const estInputTokens = Math.ceil(totalChars / 3.0) + 120;
   const adaptiveMax = maxTokens !== null
     ? maxTokens
-    : Math.min(3000, Math.max(700, 6000 - estInputTokens));
+    : Math.min(3500, Math.max(900, 7200 - estInputTokens));
 
   let lastErr = null;
   let lastRateLimitErr = null;
@@ -246,6 +247,7 @@ export async function callGroq({
   const buildBody = (activeModel, modelMax) => {
     const body = { model: activeModel, messages, temperature, max_completion_tokens: modelMax };
     if (/^openai\/gpt-oss-20b/i.test(activeModel)) body.reasoning_effort = 'low';
+    else if (reasoningEffort && /^openai\/gpt-oss-/i.test(activeModel)) body.reasoning_effort = reasoningEffort;
     if (jsonMode) body.response_format = { type: 'json_object' };
     return body;
   };
