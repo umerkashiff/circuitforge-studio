@@ -15,6 +15,7 @@ import {
   verifyBooleanBehavior,
   verifySequentialClockLiveness,
   verifyCombinationalSwitchLiveness,
+  verifyStaticLedPattern,
 } from './logic_verify.js';
 
 const SIGNAL_COLORS = ['#0a84ff', '#30a46c', '#ff8a00', '#8e4ec6', '#f5c400', '#ffffff'];
@@ -39,7 +40,11 @@ export function normalizePartSpec(raw = {}) {
   }
   const type = raw.type ?? raw.part ?? raw.component ?? raw.kind ?? raw.device ?? raw.model ?? raw.name ?? '';
   const ref = raw.ref ?? raw.id ?? raw.name ?? '';
-  return { ...raw, ref, type: type == null ? '' : String(type), props };
+  const row = Number.isInteger(raw.row) ? raw.row : (Number.isInteger(props.row) ? props.row : undefined);
+  const col = Number.isInteger(raw.col) ? raw.col : (Number.isInteger(props.col) ? props.col : undefined);
+  delete props.row;
+  delete props.col;
+  return { ...raw, ref, type: type == null ? '' : String(type), props, ...(row !== undefined ? { row } : {}), ...(col !== undefined ? { col } : {}) };
 }
 
 /** Normalize common AI part type synonyms to registered part types. */
@@ -301,6 +306,41 @@ export function placePartSmart(app, spec, state) {
   // 1. Explicit location override if supplied safely
   if (Number.isFinite(spec.x) && Number.isFinite(spec.y)) {
     const hit = tryAt(spec.x, spec.y, spec.rot || 0);
+    if (hit) return hit;
+  }
+
+  // 1b. Explicit 2D visual grid coordinates (e.g. row/col for 3x3 LED shapes/matrices beside breadboard)
+  if (Number.isInteger(spec.row) && Number.isInteger(spec.col) && spec.row >= 0 && spec.col >= 0 && spec.row < 8 && spec.col < 8) {
+    const dx = 3;
+    const dy = 4;
+    if (!state.gridOrigin) {
+      const maxR = state.gridMaxRow ?? spec.row;
+      const maxC = state.gridMaxCol ?? spec.col;
+      const sample = new Part(resolved.type, 0, 0, 0, resolved.props);
+      const sb = sample.bounds();
+      const bw = b ? b.w : 33;
+      const bh = b ? b.h : 20;
+      const anchors = [
+        [bx + bw + 5, by + 5],
+        [bx + 4, by + bh + 6],
+        [bx - (maxC + 1) * dx - 4, by + 5],
+        [bx + 4, by - 5 - maxR * dy],
+      ];
+      for (const [ax, ay] of anchors) {
+        const gridBox = { x0: ax + sb.x0 - 0.5, y0: ay + sb.y0 - 0.5, x1: ax + maxC * dx + sb.x1 + 0.5, y1: ay + maxR * dy + sb.y1 + 0.5 };
+        const boardBox = b ? { x0: b.x, y0: b.y, x1: b.x + b.w, y1: b.y + b.h } : null;
+        const hitsBoard = boardBox && boxesIntersect(gridBox, boardBox, 0.25);
+        const hitsPart = app.circuit.parts.some(p => boxesIntersect(gridBox, p.bounds(), 0.25));
+        if (!hitsBoard && !hitsPart) {
+          state.gridOrigin = { x: Math.round(ax), y: Math.round(ay) };
+          break;
+        }
+      }
+      if (!state.gridOrigin) state.gridOrigin = { x: Math.round(bx + bw + 5), y: Math.round(by + 5) };
+    }
+    const gx = state.gridOrigin.x + spec.col * dx;
+    const gy = state.gridOrigin.y + spec.row * dy;
+    const hit = tryAt(gx, gy, 0);
     if (hit) return hit;
   }
 
@@ -683,6 +723,7 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
     for (const bErr of verifyBooleanBehavior(prompt, sim, app.circuit, refById)) errors.push(bErr);
     for (const cErr of verifyCombinationalSwitchLiveness(sim, app.circuit)) errors.push(cErr);
     for (const sErr of verifySequentialClockLiveness(sim, app.circuit, refById)) errors.push(sErr);
+    for (const pErr of verifyStaticLedPattern(prompt, sim, app.circuit)) errors.push(pErr);
   }
 
   return { ok: errors.length === 0, errors: [...new Set(errors)], warnings: [...new Set(warnings)] };
@@ -841,11 +882,15 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
 
     // Track breadboard allocation state (seeding existing occupied strips)
     const b0 = app.circuit.boards[0];
+    const gridRows = rawParts.filter(s => Number.isInteger(s.row) && Number.isInteger(s.col));
     const layoutState = {
       icCol: 3,
       instX: b0 ? b0.x : 0,
       usedColsTop: new Set(),
       usedColsBot: new Set(),
+      gridOrigin: null,
+      gridMaxRow: gridRows.length ? Math.max(...gridRows.map(s => s.row)) : 0,
+      gridMaxCol: gridRows.length ? Math.max(...gridRows.map(s => s.col)) : 0,
     };
     if (b0 && !clear) {
       for (const p of app.circuit.parts) {

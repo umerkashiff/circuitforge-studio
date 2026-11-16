@@ -622,3 +622,24 @@ export function verifyCombinationalSwitchLiveness(sim, circuit) {
   }
   return [];
 }
+
+/** Verify static LED visual patterns (e.g. smiley face, heart, arrow) aren't all lit or all dark. */
+export function verifyStaticLedPattern(prompt, sim, circuit) {
+  const txt = String(prompt || '');
+  if (!/\b(smiley|smile|face|heart|arrow|cross|checker|shape|pattern|unlit|off)\b/i.test(txt)) return [];
+  const hasDynamic = circuit.parts.some(p => ['toggle', 'button', 'dip4', 'dip8', 'clock', 'ne555', 'uno', 'nano', 'esp32', 'esp32s3', 'bluepill'].includes(p.type));
+  if (hasDynamic) return [];
+  const leds = circuit.parts.filter(p => p.type === 'led');
+  if (leds.length < 4) return [];
+
+  let lit = 0;
+  let dark = 0;
+  for (const led of leds) {
+    const mA = (sim.byPart.get(led.id)?.device?.cur?.[0] || 0) * 1000;
+    if (mA > 0.5) lit++; else dark++;
+  }
+  if (lit === leds.length || dark === leds.length) {
+    return [`Visual LED pattern check failed: ${lit}/${leds.length} LEDs are ${lit ? 'lit' : 'off'}! Wire ONLY the active pattern pixels to + (via 220Ω resistors) and wire unlit/background LEDs to "-" (not "+") so the shape actually appears.`];
+  }
+  return [];
+}

@@ -753,4 +753,43 @@ try {
 }
 console.log('   [PASS] Display catalog, 7493 reset DRC, truncation compactRetry & non-JSON reply passed.');
 
+console.log('14. Testing 2D LED Grid Layout (row/col) & Static Pattern Verification...');
+const allLitSmiley = applyAiBuildPlan(app, {
+  clearExisting: true,
+  board: 'half',
+  parts: [
+    { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+    ...[0, 1, 2].flatMap(r => [0, 1, 2].map(c => ({ ref: `D${r}${c}`, type: 'led', row: r, col: c }))),
+    ...[0, 1, 2].flatMap(r => [0, 1, 2].map(c => ({ ref: `R${r}${c}`, type: 'resistor', props: { ohms: 220 } }))),
+  ],
+  connections: [
+    ['V1.1', '+'], ['G1.1', '-'],
+    ...[0, 1, 2].flatMap(r => [0, 1, 2].flatMap(c => [['+', `R${r}${c}.1`], [`R${r}${c}.2`, `D${r}${c}.A`], [`D${r}${c}.K`, '-']])),
+  ],
+}, { prompt: 'place 9 leds in a square (3x3) like a smiley face' });
+assert.equal(allLitSmiley.ok, false, 'All 9 LEDs glowing must fail visual smiley pattern check');
+assert.match(allLitSmiley.errors.join(' '), /Visual LED pattern check failed/);
+
+// Real 3x3 smiley (eyes (0,0)/(0,2), mouth (2,0)/(2,1)/(2,2) lit; rest unlit tied to GND)
+const litSet = new Set(['0,0', '0,2', '2,0', '2,1', '2,2']);
+const connsSmiley = [['V1.1', '+'], ['G1.1', '-']];
+const partsSmiley = [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }];
+for (let r = 0; r < 3; r++) {
+  for (let c = 0; c < 3; c++) {
+    partsSmiley.push({ ref: `D${r}${c}`, type: 'led', row: r, col: c });
+    if (litSet.has(`${r},${c}`)) {
+      partsSmiley.push({ ref: `R${r}${c}`, type: 'resistor', props: { ohms: 220 } });
+      connsSmiley.push(['+', `R${r}${c}.1`], [`R${r}${c}.2`, `D${r}${c}.A`], [`D${r}${c}.K`, '-']);
+    } else {
+      connsSmiley.push([`D${r}${c}.A`, '-'], [`D${r}${c}.K`, '-']);
+    }
+  }
+}
+const realSmiley = applyAiBuildPlan(app, { clearExisting: true, board: 'half', parts: partsSmiley, connections: connsSmiley }, { prompt: 'place 9 leds in a square (3x3) like a smiley face' });
+assert.equal(realSmiley.ok, true, 'Smiley 3x3 pattern must succeed: ' + JSON.stringify(realSmiley.errors));
+const gridLeds = realSmiley.placedParts.filter(p => p.type === 'led');
+assert.equal(new Set(gridLeds.map(p => p.x)).size, 3, 'Must occupy 3 distinct X columns in 3x3 square');
+assert.equal(new Set(gridLeds.map(p => p.y)).size, 3, 'Must occupy 3 distinct Y rows in 3x3 square');
+console.log('   [PASS] 2D 3x3 LED grid placement & static smiley pattern check passed.');
+
 console.log('\nALL AI COPILOT AUTOMATED TESTS PASSED 100%!');
