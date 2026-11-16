@@ -8,6 +8,7 @@ import { ACCENTS, BOARD_COLORS } from './settings.js';
 import { SCOPE_VDIV, SCOPE_TDIV, computeScopeWindow, measureChannelStats, fmtUnits } from './parts/library.js';
 import { mountAiPanel } from './ai/panel.js';
 
+const SHOW_ABOUT = false; // Temporarily hide About page content without removing code
 const $ = (s, r = document) => r.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => {
   const el = document.createElement(tag);
@@ -150,7 +151,7 @@ export class UI {
     $('#btn-pause').addEventListener('click', () => app.togglePause());
     $('#btn-help').addEventListener('click', () => this.showShortcuts());
     $('#btn-settings').addEventListener('click', () => this.showSettings());
-    $('#brand-logo').addEventListener('click', () => this.showSettings('About'));
+    $('#brand-logo').addEventListener('click', () => { if (SHOW_ABOUT) this.showSettings('About'); });
     $('#btn-reset').addEventListener('click', () => app.resetSim());
     $('#btn-undo').addEventListener('click', () => app.undo());
     $('#btn-redo').addEventListener('click', () => app.redo());
@@ -576,6 +577,7 @@ export class UI {
   }
 
   showSettings(tab = 'Appearance') {
+    if (!SHOW_ABOUT && tab === 'About') tab = 'Appearance';
     const app = this.app, st = app.settings;
     document.querySelector('.sheet-back')?.remove();
     const seg = (key, opts) => h('div', { class: 'seg-ctl' }, ...opts.map(([v, l]) => h('button', { class: String(st.get(key)) === String(v) ? 'on' : '', onclick: () => { st.set(key, v); render(); } }, l)));
@@ -644,10 +646,13 @@ export class UI {
     const icons = { Appearance: '◐', Editor: '✎', Simulation: '▶', About: 'ⓘ' };
     const render = () => {
       nav.innerHTML = '';
-      for (const name of Object.keys(pages)) nav.append(h('button', { class: name === tab ? 'on' : '', onclick: () => { tab = name; render(); } }, h('span', { class: 'ico' }, icons[name]), name));
+      for (const name of Object.keys(pages)) {
+        if (!SHOW_ABOUT && name === 'About') continue;
+        nav.append(h('button', { class: name === tab ? 'on' : '', onclick: () => { tab = name; render(); } }, h('span', { class: 'ico' }, icons[name]), name));
+      }
       nav.append(h('span', { class: 'grow' }), h('button', { class: 'reset', onclick: () => { if (confirm('Reset all settings to their defaults?')) { st.reset(); render(); } } }, 'Reset to defaults'));
       body.innerHTML = '';
-      body.append(h('h2', {}, tab), ...pages[tab]());
+      body.append(h('h2', {}, tab), ...(tab === 'About' && !SHOW_ABOUT ? [] : pages[tab]()));
     };
     const sheet = h('div', { class: 'sheet-back', onclick: (e) => { if (e.target === sheet) close(); } },
       h('div', { class: 'sheet settings' }, nav, body, h('button', { class: 'icon-btn sheet-x', onclick: () => close() }, '✕')));
