@@ -5,6 +5,7 @@ import { examples } from './mcu/boards.js';
 import { compile } from './mcu/transpile.js';
 import { COLOR_KEYS } from './editor.js';
 import { ACCENTS, BOARD_COLORS } from './settings.js';
+import { SCOPE_VDIV, SCOPE_TDIV, computeScopeWindow, measureChannelStats, fmtUnits } from './parts/library.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => {
@@ -28,6 +29,8 @@ function thumb(spec, w = 96, hgt = 64) {
   cv.style.width = w + 'px'; cv.style.height = hgt + 'px';
   const g = cv.getContext('2d');
   g.scale(dpr, dpr);
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
   if (spec.board) {
     const cols = BOARD_SIZES[spec.board].cols;
     const bw = w - 14, bh = hgt - 20, x = 7, y = 10;
@@ -63,8 +66,14 @@ export class UI {
     this.lastInspect = '';
     this.buildLibrary();
     this.buildToolbar();
+    this.bindPaneResizers();
     this.buildAnalyzer();
     this.bindCode();
+    this.instWins = new Map();
+    this.instZ = 10;
+    this.instLayer = h('div', { class: 'inst-layer' });
+    document.body.append(this.instLayer);
+    window.addEventListener('resize', () => this.clampInstrumentWindows());
     window.addEventListener('pointerdown', (e) => { if (!e.target.closest('.popover, .menu, [data-pop]')) this.closeMenus(); });
   }
 
@@ -146,8 +155,18 @@ export class UI {
     $('#btn-png').addEventListener('click', () => app.exportPNG());
     $('#btn-analyzer').addEventListener('click', () => this.toggleAnalyzer());
     $('#btn-theme').addEventListener('click', () => app.toggleTheme());
-    $('#btn-panel').addEventListener('click', () => document.body.classList.toggle('no-inspector'));
-    $('#btn-library').addEventListener('click', () => document.body.classList.toggle('no-library'));
+    $('#btn-panel').addEventListener('click', () => {
+      document.body.classList.toggle('no-inspector');
+      this.syncToolbar();
+      this.app.resize();
+      this.clampInstrumentWindows();
+    });
+    $('#btn-library').addEventListener('click', () => {
+      document.body.classList.toggle('no-library');
+      this.syncToolbar();
+      this.app.resize();
+      this.clampInstrumentWindows();
+    });
     $('#zoom-in').addEventListener('click', () => app.zoomBy(1.2));
     $('#zoom-out').addEventListener('click', () => app.zoomBy(1 / 1.2));
     $('#zoom-fit').addEventListener('click', () => app.fit());
@@ -189,6 +208,50 @@ export class UI {
     const name = $('#project-name');
     if (document.activeElement !== name) name.value = app.circuit.name;
     $('#zoom-label').textContent = Math.round(app.cam.z * 100) + '%';
+    $('#btn-panel').classList.toggle('on', !document.body.classList.contains('no-inspector'));
+    $('#btn-library').classList.toggle('on', !document.body.classList.contains('no-library'));
+  }
+
+  bindPaneResizers() {
+    const setup = (el, cssVar, isLeft) => {
+      if (!el) return;
+      el.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        el.classList.add('dragging');
+        const startX = e.clientX;
+        const aside = el.parentElement;
+        const startW = aside ? aside.getBoundingClientRect().width : (isLeft ? 252 : 288);
+        const onMove = (ev) => {
+          const dx = ev.clientX - startX;
+          const raw = isLeft ? startW + dx : startW - dx;
+          const maxW = Math.max(220, Math.min(isLeft ? 440 : 460, Math.round(window.innerWidth * 0.44)));
+          const minW = isLeft ? 160 : 184;
+          const w = Math.max(minW, Math.min(maxW, Math.round(raw)));
+          document.body.classList.remove(isLeft ? 'no-library' : 'no-inspector');
+          document.documentElement.style.setProperty(cssVar, w + 'px');
+          this.syncToolbar();
+          this.app.resize();
+        };
+        const onUp = () => {
+          el.classList.remove('dragging');
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onUp);
+          this.clampInstrumentWindows();
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+      });
+      el.addEventListener('dblclick', () => {
+        document.documentElement.style.removeProperty(cssVar);
+        document.body.classList.remove(isLeft ? 'no-library' : 'no-inspector');
+        this.syncToolbar();
+        this.app.resize();
+        this.clampInstrumentWindows();
+      });
+    };
+    setup($('#lib-resizer'), '--lib-w', true);
+    setup($('#insp-resizer'), '--insp-w', false);
   }
   simClock() {
     const t = this.app.engine.time;
@@ -348,6 +411,10 @@ export class UI {
     for (const w of this.app.allIssues().filter(w => w.part === part)) body.append(h('div', { class: 'issue ' + (w.level === 'error' ? 'err' : w.level === 'warn' ? 'warn' : 'note') }, h('i', { class: 'dot' }), h('div', {}, w.text)));
     if (part.props.damaged) body.append(h('div', { class: 'actions' }, h('button', { class: 'btn primary', onclick: () => { delete part.props.damaged; this.app.commit('Replace part'); this.app.engine.build(this.app.circuit); } }, 'Replace with a new one')));
     if (def.mcu) return this.inspectBoardMcu(body, part, def);
+    if (def.cat === 'Instruments') {
+      body.append(h('div', { class: 'actions' },
+        h('button', { class: 'btn primary', onclick: () => this.openInstrumentWindow(part) }, 'Open Front Panel ↗')));
+    }
     if (def.fields) {
       const g = h('div', { class: 'group' });
       for (const f of def.fields) g.append(this.field(part, f));
@@ -700,5 +767,475 @@ export class UI {
     });
     g.fillStyle = dark ? '#8e8e93' : '#8e8e93'; g.font = '10px -apple-system, Inter, sans-serif'; g.textAlign = 'right';
     g.fillText(`${this.an.window} s window`, W - 6, H - 6);
+  }
+
+  // ------------------------------------------------ floating instruments --
+  clampInstrumentWindows() {
+    if (!this.instWins || !this.instWins.size) return;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    for (const entry of this.instWins.values()) {
+      const el = entry.el;
+      const r = el.getBoundingClientRect();
+      const maxX = Math.max(8, vw - r.width - 8);
+      const maxY = Math.max(58, vh - r.height - 8);
+      const curX = parseFloat(el.style.left) || r.left;
+      const curY = parseFloat(el.style.top) || r.top;
+      const nx = Math.max(8, Math.min(maxX, curX));
+      const ny = Math.max(58, Math.min(maxY, curY));
+      el.style.left = Math.round(nx) + 'px';
+      el.style.top = Math.round(ny) + 'px';
+    }
+  }
+
+  openInstrumentWindow(part) {
+    const existing = this.instWins.get(part.id);
+    if (existing) {
+      existing.part = part;
+      existing.el.classList.remove('min');
+      existing.minBtn.textContent = '−';
+      existing.el.style.zIndex = String(++this.instZ);
+      existing.update();
+      this.clampInstrumentWindows();
+      return;
+    }
+    const def = getDef(part.type);
+    const nOpen = this.instWins.size;
+    const isScope = part.type === 'oscilloscope';
+    const widthEst = isScope ? Math.min(740, window.innerWidth - 20) : Math.min(500, window.innerWidth - 20);
+    const libW = document.body.classList.contains('no-library') ? 16 : 260;
+    const x0 = Math.max(8, Math.min(window.innerWidth - widthEst - 10, libW + ((nOpen * 28) % 120)));
+    const y0 = Math.max(60, Math.min(window.innerHeight - 280, 66 + (nOpen * 28) % 110));
+
+    const dot = h('i', { class: 'inst-dot' });
+    const titleEl = h('span', { class: 'inst-title' }, def.name);
+    const minBtn = h('button', { class: 'inst-hbtn', title: 'Minimize' }, '−');
+    const closeBtn = h('button', { class: 'inst-hbtn', title: 'Close' }, '×');
+    const head = h('div', { class: 'inst-head' }, dot, titleEl, minBtn, closeBtn);
+    const body = h('div', { class: 'inst-body' });
+    const el = h('div', { class: 'inst-win' + (isScope ? ' inst-scope' : ''), style: `left:${Math.round(x0)}px;top:${Math.round(y0)}px;z-index:${++this.instZ}` }, head, body);
+
+    el.addEventListener('pointerdown', () => { el.style.zIndex = String(++this.instZ); });
+    minBtn.addEventListener('click', () => {
+      const m = el.classList.toggle('min');
+      minBtn.textContent = m ? '+' : '−';
+      this.clampInstrumentWindows();
+    });
+    closeBtn.addEventListener('click', () => this.closeInstrumentWindow(part.id));
+
+    head.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.inst-hbtn')) return;
+      e.preventDefault();
+      const sx = e.clientX, sy = e.clientY;
+      const r = el.getBoundingClientRect();
+      const ox = r.left, oy = r.top;
+      const onMove = (ev) => {
+        const cur = el.getBoundingClientRect();
+        const maxX = Math.max(8, window.innerWidth - cur.width - 8);
+        const maxY = Math.max(58, window.innerHeight - cur.height - 8);
+        const nx = Math.max(8, Math.min(maxX, ox + ev.clientX - sx));
+        const ny = Math.max(58, Math.min(maxY, oy + ev.clientY - sy));
+        el.style.left = Math.round(nx) + 'px';
+        el.style.top = Math.round(ny) + 'px';
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    });
+
+    let updater = () => {};
+    if (isScope) updater = this._buildScopeWindow(part, body, dot);
+    else if (part.type === 'funcgen') updater = this._buildFuncGenWindow(part, body, dot);
+    else if (part.type === 'power-supply') updater = this._buildPsuWindow(part, body, dot);
+
+    this.instLayer.append(el);
+    this.instWins.set(part.id, { el, part, minBtn, update: updater });
+    updater();
+    this.clampInstrumentWindows();
+  }
+
+  closeInstrumentWindow(partId) {
+    const entry = this.instWins.get(partId);
+    if (!entry) return;
+    entry.el.remove();
+    this.instWins.delete(partId);
+  }
+
+  updateInstrumentWindows() {
+    if (!this.instWins || !this.instWins.size) return;
+    for (const [id, entry] of [...this.instWins]) {
+      const live = this.app.circuit.parts.find(p => p.id === id);
+      if (!live) { this.closeInstrumentWindow(id); continue; }
+      entry.part = live;
+      if (!entry.el.classList.contains('min')) entry.update();
+    }
+  }
+
+  _makeKnob({ label, min = 0, max = 1, log = false, choices = null, format, get, set }) {
+    const arcLen = 87.18;
+    const dial = h('div', {
+      class: 'rknob',
+      title: 'Drag or scroll to adjust; double-click to type value',
+      html: `<svg viewBox="0 0 44 44" class="rknob-svg" aria-hidden="true">
+        <path class="rknob-track" d="M 8.92 35.08 A 18.5 18.5 0 1 1 35.08 35.08"/>
+        <path class="rknob-arc" d="M 8.92 35.08 A 18.5 18.5 0 1 1 35.08 35.08" stroke-dasharray="${arcLen}" stroke-dashoffset="${arcLen}"/>
+        <g class="rknob-rotor" style="transform-origin:22px 22px">
+          <circle cx="22" cy="22" r="13.5" class="rknob-cap"/>
+          <line x1="22" y1="20" x2="22" y2="11" class="rknob-tick"/>
+        </g>
+      </svg>`,
+    });
+    const rotor = dial.querySelector('.rknob-rotor');
+    const arc = dial.querySelector('.rknob-arc');
+    const valEl = h('div', { class: 'rknob-val' });
+    const wrap = h('div', { class: 'rknob-wrap' }, h('div', { class: 'rknob-lbl' }, label), dial, valEl);
+
+    const toFrac = (v) => {
+      if (choices) {
+        let best = 0, bd = Infinity;
+        for (let i = 0; i < choices.length; i++) { const d = Math.abs(choices[i] - v); if (d < bd) { bd = d; best = i; } }
+        return choices.length > 1 ? best / (choices.length - 1) : 0;
+      }
+      if (log) {
+        const lo = Math.max(1e-3, min), hi = Math.max(lo * 10, max);
+        return Math.max(0, Math.min(1, Math.log(Math.max(lo, v) / lo) / Math.log(hi / lo)));
+      }
+      return Math.max(0, Math.min(1, (v - min) / Math.max(1e-6, max - min)));
+    };
+    const fromFrac = (f) => {
+      f = Math.max(0, Math.min(1, f));
+      if (choices) return choices[Math.round(f * (choices.length - 1))];
+      if (log) {
+        const lo = Math.max(1e-3, min), hi = Math.max(lo * 10, max);
+        const v = lo * Math.pow(hi / lo, f);
+        return v >= 100 ? Math.round(v) : +v.toPrecision(3);
+      }
+      const v = min + f * (max - min);
+      return +v.toFixed(Math.abs(max - min) >= 10 ? 1 : 2);
+    };
+    const sync = () => {
+      const v = get();
+      const f = toFrac(v);
+      rotor.style.transform = `rotate(${(-135 + f * 270).toFixed(1)}deg)`;
+      arc.style.opacity = f <= 0.005 ? '0' : '1';
+      arc.style.strokeDashoffset = (arcLen * (1 - f)).toFixed(2);
+      valEl.textContent = format ? format(v) : String(v);
+    };
+    const apply = (nv) => {
+      set(nv);
+      this.app.stateChanged(false);
+      sync();
+      this.updateInstrumentWindows();
+    };
+
+    dial.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const sx = e.clientX, sy = e.clientY;
+      const f0 = toFrac(get());
+      const onMove = (ev) => {
+        const d = ((sy - ev.clientY) + (ev.clientX - sx)) / 140;
+        apply(fromFrac(f0 + d));
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        if (this.app.editor.selected().parts[0]) this.inspect();
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    });
+    dial.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (choices) {
+        let best = 0, bd = Infinity; const cur = get();
+        for (let i = 0; i < choices.length; i++) { const d = Math.abs(choices[i] - cur); if (d < bd) { bd = d; best = i; } }
+        apply(choices[Math.max(0, Math.min(choices.length - 1, best + (e.deltaY < 0 ? 1 : -1)))]);
+      } else {
+        apply(fromFrac(toFrac(get()) + (e.deltaY < 0 ? 0.03 : -0.03)));
+      }
+    }, { passive: false });
+    dial.addEventListener('dblclick', () => {
+      if (choices) return;
+      const s = prompt(`${label} (${min} .. ${max})`, String(get()));
+      if (s === null) return;
+      const n = parseFloat(s);
+      if (Number.isFinite(n)) apply(Math.max(min, Math.min(max, n)));
+    });
+    sync();
+    return { wrap, sync };
+  }
+
+  _buildPsuWindow(part, body, dot) {
+    const p = part.props;
+    const boxes = ['SLAVE A', 'SLAVE V', 'MASTER A', 'MASTER V'].map((lbl, i) => {
+      const val = h('div', { class: 'seg-val' + (i % 2 === 0 ? ' amp' : '') }, '0.0');
+      return { el: h('div', { class: 'seg-box' }, h('div', { class: 'seg-lbl' }, lbl), val), val };
+    });
+    const meters = h('div', { class: 'psu-meters' }, ...boxes.map(b => b.el));
+
+    const ccS = h('span', { class: 'led-pill' }, 'SLAVE C.V.');
+    const ccM = h('span', { class: 'led-pill' }, 'MASTER C.V.');
+    const fix5 = h('span', { class: 'led-pill cv' }, '5V FIXED: 0.00A');
+    const bar = h('div', { class: 'psu-chbar' }, ccS, fix5, ccM);
+
+    const bPwr = h('button', { class: 'hw-btn', onclick: () => { p.power = !p.power; this.app.stateChanged(false); update(); } }, 'POWER');
+    const bInd = h('button', { class: 'hw-btn', onclick: () => { p.mode = 'indep'; this.app.stateChanged(false); update(); } }, 'INDEP.');
+    const bSer = h('button', { class: 'hw-btn', onclick: () => { p.mode = 'series'; this.app.stateChanged(false); update(); } }, 'SERIES (60V / ±)');
+    const bPar = h('button', { class: 'hw-btn', onclick: () => { p.mode = 'parallel'; this.app.stateChanged(false); update(); } }, 'PARALLEL (2×A)');
+    const btnRow = h('div', { class: 'inst-btn-row' }, bPwr, bInd, bSer, bPar);
+
+    const kI2 = this._makeKnob({ label: 'Slave Current', min: 0.05, max: 5, format: v => `${v.toFixed(2)}A`, get: () => +p.i2 || 2, set: v => { p.i2 = v; } });
+    const kV2 = this._makeKnob({ label: 'Slave Voltage', min: 0, max: 30, format: v => `${v.toFixed(1)}V`, get: () => (p.mode !== 'indep' ? +p.v1 : +p.v2) || 0, set: v => { p.v2 = v; if (p.mode !== 'indep') p.v1 = v; } });
+    const kI1 = this._makeKnob({ label: 'Master Current', min: 0.05, max: 5, format: v => `${v.toFixed(2)}A`, get: () => +p.i1 || 2, set: v => { p.i1 = v; } });
+    const kV1 = this._makeKnob({ label: 'Master Voltage', min: 0, max: 30, format: v => `${v.toFixed(1)}V`, get: () => +p.v1 || 0, set: v => { p.v1 = v; } });
+    const knobGrid = h('div', { class: 'knob-grid k4' }, kI2.wrap, kV2.wrap, kI1.wrap, kV1.wrap);
+
+    body.append(meters, bar, btnRow, knobGrid);
+
+    const update = () => {
+      const on = !!p.power;
+      dot.classList.toggle('off', !on);
+      bPwr.className = 'hw-btn ' + (on ? 'run' : 'stop');
+      bPwr.textContent = on ? 'POWER: ON' : 'POWER: OFF';
+      bInd.className = 'hw-btn' + (p.mode === 'indep' ? ' on' : '');
+      bSer.className = 'hw-btn' + (p.mode === 'series' ? ' on' : '');
+      bPar.className = 'hw-btn' + (p.mode === 'parallel' ? ' on' : '');
+
+      const d = this.app.engine.byPart.get(part.id)?.device;
+      const v1Set = Math.max(0, Math.min(30, +p.v1 || 0));
+      const v2Set = p.mode === 'indep' ? Math.max(0, Math.min(30, +p.v2 || 0)) : v1Set;
+      boxes[0].val.textContent = on ? (d ? d.measI2 : 0).toFixed(2) : '---';
+      boxes[1].val.textContent = on ? (d ? d.measV2 : v2Set).toFixed(1) : '---';
+      boxes[2].val.textContent = on ? (d ? d.measI1 : 0).toFixed(2) : '---';
+      boxes[3].val.textContent = on ? (d ? d.measV1 : v1Set).toFixed(1) : '---';
+
+      ccS.className = 'led-pill' + (on ? (d && d.cc2 ? ' cc' : ' cv') : '');
+      ccS.textContent = on ? (d && d.cc2 ? 'SLAVE C.C.' : 'SLAVE C.V.') : 'SLAVE OFF';
+      ccM.className = 'led-pill' + (on ? (d && d.cc1 ? ' cc' : ' cv') : '');
+      ccM.textContent = on ? (d && d.cc1 ? 'MASTER C.C.' : 'MASTER C.V.') : 'MASTER OFF';
+      const ov5 = on && !!(d && d.overload5);
+      fix5.className = 'led-pill' + (on ? (ov5 ? ' cc' : ' cv') : '');
+      fix5.textContent = ov5 ? `5V OVERLOAD (${d.measI3.toFixed(2)}A)` : `5V FIXED: ${on && d ? d.measI3.toFixed(2) : '0.00'}A`;
+
+      kI2.sync(); kV2.sync(); kI1.sync(); kV1.sync();
+    };
+    return update;
+  }
+
+  _buildFuncGenWindow(part, body, dot) {
+    const p = part.props;
+    const freqEl = h('div', { class: 'fg-freq' }, '10.0 Hz');
+    const metaEl = h('div', { class: 'fg-meta' }, '∿ Sine\n5.0 Vpp');
+    const lcd = h('div', { class: 'fg-lcd' }, freqEl, metaEl);
+    const rngNames = ['MHz', 'kHz', 'Hz', 'mHz'];
+    const rngSpans = rngNames.map(n => h('span', {}, n));
+    const bUp = h('button', { class: 'hw-btn', onclick: () => { p.hz = Math.min(100000, +((+p.hz || 10) * 10).toPrecision(4)); this.app.stateChanged(false); update(); } }, '×10 ▲');
+    const bDn = h('button', { class: 'hw-btn', onclick: () => { p.hz = Math.max(0.1, +((+p.hz || 10) * 0.1).toPrecision(4)); this.app.stateChanged(false); update(); } }, '÷10 ▼');
+    const top = h('div', { class: 'fg-top' }, lcd, h('div', { class: 'fg-rng-leds' }, ...rngSpans), h('div', { style: 'display:flex;flex-direction:column;gap:4px' }, bUp, bDn));
+
+    const bPwr = h('button', { class: 'hw-btn', onclick: () => { p.power = !p.power; this.app.stateChanged(false); update(); } }, 'POWER');
+    const bSin = h('button', { class: 'hw-btn', onclick: () => { p.wave = 'sine'; this.app.stateChanged(false); update(); } }, '∿ Sine');
+    const bTri = h('button', { class: 'hw-btn', onclick: () => { p.wave = 'tri'; this.app.stateChanged(false); update(); } }, '∧ Tri');
+    const bSq = h('button', { class: 'hw-btn', onclick: () => { p.wave = 'square'; this.app.stateChanged(false); update(); } }, '⊓ Square');
+    const bSym = h('button', { class: 'hw-btn', onclick: () => { p.symOn = !p.symOn; this.app.stateChanged(false); update(); } }, 'SYM');
+    const bOff = h('button', { class: 'hw-btn', onclick: () => { p.offsetOn = !p.offsetOn; if (p.offsetOn && !p.offset) p.offset = 2.5; this.app.stateChanged(false); update(); } }, 'OFFSET');
+    const bAtt = h('button', { class: 'hw-btn', onclick: () => { p.att20dB = !p.att20dB; this.app.stateChanged(false); update(); } }, '−20 dB');
+    const bSwp = h('button', { class: 'hw-btn', onclick: () => { p.sweepOn = !p.sweepOn; this.app.stateChanged(false); update(); } }, 'SWEEP');
+    const row1 = h('div', { class: 'inst-btn-row' }, bPwr, bSin, bTri, bSq, bSym, bOff, bAtt, bSwp);
+
+    const kHz = this._makeKnob({ label: 'Frequency', min: 0.5, max: 10000, log: true, format: v => fmtUnits(v, 'Hz'), get: () => +p.hz || 10, set: v => { p.hz = v; } });
+    const kVpp = this._makeKnob({ label: 'Amplitude', min: 0.2, max: 20, format: v => `${v.toFixed(1)} Vpp`, get: () => +p.vpp || 5, set: v => { p.vpp = v; } });
+    const kOff = this._makeKnob({ label: 'DC Offset', min: -10, max: 10, format: v => `${v >= 0 ? '+' : ''}${v.toFixed(1)} V`, get: () => +p.offset || 0, set: v => { p.offset = v; if (Math.abs(v) > 0.05) p.offsetOn = true; } });
+    const kSym = this._makeKnob({ label: 'Symmetry', min: 10, max: 90, format: v => `${Math.round(v)}%`, get: () => +p.duty || 50, set: v => { p.duty = Math.round(v); p.symOn = true; } });
+    const kSwp = this._makeKnob({ label: 'Sweep Stop', min: 5, max: 5000, log: true, format: v => fmtUnits(v, 'Hz'), get: () => +p.sweepStopHz || 50, set: v => { p.sweepStopHz = v; } });
+    const knobs = h('div', { class: 'knob-grid k5' }, kHz.wrap, kVpp.wrap, kOff.wrap, kSym.wrap, kSwp.wrap);
+
+    body.append(top, row1, knobs);
+
+    const update = () => {
+      const on = !!p.power;
+      dot.classList.toggle('off', !on);
+      lcd.classList.toggle('off', !on);
+      const d = this.app.engine.byPart.get(part.id)?.device;
+      const hz = d && on && p.sweepOn ? d.instHz : Math.max(0.1, +p.hz || 10);
+      const vppEff = Math.max(0.1, +p.vpp || 5) * (p.att20dB ? 0.1 : 1);
+      const wName = p.wave === 'tri' ? '∧ Triangle' : p.wave === 'square' ? '⊓ Square' : '∿ Sine';
+      freqEl.textContent = on ? fmtUnits(hz, 'Hz') : 'POWER OFF';
+      metaEl.innerHTML = esc(wName) + ` · ${vppEff.toFixed(2)} Vpp<br>` +
+        `Off:${p.offsetOn ? ((+p.offset || 0).toFixed(1) + 'V') : '0V'} · Duty:${p.symOn ? Math.round(+p.duty || 50) : 50}%`;
+
+      const idx = hz >= 1e6 ? 0 : hz >= 1000 ? 1 : hz >= 1 ? 2 : 3;
+      rngSpans.forEach((s, i) => s.classList.toggle('on', on && i === idx));
+      bPwr.className = 'hw-btn ' + (on ? 'run' : 'stop');
+      bSin.className = 'hw-btn' + (p.wave === 'sine' ? ' on' : '');
+      bTri.className = 'hw-btn' + (p.wave === 'tri' ? ' on' : '');
+      bSq.className = 'hw-btn' + (p.wave === 'square' ? ' on' : '');
+      bSym.className = 'hw-btn' + (p.symOn ? ' on' : '');
+      bOff.className = 'hw-btn' + (p.offsetOn ? ' on' : '');
+      bAtt.className = 'hw-btn' + (p.att20dB ? ' on' : '');
+      bSwp.className = 'hw-btn' + (p.sweepOn ? ' on' : '');
+
+      kHz.sync(); kVpp.sync(); kOff.sync(); kSym.sync(); kSwp.sync();
+    };
+    return update;
+  }
+
+  _buildScopeWindow(part, body, dot) {
+    const p = part.props;
+    const cv = h('canvas', { class: 'scope-cv' });
+    const dpr = Math.max(2, window.devicePixelRatio || 1);
+    const W = 420, H = 240;
+    cv.width = W * dpr; cv.height = H * dpr;
+
+    const c1Card = h('div', { class: 'meas-card ch1' }, h('span', {}, 'CH1'), h('span', {}, '--'));
+    const c2Card = h('div', { class: 'meas-card ch2' }, h('span', {}, 'CH2'), h('span', {}, '--'));
+    const measRow = h('div', { class: 'scope-meas' }, c1Card, c2Card);
+    const leftCol = h('div', { class: 'scope-screen-col' }, cv, measRow);
+
+    const bRun = h('button', { class: 'hw-btn', onclick: () => { p.run = !p.run; this.app.stateChanged(false); update(); } }, 'RUN');
+    const bAuto = h('button', { class: 'hw-btn', onclick: () => {
+      const d = this.app.engine.byPart.get(part.id)?.device;
+      if (d) d.autoScale(p);
+      this.app.stateChanged(false); update();
+    } }, 'AUTO');
+    const b50 = h('button', { class: 'hw-btn', onclick: () => {
+      const d = this.app.engine.byPart.get(part.id)?.device;
+      if (d) {
+        const w = computeScopeWindow(d, +p.timeDiv || 0.05);
+        if (w) { const st = measureChannelStats(d, p.trigSrc === 'CH2' ? d.buf2 : d.buf1, w); if (st.valid) p.trigLevel = p.coupling === 'AC' ? 0 : +((st.min + st.max) * 0.5).toFixed(2); }
+      }
+      this.app.stateChanged(false); update();
+    } }, 'TRIG 50%');
+    const bCh1 = h('button', { class: 'hw-btn ch1', onclick: () => { p.ch1On = !p.ch1On; this.app.stateChanged(false); update(); } }, 'CH1');
+    const bCh2 = h('button', { class: 'hw-btn ch2', onclick: () => { p.ch2On = !p.ch2On; this.app.stateChanged(false); update(); } }, 'CH2');
+    const bMath = h('button', { class: 'hw-btn math', onclick: () => { p.math = p.math === 'off' ? 'sub' : p.math === 'sub' ? 'add' : 'off'; this.app.stateChanged(false); update(); } }, 'MATH');
+    const bCpl = h('button', { class: 'hw-btn', onclick: () => { p.coupling = p.coupling === 'AC' ? 'DC' : 'AC'; this.app.stateChanged(false); update(); } }, 'DC');
+    const bXY = h('button', { class: 'hw-btn', onclick: () => { p.xyMode = !p.xyMode; this.app.stateChanged(false); update(); } }, 'Y-T');
+    const bTrig = h('button', { class: 'hw-btn', onclick: () => { p.trigSrc = p.trigSrc === 'CH1' ? 'CH2' : p.trigSrc === 'CH2' ? 'EXT' : 'CH1'; this.app.stateChanged(false); update(); } }, 'TRG:CH1');
+
+    const kV1 = this._makeKnob({ label: 'CH1 V/div', choices: SCOPE_VDIV, format: v => fmtUnits(v, 'V'), get: () => +p.ch1Scale || 2, set: v => { p.ch1Scale = v; } });
+    const kV2 = this._makeKnob({ label: 'CH2 V/div', choices: SCOPE_VDIV, format: v => fmtUnits(v, 'V'), get: () => +p.ch2Scale || 2, set: v => { p.ch2Scale = v; } });
+    const kT = this._makeKnob({ label: 'Sec/div', choices: SCOPE_TDIV, format: v => fmtUnits(v, 's'), get: () => +p.timeDiv || 0.05, set: v => { p.timeDiv = v; } });
+    const kP1 = this._makeKnob({ label: 'CH1 Pos', min: -4, max: 4, format: v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}d`, get: () => +p.ch1Pos || 0, set: v => { p.ch1Pos = v; } });
+    const kP2 = this._makeKnob({ label: 'CH2 Pos', min: -4, max: 4, format: v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}d`, get: () => +p.ch2Pos || 0, set: v => { p.ch2Pos = v; } });
+    const kTr = this._makeKnob({ label: 'Trig Lvl', min: -15, max: 15, format: v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}V`, get: () => +p.trigLevel || 0, set: v => { p.trigLevel = v; } });
+
+    const rightCol = h('div', { class: 'scope-ctrl-col' },
+      h('div', { class: 'inst-btn-row' }, bRun, bAuto, b50, bTrig),
+      h('div', { class: 'inst-btn-row' }, bCh1, bCh2, bMath, bCpl, bXY),
+      h('div', { class: 'knob-grid' }, kV1.wrap, kV2.wrap, kT.wrap, kP1.wrap, kP2.wrap, kTr.wrap));
+
+    body.append(h('div', { class: 'scope-grid-main' }, leftCol, rightCol));
+
+    const update = () => {
+      dot.classList.toggle('off', false);
+      bRun.className = 'hw-btn ' + (p.run ? 'run' : 'stop');
+      bRun.textContent = p.run ? 'RUN' : 'STOP';
+      bCh1.className = 'hw-btn ch1' + (p.ch1On ? ' on' : '');
+      bCh2.className = 'hw-btn ch2' + (p.ch2On ? ' on' : '');
+      bMath.className = 'hw-btn math' + (p.math && p.math !== 'off' ? ' on' : '');
+      bMath.textContent = p.math === 'add' ? 'CH1+CH2' : p.math === 'sub' ? 'CH1−CH2' : 'MATH';
+      bCpl.textContent = `CPL:${p.coupling || 'DC'}`;
+      bCpl.className = 'hw-btn' + (p.coupling === 'AC' ? ' on' : '');
+      bXY.textContent = p.xyMode ? 'MODE:X-Y' : 'MODE:Y-T';
+      bXY.className = 'hw-btn' + (p.xyMode ? ' on' : '');
+      bTrig.textContent = `TRG:${p.trigSrc || 'CH1'}`;
+
+      const g = cv.getContext('2d');
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.fillStyle = '#060a10';
+      g.fillRect(0, 0, W, H);
+      const px0 = 14, py0 = 20, plotW = W - 24, plotH = H - 38;
+      // Graticule 10x8
+      g.strokeStyle = 'rgba(148,163,184,0.18)'; g.lineWidth = 1;
+      g.beginPath();
+      for (let i = 0; i <= 10; i++) { const x = px0 + (i / 10) * plotW; g.moveTo(x, py0); g.lineTo(x, py0 + plotH); }
+      for (let j = 0; j <= 8; j++) { const y = py0 + (j / 8) * plotH; g.moveTo(px0, y); g.lineTo(px0 + plotW, y); }
+      g.stroke();
+      // Center axes highlight
+      g.strokeStyle = 'rgba(148,163,184,0.34)';
+      g.beginPath();
+      g.moveTo(px0, py0 + plotH / 2); g.lineTo(px0 + plotW, py0 + plotH / 2);
+      g.moveTo(px0 + plotW / 2, py0); g.lineTo(px0 + plotW / 2, py0 + plotH);
+      g.stroke();
+
+      const d = this.app.engine.byPart.get(part.id)?.device;
+      const timeDiv = Math.max(0.0001, +p.timeDiv || 0.05);
+      const s1 = Math.max(0.05, +p.ch1Scale || 2), s2 = Math.max(0.05, +p.ch2Scale || 2);
+      const pos1 = +p.ch1Pos || 0, pos2 = +p.ch2Pos || 0;
+      const divH = plotH / 8, midY = py0 + plotH / 2;
+      const win = d ? computeScopeWindow(d, timeDiv) : null;
+      let st1 = null, st2 = null;
+
+      if (win) {
+        const ac = p.coupling === 'AC';
+        st1 = measureChannelStats(d, d.buf1, win);
+        st2 = measureChannelStats(d, d.buf2, win);
+        const off1 = ac && st1.valid ? st1.vavg : 0;
+        const off2 = ac && st2.valid ? st2.vavg : 0;
+
+        if (p.xyMode && p.ch1On && p.ch2On) {
+          g.strokeStyle = '#38bdf8'; g.lineWidth = 2; g.beginPath();
+          let moved = false;
+          for (let k = 0; k < win.count; k++) {
+            const idx = win.idxAt(k), t = d.bufT[idx];
+            if (t < win.tStart || t > win.tEnd) continue;
+            const v1 = d.buf1[idx] - off1, v2 = d.buf2[idx] - off2;
+            if (Number.isNaN(v1) || Number.isNaN(v2)) { moved = false; continue; }
+            const x = px0 + plotW * 0.5 + (v1 / s1) * (plotW / 10);
+            const y = Math.max(py0, Math.min(py0 + plotH, midY - ((v2 / s2) + pos2) * divH));
+            if (!moved) { g.moveTo(x, y); moved = true; } else g.lineTo(x, y);
+          }
+          g.stroke();
+        } else {
+          const drawWave = (getter, col) => {
+            g.strokeStyle = col; g.lineWidth = 2; g.beginPath();
+            let moved = false;
+            for (let k = 0; k < win.count; k++) {
+              const idx = win.idxAt(k), t = d.bufT[idx];
+              if (t < win.tStart || t > win.tEnd) continue;
+              const v = getter(idx);
+              if (Number.isNaN(v)) { moved = false; continue; }
+              const x = px0 + ((t - win.tStart) / win.span) * plotW;
+              const y = Math.max(py0 + 1, Math.min(py0 + plotH - 1, midY - v * divH));
+              if (!moved) { g.moveTo(x, y); moved = true; } else g.lineTo(x, y);
+            }
+            g.stroke();
+          };
+          if (p.ch1On) drawWave(i => (d.buf1[i] - off1) / s1 + pos1, '#facc15');
+          if (p.ch2On) drawWave(i => (d.buf2[i] - off2) / s2 + pos2, '#22d3ee');
+          if (p.math && p.math !== 'off') {
+            const sign = p.math === 'add' ? 1 : -1;
+            drawWave(i => ((d.buf1[i] - off1) + sign * (d.buf2[i] - off2)) / s1, '#e879f9');
+          }
+        }
+      }
+
+      // Baseline markers & trigger level indicator
+      g.font = '700 10px ui-monospace, Menlo, monospace';
+      if (p.ch1On) { g.fillStyle = '#facc15'; g.fillText('1▸', 2, Math.max(py0 + 8, Math.min(py0 + plotH, midY - pos1 * divH + 3))); }
+      if (p.ch2On) { g.fillStyle = '#22d3ee'; g.fillText('2▸', 2, Math.max(py0 + 8, Math.min(py0 + plotH, midY - pos2 * divH + 3))); }
+      const trigS = p.trigSrc === 'CH2' ? s2 : s1;
+      const trigP = p.trigSrc === 'CH2' ? pos2 : pos1;
+      const ty = Math.max(py0, Math.min(py0 + plotH, midY - (((+p.trigLevel || 0) / trigS) + trigP) * divH));
+      g.save(); g.setLineDash([4, 4]); g.strokeStyle = 'rgba(251,146,60,0.45)'; g.beginPath(); g.moveTo(px0, ty); g.lineTo(px0 + plotW, ty); g.stroke(); g.restore();
+
+      // Header & footer text
+      const stTxt = !p.run ? 'STOP' : (win && win.triggered ? "Trig'd" : 'Auto');
+      g.fillStyle = !p.run ? '#ef4444' : '#4ade80'; g.fillText(stTxt, px0, 14);
+      g.fillStyle = '#e2e8f0'; g.fillText(`M ${fmtUnits(timeDiv, 's')}/div`, px0 + 68, 14);
+      g.fillStyle = '#fb923c'; g.fillText(`${p.trigSrc || 'CH1'}: ${(+p.trigLevel || 0).toFixed(2)}V`, W - 115, 14);
+      g.fillStyle = p.ch1On ? '#facc15' : '#64748b'; g.fillText(`CH1 ${fmtUnits(s1, 'V')}/div`, px0, H - 5);
+      g.fillStyle = p.ch2On ? '#22d3ee' : '#64748b'; g.fillText(`CH2 ${fmtUnits(s2, 'V')}/div`, px0 + 115, H - 5);
+
+      const fmtCard = (st) => !st || !st.valid ? 'No signal' : `${st.vpp.toFixed(2)}Vpp · avg ${st.vavg.toFixed(2)}V · ${st.freq > 0 ? fmtUnits(st.freq, 'Hz') : 'DC'}`;
+      c1Card.lastChild.textContent = fmtCard(st1);
+      c2Card.lastChild.textContent = fmtCard(st2);
+
+      kV1.sync(); kV2.sync(); kT.sync(); kP1.sync(); kP2.sync(); kTr.sync();
+    };
+    return update;
   }
 }

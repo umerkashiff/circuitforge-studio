@@ -2,7 +2,7 @@ const defs = new Map();
 const primaryDefs = [];
 
 export const CATEGORIES = [
-  'Boards', 'Microcontrollers', 'Power', 'Inputs', 'Outputs', 'Passives',
+  'Boards', 'Instruments', 'Microcontrollers', 'Power', 'Inputs', 'Outputs', 'Passives',
   'Logic Gates', 'Flip-Flops', 'Counters', 'Decoders & Mux', 'Arithmetic', 'Buffers', 'Timers', 'Notes',
 ];
 

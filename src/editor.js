@@ -16,6 +16,7 @@ import { getDef } from './parts/registry.js';
 import { key } from './sim/engine.js';
 import { route, tidy } from './sim/router.js';
 import { WIRE_COLORS } from './view/renderer.js';
+import { SCOPE_VDIV, SCOPE_TDIV } from './parts/library.js';
 
 const TAU = Math.PI * 2;
 const DRAG_PX = 4;
@@ -180,7 +181,18 @@ export class Editor {
       const ctrl = def.control ? def.control(part, part.toLocal(w.x, w.y)) : null;
       if (ctrl === 'press') { part.ui.pressed = true; this.app.stateChanged(!def.staticLinks); }
       else if (typeof ctrl === 'string' && ctrl.startsWith('press:')) { part.ui.pressKey = ctrl.slice(6); this.app.stateChanged(false); }
-      if (ctrl === 'knob') { this.mode = { kind: 'knob', part, v0: part.props.pos }; return; }
+      if (typeof ctrl === 'string' && (ctrl === 'knob' || ctrl.startsWith('knob:'))) {
+        const [, k = 'pos', sMin = '0', sMax = '1', kMode = 'lin'] = ctrl.split(':');
+        const list = kMode === 'vdiv' ? SCOPE_VDIV : kMode === 'tdiv' ? SCOPE_TDIV : null;
+        let v0 = +(part.props[k] ?? 0);
+        if (list) {
+          let best = 0, bd = Infinity;
+          for (let i = 0; i < list.length; i++) if (Math.abs(list[i] - v0) < bd) { bd = Math.abs(list[i] - v0); best = i; }
+          v0 = best;
+        }
+        this.mode = { kind: 'knob', part, key: k, min: +sMin, max: +sMax, kMode, list, v0 };
+        return;
+      }
       if (!this.selection.has(part.id) && !ctrl) this.select([part.id], e.shiftKey);
       this.mode = { kind: 'partDown', part, ctrl, shift: e.shiftKey, alt: e.altKey };
       return;
@@ -203,7 +215,7 @@ export class Editor {
     this.mx = w.x; this.my = w.y;
     this.shift = e.shiftKey;
     const m = this.mode;
-    const dragPx = m && m.kind === 'partDown' && m.ctrl ? (/^(sw|bit|press:)/.test(m.ctrl) ? 20 : 12) : DRAG_PX;
+    const dragPx = m && m.kind === 'partDown' && m.ctrl ? (/^(sw|bit|press:|inst:)/.test(m.ctrl) ? 20 : 12) : DRAG_PX;
     if (this.downAt && !this.moved && Math.hypot(e.clientX - this.downAt.sx, e.clientY - this.downAt.sy) > dragPx) this.moved = true;
 
     if (m && m.kind === 'pan') {
@@ -214,8 +226,7 @@ export class Editor {
     }
     if (m && m.kind === 'knob') {
       const dy = (this.downAt.sy - e.clientY) + (e.clientX - this.downAt.sx);
-      m.part.props.pos = Math.max(0, Math.min(1, m.v0 + dy / 160));
-      this.app.stateChanged(false);
+      this.setKnobFrac(m, dy / 160);
       return;
     }
     if (m && this.moved) {
@@ -235,7 +246,7 @@ export class Editor {
     }
     const mm = this.mode;
     if (mm) {
-      if (mm.kind === 'place') { this.positionGhost(); this.liveProblemHint([mm.ghost].filter(Boolean)); }
+      if (mm.kind === 'place') { this.positionGhost(); this.liveProblemHint(mm.ghost ? [mm.ghost] : [], mm.board ? [mm.board] : []); }
       else if (mm.kind === 'drag') this.dragTo(w);
       else if (mm.kind === 'wireEnd') {
         const pt = this.pointAt(w.x, w.y, mm.wire[mm.end]);
@@ -276,9 +287,10 @@ export class Editor {
       case 'partDown':
         if (m.ctrl === 'press') { m.part.ui.pressed = false; this.app.stateChanged(!getDef(m.part.type).staticLinks); }
         else if (typeof m.ctrl === 'string' && m.ctrl.startsWith('press:')) { m.part.ui.pressKey = null; this.app.stateChanged(false); }
+        else if (m.ctrl === 'inst:panel') { if (this.app.ui.openInstrumentWindow) this.app.ui.openInstrumentWindow(m.part); }
         else if (m.ctrl) {
           const def = getDef(m.part.type);
-          if (def.click && def.click(m.part, m.ctrl)) this.app.stateChanged(!!def.links && !def.staticLinks);
+          if (def.click && def.click(m.part, m.ctrl, this.app)) this.app.stateChanged(!!def.links && !def.staticLinks);
         }
         this.mode = null;
         break;
@@ -312,9 +324,20 @@ export class Editor {
     // knob under the cursor turns with the wheel
     const w = this.toWorld(e.clientX, e.clientY);
     const part = this.topPartAt(w.x, w.y);
-    if (part && getDef(part.type).control && getDef(part.type).control(part, part.toLocal(w.x, w.y)) === 'knob' && !e.ctrlKey) {
-      part.props.pos = Math.max(0, Math.min(1, part.props.pos - e.deltaY / 600));
-      this.app.stateChanged(false);
+    const kCtrl = part && getDef(part.type).control ? getDef(part.type).control(part, part.toLocal(w.x, w.y)) : null;
+    if (typeof kCtrl === 'string' && (kCtrl === 'knob' || kCtrl.startsWith('knob:')) && !e.ctrlKey) {
+      const [, k = 'pos', sMin = '0', sMax = '1', kMode = 'lin'] = kCtrl.split(':');
+      const list = kMode === 'vdiv' ? SCOPE_VDIV : kMode === 'tdiv' ? SCOPE_TDIV : null;
+      let v0 = +(part.props[k] ?? 0);
+      if (list) {
+        let best = 0, bd = Infinity;
+        for (let i = 0; i < list.length; i++) if (Math.abs(list[i] - v0) < bd) { bd = Math.abs(list[i] - v0); best = i; }
+        const step = e.deltaY < 0 ? 1 : -1;
+        part.props[k] = list[Math.max(0, Math.min(list.length - 1, best + step))];
+        this.app.stateChanged(false);
+        return;
+      }
+      this.setKnobFrac({ part, key: k, min: +sMin, max: +sMax, kMode, list: null, v0 }, -e.deltaY / 600);
       return;
     }
     // Trackpad / wheel ONLY zooms; does not move canvas
@@ -339,8 +362,32 @@ export class Editor {
     const part = this.topPartAt(w.x, w.y);
     if (part) {
       this.select([part.id]);
-      if (getDef(part.type).mcu) this.app.ui.openCode(part); else this.app.ui.focusFirstField();
+      const d = getDef(part.type);
+      if (d.mcu) this.app.ui.openCode(part);
+      else if (d.cat === 'Instruments' && this.app.ui.openInstrumentWindow) this.app.ui.openInstrumentWindow(part);
+      else this.app.ui.focusFirstField();
     }
+  }
+
+  setKnobFrac(m, delta) {
+    const { part, key, min, max, kMode, list, v0 } = m;
+    if (list) {
+      const idx = Math.max(0, Math.min(list.length - 1, Math.round(v0 + delta * (list.length - 1))));
+      part.props[key] = list[idx];
+    } else if (kMode === 'log') {
+      const lo = Math.max(1e-3, min), hi = Math.max(lo * 10, max);
+      const f0 = Math.max(0, Math.min(1, Math.log(Math.max(lo, v0) / lo) / Math.log(hi / lo)));
+      const f = Math.max(0, Math.min(1, f0 + delta));
+      const val = lo * Math.pow(hi / lo, f);
+      part.props[key] = val >= 100 ? Math.round(val) : +val.toPrecision(3);
+    } else if (key === 'pos' && min === 0 && max === 1) {
+      part.props.pos = Math.max(0, Math.min(1, v0 + delta));
+    } else {
+      const val = Math.max(min, Math.min(max, v0 + delta * (max - min)));
+      part.props[key] = +val.toFixed(2);
+    }
+    this.app.stateChanged(false);
+    if (this.app.ui.updateInstrumentWindows) this.app.ui.updateInstrumentWindows();
   }
 
   updateHover(e) {
@@ -446,18 +493,68 @@ export class Editor {
   }
 
   // ------------------------------------------------------------ validation --
+  isBenchtop(p) {
+    const d = getDef(p.type);
+    return d.cat === 'Instruments' || p.type === 'trainer-board';
+  }
+  partBoxWorld(p, pad = 0) {
+    const b = p.bounds();
+    return { x0: b.x0 - pad, y0: b.y0 - pad, x1: b.x1 + pad, y1: b.y1 + pad };
+  }
+  boardBoxWorld(b, pad = 0) {
+    return { x0: b.x - pad, y0: b.y - pad, x1: b.x + b.w + pad, y1: b.y + b.h + pad };
+  }
+  boxesOverlap(a, b) {
+    return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+  }
+
   /**
-   * Why `parts` can't sit where they are, per pin. Checks: landing on another
+   * Why `parts` (or `movingBoards`) can't sit where they are. Checks: landing on another
    * part's pin, shorting two of its own pins through one breadboard strip,
-   * and wiring a supply pin straight into ground (or another supply).
+   * wiring a supply pin straight into ground, and benchtop instruments
+   * overlapping/touching breadboards or components.
    */
-  problems(parts) {
-    const app = this.app, ix = app.index;
+  problems(parts, movingBoards = []) {
+    const app = this.app, ix = app.index, c = app.circuit;
     const ids = new Set(parts.map(p => p.id));
     const bad = new Map();
+    const badBoxes = [];
     let msg = null;
     const flag = (k, why) => { if (!bad.has(k)) bad.set(k, why); if (!msg) msg = why; };
+    const flagBox = (part, why) => {
+      badBoxes.push(part.bounds());
+      for (const q of part.worldPins()) flag(key(q.x, q.y), why);
+      if (!msg) msg = why;
+    };
+
     for (const p of parts) {
+      if (this.isBenchtop(p)) {
+        const pBoxBoard = this.partBoxWorld(p, 0.5);
+        for (const b of c.boards) {
+          if (this.boxesOverlap(pBoxBoard, this.boardBoxWorld(b, 0))) {
+            flagBox(p, 'Benchtop instruments cannot be placed on or touching a breadboard.');
+            break;
+          }
+        }
+        const pBoxPart = this.partBoxWorld(p, 0.25);
+        for (const other of c.parts) {
+          if (other.id === p.id || ids.has(other.id)) continue;
+          if (this.boxesOverlap(pBoxPart, this.partBoxWorld(other, 0))) {
+            flagBox(p, 'Instruments cannot overlap other components.');
+            break;
+          }
+        }
+      } else {
+        const pBox = this.partBoxWorld(p, 0);
+        for (const inst of c.parts) {
+          if (inst.id === p.id || ids.has(inst.id) || !this.isBenchtop(inst)) continue;
+          if (this.boxesOverlap(pBox, this.partBoxWorld(inst, 0.25))) {
+            flagBox(p, 'Components cannot be placed on top of an instrument.');
+            break;
+          }
+        }
+      }
+
       const def = getDef(p.type);
       const pins = p.worldPins();
       const allowed = new Set((def.links ? def.links(p) : []).map(([i, j]) => i < j ? `${i}-${j}` : `${j}-${i}`));
@@ -482,10 +579,24 @@ export class Editor {
         if (why) flag(key(q.x, q.y), why);
       }
     }
-    return { bad, msg };
+
+    if (movingBoards.length) {
+      const bench = c.parts.filter(inst => this.isBenchtop(inst) && !ids.has(inst.id));
+      for (const b of movingBoards) {
+        const bb = this.boardBoxWorld(b, 0);
+        for (const inst of bench) {
+          if (this.boxesOverlap(this.partBoxWorld(inst, 0.5), bb)) {
+            badBoxes.push(bb, inst.bounds());
+            if (!msg) msg = 'Benchtop instruments cannot be placed on or touching a breadboard.';
+          }
+        }
+      }
+    }
+
+    return { bad, badBoxes, msg };
   }
-  liveProblemHint(parts) {
-    const { msg } = this.problems(parts);
+  liveProblemHint(parts, movingBoards = []) {
+    const { msg } = this.problems(parts, movingBoards);
     if (msg) this.app.ui.hint('⚠︎ ' + msg);
     else if (this.mode && this.mode.kind === 'place') this.app.ui.hint('Click to place · E to rotate · Esc to cancel');
     else this.app.ui.hint(null);
@@ -528,14 +639,14 @@ export class Editor {
     }
     this.app.circuit.syncWires();
     this.app.reindex(true);
-    if (!m.boards.length) this.liveProblemHint(m.parts);
+    this.liveProblemHint(m.parts, m.boards);
   }
   endDrag() {
     const m = this.mode;
     this.mode = null;
     this.app.ui.hint(null);
     if (!m.dx && !m.dy) { this.app.reindex(); return; }
-    const { msg } = m.boards.length ? this.problems(m.parts) : this.problems(m.parts);
+    const { msg } = this.problems(m.parts, m.boards);
     if (msg) {
       for (const o of m.orig) { o.p.x = o.x; o.p.y = o.y; }
       for (const o of m.borig) { o.b.x = o.x; o.b.y = o.y; }
@@ -615,6 +726,12 @@ export class Editor {
     else this.mode = { kind: 'place', ghost: new Part(spec.type, 0, 0, 0, spec.props ? JSON.parse(JSON.stringify(spec.props)) : null, 'ghost') };
     this.app.ui.hint('Click to place · E to rotate · Esc to cancel');
     this.positionGhost();
+    if (this.mode.ghost && this.isBenchtop(this.mode.ghost) && this.problems([this.mode.ghost]).msg && this.app.circuit.boards.length) {
+      const brd = this.app.circuit.boards[0];
+      const gh = this.mode.ghost;
+      gh.y = brd.y - 3;
+      gh.x = brd.x;
+    }
     this.cursor();
     this.app.redraw();
   }
@@ -631,6 +748,8 @@ export class Editor {
   place(keep) {
     const m = this.mode;
     if (m.board) {
+      const { msg } = this.problems([], [m.board]);
+      if (msg) { this.app.ui.toast(msg); return; }
       const b = new Board(m.board.size, m.board.x, m.board.y);
       this.app.circuit.boards.push(b);
       this.mode = null;
@@ -645,6 +764,7 @@ export class Editor {
     const p = new Part(g.type, g.x, g.y, g.rot, JSON.parse(JSON.stringify(g.props)));
     this.app.circuit.parts.push(p);
     this.app.commit('Add ' + getDef(p.type).name);
+    if (getDef(p.type).cat === 'Instruments' && this.app.ui.openInstrumentWindow) this.app.ui.openInstrumentWindow(p);
     if (!keep) { this.mode = null; this.app.ui.hint(null); this.select([p.id]); }
     this.cursor();
   }
@@ -830,10 +950,12 @@ export class Editor {
       R.drawWire(pts, this.autoColor(m.from, this.hover), false, null, 0.75);
     }
     if (m && m.kind === 'place') {
-      if (m.board) { g.globalAlpha = 0.6; R.drawBoard(m.board, env.dark, true, -1); g.globalAlpha = 1; }
+      if (m.board) { g.globalAlpha = 0.6; R.drawBoard(m.board, env.dark, true, -1); g.globalAlpha = 1; this.drawLanding(g, [], [m.board]); }
       else { g.globalAlpha = 0.75; env.dev = null; R.drawPart(m.ghost, env, false); g.globalAlpha = 1; this.drawLanding(g, [m.ghost]); }
     }
-    if (m && m.kind === 'drag' && this.app.settings.get('landingMarks')) this.drawLanding(g, m.parts);
+    if (m && m.kind === 'drag' && (this.app.settings.get('landingMarks') || m.parts.some(p => this.isBenchtop(p)) || m.boards.length)) {
+      this.drawLanding(g, m.parts, m.boards);
+    }
     if (m && m.kind === 'marquee') {
       const x = Math.min(m.x0, m.x1) * P, y = Math.min(m.y0, m.y1) * P;
       const w = Math.abs(m.x1 - m.x0) * P, h = Math.abs(m.y1 - m.y0) * P;
@@ -951,15 +1073,30 @@ export class Editor {
       g.fillRect(x - 1.8, y - 1.6, 3.6, 3.6);
     }
   }
-  drawLanding(g, parts) {
+  drawLanding(g, parts, movingBoards = []) {
     const ix = this.app.index;
-    const { bad } = this.problems(parts);
+    const { bad, badBoxes } = this.problems(parts, movingBoards);
     for (const p of parts) {
       for (const q of p.worldPins()) {
         const k = key(q.x, q.y);
         g.fillStyle = bad.has(k) ? '#ff3b30' : ix.holes.has(k) ? '#34c759' : 'rgba(142,142,147,0.9)';
         g.beginPath(); g.arc(q.x * P, q.y * P, 3.6, 0, TAU); g.fill();
       }
+    }
+    if (badBoxes && badBoxes.length) {
+      const z = this.app.cam.z || 1;
+      g.save();
+      g.fillStyle = 'rgba(255, 59, 48, 0.12)';
+      g.strokeStyle = '#ff3b30';
+      g.lineWidth = 2 / z;
+      g.setLineDash([6 / z, 4 / z]);
+      for (const bx of badBoxes) {
+        g.beginPath();
+        g.roundRect(bx.x0 * P, bx.y0 * P, (bx.x1 - bx.x0) * P, (bx.y1 - bx.y0) * P, 6 / z);
+        g.fill();
+        g.stroke();
+      }
+      g.restore();
     }
   }
 }

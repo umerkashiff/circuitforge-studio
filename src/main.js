@@ -442,7 +442,7 @@ class App {
         // Step size follows the fastest RC constant / clock in the circuit. If the
         // frame budget runs out, run in slow motion instead of taking bigger steps.
         const dt = e.suggestDt();
-        const want = Math.max(1, Math.ceil(target / dt));
+        const want = Math.min(240, Math.max(1, Math.ceil(target / dt)));
         const t0 = performance.now();
         let n = 0;
         while (n < want && performance.now() - t0 < 12) { e.step(Math.min(dt, target)); this.sample(); n++; }
@@ -470,6 +470,7 @@ class App {
       this.dirty = false;
       this.renderer.draw();
       this.ui.drawAnalyzer();
+      if (this.ui.updateInstrumentWindows) this.ui.updateInstrumentWindows();
     }
     requestAnimationFrame((t) => this.frame(t));
   }

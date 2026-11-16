@@ -208,6 +208,7 @@ export function icDevice(ic, nets) {
     begin() { this.s = this.committed.slice(); this.seen.fill(0); },
     stamp(S, V) {
       if (!this.powered) return;
+      if (net(ic.vcc) >= 0 && net(ic.gnd) >= 0) S.G(net(ic.vcc), net(ic.gnd), 1 / 1250);
       for (let p = 1; p <= N; p++) {
         const v = this.out[p];
         if (v === undefined || v === null || net(p) < 0) continue;

@@ -1416,7 +1416,7 @@ for (let c = 0; c < TRAINER_COLS.length; c++) {
 const TRAINER_CLK_COL = TRAINER_COLS.findIndex(c => c.kind === 'clk');
 
 const TRAINER_STATIC_CACHE = new Map();
-const TRAINER_CACHE_BOX = { x: -28, y: -236, w: 870, h: 266, scale: 2 };
+const TRAINER_CACHE_BOX = { x: -28, y: -236, w: 870, h: 266, scale: 3 };
 
 function drawTrainerToggleBat(g, env, x, y, on) {
   // Mini LED indicator above toggle
@@ -1726,6 +1726,1093 @@ register({
   },
 });
 
+// --------------------------------------------------------- Lab Instruments --
+function drawPanelBadge(g, env, x, y, w = 54, h = 15) {
+  rr(g, x, y, w, h, 3.5);
+  g.fillStyle = '#0a84ff'; g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.42)'; g.lineWidth = 1; g.stroke();
+  text(g, env, 'PANEL ↗', x + w / 2, y + h / 2 + 0.5, { size: 7.2, color: '#ffffff', weight: 800, font: MONO });
+}
+
+function drawKnob(g, x, y, r, angle, capColor = '#e2e8f0', skirtColor = '#334155') {
+  g.fillStyle = 'rgba(0,0,0,0.32)';
+  g.beginPath(); g.arc(x + 1.5, y + 2, r + 2, 0, TAU); g.fill();
+  g.fillStyle = skirtColor;
+  g.beginPath(); g.arc(x, y, r + 1.5, 0, TAU); g.fill();
+  g.fillStyle = capColor;
+  g.beginPath(); g.arc(x, y, r * 0.78, 0, TAU); g.fill();
+  g.strokeStyle = '#1e293b'; g.lineWidth = 1.2; g.stroke();
+  g.strokeStyle = '#0f172a'; g.lineWidth = 2.6; g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(x + Math.cos(angle) * (r * 0.16), y + Math.sin(angle) * (r * 0.16));
+  g.lineTo(x + Math.cos(angle) * (r * 0.72), y + Math.sin(angle) * (r * 0.72));
+  g.stroke();
+}
+
+function drawBncPort(g, x, y) {
+  g.fillStyle = '#94a3b8'; g.beginPath(); g.arc(x, y, 8.6, 0, TAU); g.fill();
+  g.strokeStyle = '#1e293b'; g.lineWidth = 1.2; g.stroke();
+  g.fillStyle = '#f1f5f9'; g.beginPath(); g.arc(x, y, 6.2, 0, TAU); g.fill();
+  g.fillStyle = '#0f172a'; g.beginPath(); g.arc(x, y, 4.2, 0, TAU); g.fill();
+  g.fillStyle = '#facc15'; g.beginPath(); g.arc(x, y, 1.8, 0, TAU); g.fill();
+}
+
+function drawBananaSocket(g, x, y, ringColor) {
+  g.fillStyle = '#1f2937'; g.beginPath(); g.arc(x, y, 8.8, 0, TAU); g.fill();
+  g.fillStyle = ringColor; g.beginPath(); g.arc(x, y, 7.0, 0, TAU); g.fill();
+  g.fillStyle = '#cbd5e1'; g.beginPath(); g.arc(x, y, 4.2, 0, TAU); g.fill();
+  g.fillStyle = '#090b0f'; g.beginPath(); g.arc(x, y, 2.5, 0, TAU); g.fill();
+}
+
+function cycleList(list, val, delta) {
+  let idx = 0, best = Infinity;
+  for (let i = 0; i < list.length; i++) {
+    const d = Math.abs(list[i] - val);
+    if (d < best) { best = d; idx = i; }
+  }
+  return list[Math.max(0, Math.min(list.length - 1, idx + delta))];
+}
+
+// 1. Regulated DC Power Supply — MATRIX MPS-3005L-3 ------------------------
+const PSU_V_STEPS = [0, 1.5, 3.3, 5, 6, 9, 12, 15, 24, 30];
+const PSU_I_STEPS = [0.1, 0.5, 1, 2, 3, 5];
+
+function drawPsuStatic(g, env) {
+  // Subtle crisp drop bezel (vector-sharp at every zoom, zero shadowBlur cost)
+  rr(g, -0.5 * U + 2, -9.5 * U + 3, 19.0 * U, 9.95 * U, 8);
+  g.fillStyle = 'rgba(0,0,0,0.22)'; g.fill();
+  // Cream metal chassis matching MATRIX MPS-3005L-3
+  rr(g, -0.5 * U, -9.5 * U, 19.0 * U, 9.95 * U, 8);
+  g.fillStyle = lin(g, 0, -9.5 * U, 0, 0.45 * U, [[0, '#eeece4'], [1, '#d3d0c4']]);
+  g.fill();
+  g.strokeStyle = 'rgba(0,0,0,0.28)'; g.lineWidth = 1.4; g.stroke();
+
+  // Brand badge + PANEL pop-out badge (high-contrast readable sizes)
+  rr(g, -0.1 * U, -9.32 * U, 10.6 * U, 0.72 * U, 3);
+  g.fillStyle = '#d97706'; g.fill();
+  text(g, env, 'MATRIX', 1.65 * U, -8.96 * U, { size: 9, color: '#111827', weight: 900, font: MONO });
+  text(g, env, 'MPS-3005L-3', 6.8 * U, -8.96 * U, { size: 8.5, color: '#111827', weight: 800, font: MONO });
+  drawPanelBadge(g, env, 15.2 * U, -9.38 * U, 58, 16);
+
+  // Recessed dark digital meter bay
+  rr(g, 0.25 * U, -8.45 * U, 17.5 * U, 2.55 * U, 5);
+  g.fillStyle = '#0d1016'; g.fill();
+  g.strokeStyle = '#334155'; g.lineWidth = 1.4; g.stroke();
+  for (let i = 0; i < 4; i++) {
+    const wx = (0.75 + i * 4.25) * U;
+    rr(g, wx, -7.75 * U, 3.7 * U, 1.35 * U, 3);
+    g.fillStyle = '#050709'; g.fill();
+    text(g, env, i % 2 === 0 ? 'A' : 'V', wx + 1.85 * U, -8.12 * U, { size: 8.5, color: '#cbd5e1', weight: 800, font: MONO });
+  }
+
+  // Ochre/gold lower control deck
+  rr(g, 0.0 * U, -5.65 * U, 18.0 * U, 5.85 * U, 5);
+  g.fillStyle = lin(g, 0, -5.65 * U, 0, 0.2 * U, [[0, '#cfa958'], [1, '#b68f40']]);
+  g.fill();
+  g.strokeStyle = 'rgba(0,0,0,0.22)'; g.lineWidth = 1.2; g.stroke();
+
+  // Bold high-contrast control labels (uncluttered for crisp zoomed-out visibility)
+  text(g, env, 'CUR', 2.0 * U, -5.12 * U, { size: 8, color: '#111827', weight: 800, font: MONO });
+  text(g, env, 'VOLT', 5.6 * U, -5.12 * U, { size: 8, color: '#111827', weight: 800, font: MONO });
+  text(g, env, 'CUR', 11.4 * U, -5.12 * U, { size: 8, color: '#111827', weight: 800, font: MONO });
+  text(g, env, 'VOLT', 14.9 * U, -5.12 * U, { size: 8, color: '#111827', weight: 800, font: MONO });
+  text(g, env, 'SLAVE', 3.8 * U, -2.35 * U, { size: 8.5, color: '#111827', weight: 900, font: MONO });
+  text(g, env, 'TRACK', 8.5 * U, -2.35 * U, { size: 8, color: '#14532d', weight: 900, font: MONO });
+  text(g, env, 'MASTER', 13.2 * U, -2.35 * U, { size: 8.5, color: '#111827', weight: 900, font: MONO });
+  text(g, env, 'MODE', 8.5 * U, -4.85 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+  text(g, env, 'PWR', 0.9 * U, -2.25 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+  text(g, env, '5V 3A', 16.0 * U, -1.55 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+
+  // Bottom binding post sockets & bold labels
+  const posts = [
+    [2, '#111827', '−'], [4, '#f8fafc', 'GND'], [6, '#16a34a', '+'],
+    [9, '#111827', '−'], [11, '#f8fafc', 'GND'], [13, '#dc2626', '+'],
+    [15, '#111827', '−'], [17, '#dc2626', '+'],
+  ];
+  for (const [px, col, lbl] of posts) {
+    text(g, env, lbl, px * U, -0.78 * U, { size: 8, color: '#111827', weight: 900, font: MONO });
+    drawBananaSocket(g, px * U, 0, col);
+  }
+}
+
+register({
+  type: 'power-supply',
+  name: 'MPS-3005L-3 Regulated Power Supply',
+  short: 'MPS-3005L-3',
+  title: 'Triple-Output Regulated DC Power Supply (2× 0–30V/5A + 5V/3A Fixed)',
+  cat: 'Instruments',
+  aliases: ['regulated-power-supply', 'mps3005', 'bench-supply'],
+  desc: 'Dual tracking 0–30 V / 0–5 A + fixed 5 V / 3 A laboratory DC power supply with live V/A meters, Constant Current limiting, Series (up to 60 V), and Parallel modes.',
+  defaults: { power: true, mode: 'indep', v1: 5, i1: 2, v2: 12, i2: 2 },
+  fields: [
+    { key: 'power', label: 'Power Switch', kind: 'select', options: [[true, 'ON'], [false, 'OFF']] },
+    { key: 'mode', label: 'Tracking Mode', kind: 'select', options: [['indep', 'Independent'], ['series', 'Series (0–60V / ±Track)'], ['parallel', 'Parallel (2× Current)']] },
+    { key: 'v1', label: 'Master Voltage (V)', kind: 'select', options: [[0, '0.0 V'], [1.5, '1.5 V'], [3.3, '3.3 V'], [5, '5.0 V'], [6, '6.0 V'], [9, '9.0 V'], [12, '12.0 V'], [15, '15.0 V'], [24, '24.0 V'], [30, '30.0 V']], custom: { unit: 'V', min: 0, max: 30 } },
+    { key: 'i1', label: 'Master Current Limit (A)', kind: 'select', options: [[0.1, '0.10 A'], [0.5, '0.50 A'], [1, '1.00 A'], [2, '2.00 A'], [3, '3.00 A'], [5, '5.00 A']], custom: { unit: 'A', min: 0.05, max: 5 } },
+    { key: 'v2', label: 'Slave Voltage (V)', kind: 'select', options: [[0, '0.0 V'], [1.5, '1.5 V'], [3.3, '3.3 V'], [5, '5.0 V'], [6, '6.0 V'], [9, '9.0 V'], [12, '12.0 V'], [15, '15.0 V'], [24, '24.0 V'], [30, '30.0 V']], custom: { unit: 'V', min: 0, max: 30 } },
+    { key: 'i2', label: 'Slave Current Limit (A)', kind: 'select', options: [[0.1, '0.10 A'], [0.5, '0.50 A'], [1, '1.00 A'], [2, '2.00 A'], [3, '3.00 A'], [5, '5.00 A']], custom: { unit: 'A', min: 0.05, max: 5 } },
+  ],
+  pins: () => [
+    { x: 2, y: 0, name: 'SLAVE −' },
+    { x: 4, y: 0, name: 'SLAVE GND' },
+    { x: 6, y: 0, name: 'SLAVE +' },
+    { x: 9, y: 0, name: 'MASTER −' },
+    { x: 11, y: 0, name: 'MASTER GND' },
+    { x: 13, y: 0, name: 'MASTER +' },
+    { x: 15, y: 0, name: '5V FIXED −' },
+    { x: 17, y: 0, name: '5V FIXED +' },
+  ],
+  links: () => [[1, 4]],
+  staticLinks: true,
+  supply: (part) => [
+    { i: 0, kind: 'B-:' + part.id + '_s' },
+    { i: 1, kind: 'G' },
+    { i: 2, kind: 'B+:' + part.id + '_s' },
+    { i: 3, kind: 'B-:' + part.id + '_m' },
+    { i: 4, kind: 'G' },
+    { i: 5, kind: 'B+:' + part.id + '_m' },
+    { i: 6, kind: 'B-:' + part.id + '_f' },
+    { i: 7, kind: 'B+:' + part.id + '_f' },
+  ],
+  bounds: () => [-0.8, -9.8, 18.8, 0.5],
+  draw(g, part, env) {
+    drawPsuStatic(g, env);
+
+    const p = part.props;
+    const on = !!p.power;
+    const d = env.dev;
+    const v1Set = Math.max(0, Math.min(30, +p.v1 || 0));
+    const v2Set = (p.mode === 'series' || p.mode === 'parallel') ? v1Set : Math.max(0, Math.min(30, +p.v2 || 0));
+    const i1Set = Math.max(0.05, Math.min(5, +p.i1 || 2));
+    const i2Set = p.mode === 'parallel' ? i1Set : Math.max(0.05, Math.min(5, +p.i2 || 2));
+
+    // Digital LED meters (SLAVE A, SLAVE V, MASTER A, MASTER V)
+    const vals = on
+      ? [
+        (d ? d.measI2 : 0).toFixed(2),
+        (d ? d.measV2 : v2Set).toFixed(1),
+        (d ? d.measI1 : 0).toFixed(2),
+        (d ? d.measV1 : v1Set).toFixed(1),
+      ]
+      : ['---', '---', '---', '---'];
+    for (let k = 0; k < 4; k++) {
+      const cx = (0.75 + k * 4.25 + 1.85) * U;
+      text(g, env, vals[k], cx, -7.08 * U, { size: 15, color: on ? (k % 2 === 0 ? '#4ade80' : '#ff453a') : '#292d35', weight: 800, font: MONO });
+    }
+
+    // Knobs (SLAVE I, SLAVE V, MASTER I, MASTER V)
+    const ang = (frac) => (-Math.PI * 1.25) + Math.max(0, Math.min(1, frac)) * (Math.PI * 1.5);
+    drawKnob(g, 2.0 * U, -3.7 * U, 17, ang(i2Set / 5));
+    drawKnob(g, 5.6 * U, -3.7 * U, 17, ang(v2Set / 30));
+    drawKnob(g, 11.4 * U, -3.7 * U, 17, ang(i1Set / 5));
+    drawKnob(g, 14.9 * U, -3.7 * U, 17, ang(v1Set / 30));
+
+    // Tracking pushbuttons
+    const isSeries = p.mode === 'series', isPar = p.mode === 'parallel';
+    for (const [bx, pressed] of [[8.05 * U, isSeries || isPar], [8.95 * U, isPar]]) {
+      rr(g, bx - 7, -3.6 * U - 7, 14, 14, 2);
+      g.fillStyle = pressed ? '#94a3b8' : '#f8fafc'; g.fill();
+      g.strokeStyle = '#334155'; g.lineWidth = 1; g.stroke();
+    }
+
+    // Status LEDs (SLAVE C.C/C.V, MASTER C.C/C.V, 5V OVERLOAD)
+    const ledDot = (lx, ly, active, rgb) => {
+      g.fillStyle = active ? `rgb(${rgb})` : '#374151';
+      g.beginPath(); g.arc(lx, ly, 3.6, 0, TAU); g.fill();
+      if (active) glow(g, lx, ly, 9, rgb, 0.9);
+    };
+    ledDot(3.4 * U, -3.95 * U, on && !!(d && d.cc2), '239,68,68');
+    ledDot(4.25 * U, -3.95 * U, on && (!d || !d.cc2), '34,197,94');
+    ledDot(12.8 * U, -3.95 * U, on && !!(d && d.cc1), '239,68,68');
+    ledDot(13.65 * U, -3.95 * U, on && (!d || !d.cc1), '34,197,94');
+    ledDot(17.0 * U, -3.6 * U, on && !!(d && d.overload5), '239,68,68');
+
+    // Bottom-left white POWER rocker
+    rr(g, 0.35 * U, -1.75 * U, 1.1 * U, 0.55 * U, 3);
+    g.fillStyle = '#374151'; g.fill();
+    rr(g, (on ? 0.42 : 0.9) * U, -1.68 * U, 0.5 * U, 0.41 * U, 2);
+    g.fillStyle = on ? '#f8fafc' : '#cbd5e1'; g.fill();
+  },
+  control(part, l) {
+    if (l.x >= 15.1 && l.x <= 18.4 && l.y >= -9.5 && l.y <= -8.45) return 'inst:panel';
+    if (l.x >= 0.1 && l.x <= 1.7 && l.y >= -2.5 && l.y <= -0.9) return 'inst:power';
+    if (l.x >= 7.5 && l.x <= 9.6 && l.y >= -5.4 && l.y <= -2.8) return 'inst:mode';
+    if (Math.hypot(l.x - 2.0, l.y + 3.7) <= 1.0) return 'knob:i2:0.05:5';
+    if (Math.hypot(l.x - 5.6, l.y + 3.7) <= 1.0) return 'knob:v2:0:30';
+    if (Math.hypot(l.x - 11.4, l.y + 3.7) <= 1.0) return 'knob:i1:0.05:5';
+    if (Math.hypot(l.x - 14.9, l.y + 3.7) <= 1.0) return 'knob:v1:0:30';
+    return null;
+  },
+  click(part, ctrl) {
+    const p = part.props;
+    if (ctrl === 'inst:power') { p.power = !p.power; return true; }
+    if (ctrl === 'inst:mode') { p.mode = p.mode === 'indep' ? 'series' : p.mode === 'series' ? 'parallel' : 'indep'; return true; }
+    if (ctrl === 'inst:v1-' || ctrl === 'inst:v1+') { p.v1 = cycleList(PSU_V_STEPS, +p.v1 || 0, ctrl.endsWith('+') ? 1 : -1); return true; }
+    if (ctrl === 'inst:v2-' || ctrl === 'inst:v2+') { p.v2 = cycleList(PSU_V_STEPS, +p.v2 || 0, ctrl.endsWith('+') ? 1 : -1); return true; }
+    if (ctrl === 'inst:i1-' || ctrl === 'inst:i1+') { p.i1 = cycleList(PSU_I_STEPS, +p.i1 || 2, ctrl.endsWith('+') ? 1 : -1); return true; }
+    if (ctrl === 'inst:i2-' || ctrl === 'inst:i2+') { p.i2 = cycleList(PSU_I_STEPS, +p.i2 || 2, ctrl.endsWith('+') ? 1 : -1); return true; }
+    return false;
+  },
+  device(part, nets, e) {
+    const gndS = dev.supply([nets[1]], 0);
+    const gndM = dev.supply([nets[4]], 0);
+    const makeCh = (plusIdx, minusIdx) => ({
+      plus: nets[plusIdx],
+      minus: nets[minusIdx],
+      minusConnected: !e || e.isNetConnected(nets[minusIdx]),
+      grounded: false,
+      inCC: false,
+      iMax: 2,
+      vTarget: 5,
+      measV: 0,
+      measI: 0,
+    });
+    const chS = makeCh(2, 0);
+    const chM = makeCh(5, 3);
+    const chF = makeCh(7, 6);
+    const R_OUT = 0.05;
+
+    const readV = (V, n) => (n >= 0 && ok(V[n]) ? V[n] : NaN);
+    const chCurrent = (V, ch) => {
+      const vp = readV(V, ch.plus);
+      const vm = ch.minusConnected ? readV(V, ch.minus) : 0;
+      if (!ok(vp) || !ok(vm)) return { vDiff: 0, i: 0 };
+      const vDiff = vp - vm;
+      const i = ch.inCC
+        ? Math.max(0, ch.iMax - (ch.grounded ? vp : vDiff) * 1e-4)
+        : (ch.grounded ? (ch.vTarget - vp) : (ch.vTarget - vDiff)) / R_OUT;
+      return { vDiff, i };
+    };
+    const stampCh = (S, ch, allowAnchor, grounded = false) => {
+      ch.grounded = grounded || !ch.minusConnected;
+      if (ch.plus < 0) return;
+      if (!ch.grounded) {
+        if (ch.inCC) {
+          S.I(ch.minus, ch.plus, ch.iMax);
+          S.G(ch.plus, ch.minus, 1e-4);
+          if (allowAnchor) S.anchor(ch.minus);
+        } else {
+          S.vdrop(ch.plus, ch.minus, ch.vTarget, R_OUT);
+          if (allowAnchor) S.anchor(ch.minus);
+        }
+      } else {
+        if (ch.inCC) {
+          S.i.push(-2, ch.plus, ch.iMax);
+          S.g.push(ch.plus, -2, 1e-4);
+          S.roots.push(ch.plus);
+          if (ch.minus >= 0) S.src(ch.minus, 0, 0.005);
+        } else {
+          S.src(ch.plus, ch.vTarget, R_OUT);
+          if (ch.minus >= 0) S.src(ch.minus, 0, 0.005);
+        }
+      }
+    };
+
+    return {
+      measV1: 0, measI1: 0, measV2: 0, measI2: 0, measV3: 0, measI3: 0,
+      cc1: false, cc2: false, overload5: false, warning: null,
+      reset() {
+        chS.inCC = chM.inCC = chF.inCC = false;
+        this.measV1 = this.measI1 = this.measV2 = this.measI2 = this.measV3 = this.measI3 = 0;
+        this.cc1 = this.cc2 = this.overload5 = false;
+        this.warning = null;
+      },
+      begin() {
+        const p = part.props;
+        const v1 = Math.max(0, Math.min(30, +p.v1 || 0));
+        const i1 = Math.max(0.05, Math.min(5, +p.i1 || 2));
+        const v2 = (p.mode === 'series' || p.mode === 'parallel') ? v1 : Math.max(0, Math.min(30, +p.v2 || 0));
+        const i2 = p.mode === 'parallel' ? i1 : Math.max(0.05, Math.min(5, +p.i2 || 2));
+        chM.vTarget = v1;
+        chM.iMax = p.mode === 'parallel' ? i1 * 2 : i1;
+        chS.vTarget = v2;
+        chS.iMax = p.mode === 'parallel' ? i1 * 2 : i2;
+        chF.vTarget = 5;
+        chF.iMax = 3;
+      },
+      stamp(S, V, eng) {
+        gndS.stamp(S, V, eng);
+        gndM.stamp(S, V, eng);
+        if (!part.props.power) return;
+        const mode = part.props.mode;
+        if (mode === 'series') {
+          chM.minusConnected = true;
+          stampCh(S, chS, true, false);
+          stampCh(S, chM, false, false);
+          if (nets[2] >= 0 && nets[3] >= 0) S.G(nets[2], nets[3], 20);
+        } else if (mode === 'parallel') {
+          chM.minusConnected = !e || e.isNetConnected(nets[3]) || e.isNetConnected(nets[0]);
+          stampCh(S, chM, true, true);
+          if (nets[2] >= 0 && nets[5] >= 0 && nets[2] !== nets[5]) S.G(nets[2], nets[5], 20);
+          if (nets[0] >= 0 && nets[3] >= 0 && nets[0] !== nets[3]) S.G(nets[0], nets[3], 20);
+        } else {
+          chS.minusConnected = !e || e.isNetConnected(nets[0]);
+          chM.minusConnected = !e || e.isNetConnected(nets[3]);
+          const chainS = nets[2] === nets[1] || nets[2] === nets[4] || nets[2] === nets[3] || nets[0] === nets[5] || nets[0] === nets[7];
+          const chainM = nets[5] === nets[1] || nets[5] === nets[4] || nets[3] === nets[2] || nets[3] === nets[7];
+          stampCh(S, chS, true, !chainS);
+          stampCh(S, chM, true, !chainM);
+        }
+        stampCh(S, chF, true, true);
+      },
+      update(V) {
+        if (!part.props.power) return false;
+        let changed = false;
+        const stepCC = (ch) => {
+          if (ch.plus < 0) return;
+          const { vDiff, i } = chCurrent(V, ch);
+          if (!ch.inCC && i > ch.iMax * 1.005) { ch.inCC = true; changed = true; }
+          else if (ch.inCC && vDiff > ch.vTarget + 0.01) { ch.inCC = false; changed = true; }
+        };
+        if (part.props.mode === 'parallel') {
+          stepCC(chM);
+          chS.inCC = chM.inCC;
+        } else {
+          stepCC(chS);
+          stepCC(chM);
+        }
+        stepCC(chF);
+        return changed;
+      },
+      commit(V) {
+        if (!part.props.power) {
+          this.measV1 = this.measI1 = this.measV2 = this.measI2 = this.measV3 = this.measI3 = 0;
+          this.cc1 = this.cc2 = this.overload5 = false;
+          this.warning = null;
+          return;
+        }
+        const m = chCurrent(V, chM);
+        const s = part.props.mode === 'parallel' ? { vDiff: m.vDiff, i: m.i * 0.5 } : chCurrent(V, chS);
+        const f = chCurrent(V, chF);
+        if (part.props.mode === 'parallel') m.i *= 0.5;
+        this.measV1 = Math.max(0, m.vDiff);
+        this.measI1 = Math.max(0, m.i);
+        this.measV2 = Math.max(0, s.vDiff);
+        this.measI2 = Math.max(0, s.i);
+        this.measV3 = Math.max(0, f.vDiff);
+        this.measI3 = Math.max(0, f.i);
+        this.cc1 = chM.inCC;
+        this.cc2 = part.props.mode === 'parallel' ? chM.inCC : chS.inCC;
+        this.overload5 = chF.inCC || f.i > 3.0;
+        this.warning = this.overload5 ? '5V FIXED (3A) output is overloaded — load current exceeded 3 A.' : null;
+      },
+    };
+  },
+});
+
+// 2. Signal / Function Generator — ESCORT EGC-3235A ------------------------
+const FG_HZ_STEPS = [0.5, 1, 2, 5, 10, 20, 50, 100, 500, 1000, 5000, 10000];
+const FG_VPP_STEPS = [0.5, 1, 2, 5, 10, 15, 20];
+
+function drawFuncGenStatic(g, env) {
+  // Vector drop bezel (no shadowBlur blurriness) + tilt cabinet matching ESCORT EGC-3235A
+  rr(g, -0.6 * U + 2, -7.0 * U + 3, 16.2 * U, 7.45 * U, 6);
+  g.fillStyle = 'rgba(0,0,0,0.22)'; g.fill();
+  rr(g, -0.6 * U, -7.0 * U, 16.2 * U, 7.45 * U, 6);
+  g.fillStyle = lin(g, 0, -7.0 * U, 0, 0.45 * U, [[0, '#5a6368'], [1, '#3f474c']]);
+  g.fill();
+  g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1.4; g.stroke();
+
+  // Cream front panel insert
+  rr(g, -0.25 * U, -6.7 * U, 15.5 * U, 6.2 * U, 4);
+  g.fillStyle = lin(g, 0, -6.7 * U, 0, -0.5 * U, [[0, '#dedbd0'], [1, '#c8c4b6']]);
+  g.fill();
+  g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 1.1; g.stroke();
+
+  // Header brand + PANEL badge (bold, readable when zoomed out)
+  text(g, env, 'ESCORT', 1.15 * U, -6.32 * U, { size: 9, color: '#0f172a', weight: 900, font: MONO });
+  text(g, env, 'EGC-3235A', 4.15 * U, -6.32 * U, { size: 8.5, color: '#111827', weight: 800, font: MONO });
+  drawPanelBadge(g, env, 12.1 * U, -6.65 * U, 58, 15);
+
+  // Crisp Green LCD window
+  rr(g, 1.85 * U, -5.9 * U, 4.1 * U, 1.65 * U, 4);
+  g.fillStyle = '#0c3520'; g.fill();
+  g.strokeStyle = '#1f2937'; g.lineWidth = 1.3; g.stroke();
+
+  // Range UP/DN buttons
+  for (const [ry, arr] of [[-5.55 * U, '▲'], [-4.8 * U, '▼']]) {
+    rr(g, 6.9 * U, ry - 6, 18, 12, 2.5);
+    g.fillStyle = '#fef3c7'; g.fill(); g.strokeStyle = '#57534e'; g.lineWidth = 1; g.stroke();
+    text(g, env, arr, 7.35 * U, ry, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+  }
+
+  // Bold uncluttered control labels
+  text(g, env, 'PWR', 0.85 * U, -4.65 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+  text(g, env, 'FREQUENCY', 3.7 * U, -3.75 * U, { size: 8, color: '#111827', weight: 900, font: MONO });
+  text(g, env, 'SYM', 8.5 * U, -6.25 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+  text(g, env, 'OFF', 10.2 * U, -6.25 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+  text(g, env, 'SWEEP', 12.2 * U, -6.25 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+  text(g, env, 'AMP', 12.1 * U, -1.65 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+
+  // BNC sockets across bottom (y = 0) with bold labels
+  const bncs = [
+    [1, 'EXT'], [6, 'SYNC'], [7, 'GND'], [9, 'SWP'], [13, 'OUT+'], [14, 'OUT−'],
+  ];
+  for (const [bx, lbl] of bncs) {
+    text(g, env, lbl, bx * U, -0.78 * U, { size: 7.5, color: '#111827', weight: 900, font: MONO });
+    drawBncPort(g, bx * U, 0);
+  }
+}
+
+register({
+  type: 'funcgen',
+  name: 'EGC-3235A Signal Generator',
+  short: 'EGC-3235A',
+  title: '5MHz Sweep Function Generator (Sine, Triangle, Square, TTL Sync)',
+  cat: 'Instruments',
+  aliases: ['signal-generator', 'function-generator', 'egc3235a'],
+  desc: 'Programmable Sine / Triangle / Square wave function generator (50 Ω output) with DC offset, symmetry/duty control, −20 dB attenuator, sweep mode, and TTL SYNC output.',
+  defaults: { power: true, wave: 'sine', hz: 10, vpp: 5, offsetOn: false, offset: 0, symOn: false, duty: 50, att20dB: false, sweepOn: false, sweepStopHz: 50, sweepRate: 1 },
+  fields: [
+    { key: 'power', label: 'Power', kind: 'select', options: [[true, 'ON'], [false, 'OFF']] },
+    { key: 'wave', label: 'Waveform', kind: 'select', options: [['sine', 'Sine (∿)'], ['tri', 'Triangle (∧)'], ['square', 'Square (⊓)']] },
+    { key: 'hz', label: 'Frequency', kind: 'select', options: [[0.5, '0.5 Hz'], [1, '1 Hz'], [2, '2 Hz'], [5, '5 Hz'], [10, '10 Hz'], [20, '20 Hz'], [50, '50 Hz'], [100, '100 Hz'], [500, '500 Hz'], [1000, '1 kHz']], custom: { unit: 'Hz', min: 0.1, max: 100000 } },
+    { key: 'vpp', label: 'Amplitude (Vpp)', kind: 'select', options: [[1, '1.0 Vpp'], [2, '2.0 Vpp'], [5, '5.0 Vpp'], [10, '10.0 Vpp'], [20, '20.0 Vpp']], custom: { unit: 'Vpp', min: 0.1, max: 20 } },
+    { key: 'offsetOn', label: 'DC Offset', kind: 'select', options: [[false, 'OFF (0 V)'], [true, 'ON']] },
+    { key: 'offset', label: 'Offset Voltage (V)', kind: 'select', options: [[-5, '-5.0 V'], [-2.5, '-2.5 V'], [0, '0.0 V'], [2.5, '+2.5 V'], [5, '+5.0 V']], custom: { unit: 'V', min: -10, max: 10 } },
+    { key: 'symOn', label: 'Symmetry / Duty', kind: 'select', options: [[false, 'OFF (50%)'], [true, 'ON (Variable)']] },
+    { key: 'duty', label: 'Duty / Symmetry (%)', kind: 'select', options: [[10, '10%'], [25, '25%'], [50, '50%'], [75, '75%'], [90, '90%']], custom: { unit: '%', min: 10, max: 90 } },
+    { key: 'att20dB', label: 'Attenuator (−20 dB)', kind: 'select', options: [[false, '0 dB (×1)'], [true, '−20 dB (÷10)']] },
+    { key: 'sweepOn', label: 'Frequency Sweep', kind: 'select', options: [[false, 'OFF'], [true, 'ON']] },
+    { key: 'sweepStopHz', label: 'Sweep Stop Freq (Hz)', kind: 'select', options: [[20, '20 Hz'], [50, '50 Hz'], [100, '100 Hz'], [500, '500 Hz']], custom: { unit: 'Hz', min: 1, max: 50000 } },
+  ],
+  pins: () => [
+    { x: 1, y: 0, name: 'EXT IN' },
+    { x: 6, y: 0, name: 'SYNC OUT' },
+    { x: 7, y: 0, name: 'SYNC GND' },
+    { x: 9, y: 0, name: 'SWEEP' },
+    { x: 13, y: 0, name: 'OUT+' },
+    { x: 14, y: 0, name: 'OUT−' },
+  ],
+  links: () => [[2, 5]],
+  staticLinks: true,
+  bounds: () => [-0.8, -7.2, 15.8, 0.5],
+  draw(g, part, env) {
+    drawFuncGenStatic(g, env);
+
+    const p = part.props;
+    const on = !!p.power;
+    const hz = Math.max(0.1, +p.hz || 10);
+    const vppEff = Math.max(0.1, +p.vpp || 5) * (p.att20dB ? 0.1 : 1);
+
+    // POWER green pushbutton
+    rr(g, 0.3 * U, -5.85 * U, 1.1 * U, 0.72 * U, 3);
+    g.fillStyle = on ? '#16a34a' : '#374151'; g.fill();
+    g.strokeStyle = '#111827'; g.lineWidth = 1; g.stroke();
+
+    // LCD digital readout (high-contrast crisp sizes)
+    const hzTxt = hz >= 1000 ? `${+(hz / 1000).toFixed(2)}k` : `${+hz.toFixed(1)}`;
+    const waveGlyph = p.wave === 'tri' ? '∧' : p.wave === 'square' ? '⊓' : '∿';
+    text(g, env, on ? `${hzTxt} Hz` : 'OFF', 3.9 * U, -5.25 * U, { size: 13.5, color: on ? '#86efac' : '#1b4332', weight: 800, font: MONO });
+    text(g, env, on ? `${waveGlyph} ${vppEff.toFixed(1)}Vpp` : '', 3.9 * U, -4.55 * U, { size: 8.2, color: '#bbf7d0', weight: 700, font: MONO });
+
+    // Main FREQUENCY & secondary knobs
+    const logFrac = Math.max(0, Math.min(1, Math.log10(Math.max(0.5, hz) / 0.5) / Math.log10(20000)));
+    const ang = (f) => -Math.PI * 1.25 + f * Math.PI * 1.5;
+    drawKnob(g, 3.7 * U, -2.55 * U, 17, ang(logFrac), '#fde68a', '#57534e');
+    drawKnob(g, 8.5 * U, -5.25 * U, 13, ang(((+p.duty || 50) - 10) / 80), '#fde68a', '#57534e');
+    drawKnob(g, 10.2 * U, -5.25 * U, 13, ang(((+p.offset || 0) + 10) / 20), '#fde68a', '#57534e');
+    drawKnob(g, 12.1 * U, -5.25 * U, 11, ang(0.35), '#fde68a', '#57534e');
+    drawKnob(g, 14.1 * U, -5.25 * U, 11, ang(Math.min(1, (+p.sweepStopHz || 50) / 1000)), '#fde68a', '#57534e');
+    drawKnob(g, 12.1 * U, -2.85 * U, 14, ang((+p.vpp || 5) / 20), '#fde68a', '#57534e');
+
+    // Toggle pushbuttons (SYM ON, OFFSET ON, SWEEP ON, -20dB)
+    const drawBtn = (bx, by, w, h2, active, lbl) => {
+      rr(g, bx - w / 2, by - h2 / 2, w, h2, 2.5);
+      g.fillStyle = active ? '#fbbf24' : '#fef3c7'; g.fill();
+      g.strokeStyle = '#44403c'; g.lineWidth = 1; g.stroke();
+      if (lbl) text(g, env, lbl, bx, by, { size: 7.2, color: '#111827', weight: 800, font: MONO });
+    };
+    drawBtn(8.5 * U, -4.0 * U, 18, 13, !!p.symOn, 'ON');
+    drawBtn(10.2 * U, -4.0 * U, 18, 13, !!p.offsetOn, 'ON');
+    drawBtn(13.1 * U, -5.25 * U, 18, 13, !!p.sweepOn, 'SWP');
+    drawBtn(13.7 * U, -2.85 * U, 19, 14, !!p.att20dB, '−20');
+
+    // Waveform selector buttons (Sine, Triangle, Square)
+    drawBtn(9.2 * U, -2.75 * U, 17, 15, p.wave === 'sine', '∿');
+    drawBtn(10.15 * U, -2.75 * U, 17, 15, p.wave === 'tri', '∧');
+    drawBtn(11.1 * U, -2.75 * U, 17, 15, p.wave === 'square', '⊓');
+  },
+  control(part, l) {
+    if (l.x >= 12.0 && l.x <= 15.2 && l.y >= -6.75 && l.y <= -5.85) return 'inst:panel';
+    if (l.x >= 0.2 && l.x <= 1.6 && l.y >= -6.0 && l.y <= -4.9) return 'inst:power';
+    if (Math.hypot(l.x - 7.35, l.y + 5.55) <= 0.45) return 'inst:range+';
+    if (Math.hypot(l.x - 7.35, l.y + 4.9) <= 0.45) return 'inst:range-';
+    if (Math.hypot(l.x - 9.2, l.y + 2.75) <= 0.48) return 'inst:wave:sine';
+    if (Math.hypot(l.x - 10.15, l.y + 2.75) <= 0.48) return 'inst:wave:tri';
+    if (Math.hypot(l.x - 11.1, l.y + 2.75) <= 0.48) return 'inst:wave:square';
+    if (Math.hypot(l.x - 8.5, l.y + 4.0) <= 0.5) return 'inst:sym';
+    if (Math.hypot(l.x - 10.2, l.y + 4.0) <= 0.5) return 'inst:offset';
+    if (Math.hypot(l.x - 13.7, l.y + 2.85) <= 0.5) return 'inst:att20';
+    if (Math.hypot(l.x - 13.1, l.y + 5.25) <= 0.5) return 'inst:sweep';
+    if (Math.hypot(l.x - 3.7, l.y + 2.55) <= 1.0) return 'knob:hz:0.5:10000:log';
+    if (Math.hypot(l.x - 8.5, l.y + 5.25) <= 0.75) return 'knob:duty:10:90';
+    if (Math.hypot(l.x - 10.2, l.y + 5.25) <= 0.75) return 'knob:offset:-10:10';
+    if (Math.hypot(l.x - 12.1, l.y + 2.85) <= 0.9) return 'knob:vpp:0.2:20';
+    return null;
+  },
+  click(part, ctrl) {
+    const p = part.props;
+    if (ctrl === 'inst:power') { p.power = !p.power; return true; }
+    if (ctrl.startsWith('inst:wave:')) { p.wave = ctrl.slice(10); return true; }
+    if (ctrl === 'inst:sym') { p.symOn = !p.symOn; return true; }
+    if (ctrl === 'inst:offset') { p.offsetOn = !p.offsetOn; if (p.offsetOn && !p.offset) p.offset = 2.5; return true; }
+    if (ctrl === 'inst:att20') { p.att20dB = !p.att20dB; return true; }
+    if (ctrl === 'inst:sweep') { p.sweepOn = !p.sweepOn; return true; }
+    if (ctrl === 'inst:range+' || ctrl === 'inst:range-') {
+      const f = ctrl.endsWith('+') ? 10 : 0.1;
+      p.hz = Math.max(0.1, Math.min(100000, +((+p.hz || 10) * f).toPrecision(4)));
+      return true;
+    }
+    if (ctrl === 'inst:freq-' || ctrl === 'inst:freq+') { p.hz = cycleList(FG_HZ_STEPS, +p.hz || 10, ctrl.endsWith('+') ? 1 : -1); return true; }
+    if (ctrl === 'inst:vpp-' || ctrl === 'inst:vpp+') { p.vpp = cycleList(FG_VPP_STEPS, +p.vpp || 5, ctrl.endsWith('+') ? 1 : -1); return true; }
+    return false;
+  },
+  device(part, nets, e) {
+    const outP = nets[4], outM = nets[5], syncNet = nets[1], extIn = nets[0];
+    const minusConn = !e || e.isNetConnected(outM);
+    let vOut = 0, vSync = 0, instHz = +part.props.hz || 10, extFreq = 0;
+    let lastExtHi = false, lastRise = -1;
+
+    return {
+      timeDependent: !e || e.isNetConnected(outP) || e.isNetConnected(syncNet),
+      vOut: 0,
+      vSync: 0,
+      instHz: 10,
+      extFreq: 0,
+      reset() { vOut = 0; vSync = 0; lastExtHi = false; lastRise = -1; extFreq = 0; },
+      begin(eng) {
+        const p = part.props;
+        if (!p.power) { vOut = 0; vSync = 0; this.vOut = 0; this.vSync = 0; return; }
+        const baseHz = Math.max(0.1, +p.hz || 10);
+        if (p.sweepOn) {
+          const stopHz = Math.max(baseHz, +p.sweepStopHz || 50);
+          const rate = Math.max(0.1, +p.sweepRate || 1);
+          const swU = (eng.time * rate) % 1;
+          instHz = baseHz + (stopHz - baseHz) * swU;
+        } else {
+          instHz = baseHz;
+        }
+        this.instHz = instHz;
+        const phi = ((eng.time * instHz) % 1 + 1) % 1;
+        const sym = p.symOn ? Math.max(0.1, Math.min(0.9, (+p.duty || 50) / 100)) : 0.5;
+        let norm = 0;
+        if (p.wave === 'tri') {
+          const u = phi < sym ? 0.5 * (phi / sym) : 0.5 + 0.5 * ((phi - sym) / (1 - sym));
+          norm = u < 0.25 ? u * 4 : u < 0.75 ? 2 - u * 4 : u * 4 - 4;
+        } else if (p.wave === 'square') {
+          norm = phi < sym ? 1 : -1;
+        } else {
+          const u = phi < sym ? 0.5 * (phi / sym) : 0.5 + 0.5 * ((phi - sym) / (1 - sym));
+          norm = Math.sin(TAU * u);
+        }
+        const amp = (Math.max(0.1, +p.vpp || 5) / 2) * (p.att20dB ? 0.1 : 1);
+        const dc = p.offsetOn ? (+p.offset || 0) : 0;
+        vOut = dc + norm * amp;
+        vSync = phi < sym ? 5 : 0;
+        this.vOut = vOut;
+        this.vSync = vSync;
+        eng.maxHz = Math.max(eng.maxHz, Math.min(instHz, 50000));
+      },
+      stamp(S) {
+        if (!part.props.power) {
+          if (outP >= 0) S.src(outP, 0, 50);
+          if (syncNet >= 0) S.src(syncNet, 0, 30);
+          if (outM >= 0 && !minusConn) S.src(outM, 0, 0.05);
+          return;
+        }
+        if (minusConn) {
+          if (outP >= 0 && outM >= 0) {
+            S.vdrop(outP, outM, vOut, 50);
+            S.anchor(outM);
+          }
+          if (syncNet >= 0) {
+            if (outM >= 0) { S.vdrop(syncNet, outM, vSync, 30); S.anchor(outM); }
+            else S.src(syncNet, vSync, 30);
+          }
+        } else {
+          if (outP >= 0) S.src(outP, vOut, 50);
+          if (outM >= 0) S.src(outM, 0, 0.05);
+          if (syncNet >= 0) S.src(syncNet, vSync, 30);
+        }
+      },
+      commit(V, dt, eng) {
+        if (extIn >= 0 && ok(V[extIn])) {
+          const vm = outM >= 0 && ok(V[outM]) ? V[outM] : 0;
+          const v = V[extIn] - vm;
+          const hi = lastExtHi ? v > 1.2 : v > 2.2;
+          if (!lastExtHi && hi) {
+            if (lastRise >= 0 && eng.time > lastRise) {
+              extFreq = 1 / (eng.time - lastRise);
+              this.extFreq = extFreq;
+            }
+            lastRise = eng.time;
+          }
+          lastExtHi = hi;
+        }
+      },
+    };
+  },
+});
+
+// 3. Digital Storage Oscilloscope — UNI-T UT2062B --------------------------
+const SCOPE_VDIV = [0.1, 0.2, 0.5, 1, 2, 5, 10];
+const SCOPE_TDIV = [0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5];
+const SCOPE_BUF_CAP = 4096;
+
+function fmtUnits(v, unit) {
+  const a = Math.abs(v);
+  if (!Number.isFinite(v)) return '--';
+  if (a === 0) return `0 ${unit}`;
+  if (a >= 1000) return `${(v / 1000).toFixed(2)}k${unit}`;
+  if (a >= 1) return `${v.toFixed(2)}${unit}`;
+  if (a >= 1e-3) return `${(v * 1e3).toFixed(1)}m${unit}`;
+  return `${(v * 1e6).toFixed(0)}u${unit}`;
+}
+
+function drawScopeStatic(g, env) {
+  // Vector-sharp UNI-T charcoal body (crisp at all zoom levels)
+  rr(g, -0.6 * U + 2, -10.5 * U + 3, 25.2 * U, 10.95 * U, 8);
+  g.fillStyle = 'rgba(0,0,0,0.24)'; g.fill();
+  rr(g, -0.6 * U, -10.5 * U, 25.2 * U, 10.95 * U, 8);
+  g.fillStyle = lin(g, 0, -10.5 * U, 0, 0.45 * U, [[0, '#5a605d'], [0.5, '#464b49'], [1, '#363a38']]);
+  g.fill();
+  g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1.4; g.stroke();
+
+  // Brand header, model label & PANEL badge (high-contrast legible typography)
+  rr(g, -0.1 * U, -10.22 * U, 2.7 * U, 0.65 * U, 3);
+  g.fillStyle = '#dc2626'; g.fill();
+  text(g, env, 'UNI-T', 1.25 * U, -9.9 * U, { size: 9, color: '#ffffff', weight: 900, font: MONO });
+  text(g, env, 'UT2062B  60MHz DSO', 7.35 * U, -9.9 * U, { size: 8.5, color: '#f1f5f9', weight: 800, font: MONO });
+  drawPanelBadge(g, env, 21.15 * U, -10.26 * U, 58, 16);
+
+  // Outer recessed bezel around screen
+  rr(g, 0.3 * U, -9.45 * U, 11.15 * U, 8.2 * U, 6);
+  g.fillStyle = '#262a29'; g.fill();
+  g.strokeStyle = '#141716'; g.lineWidth = 1.4; g.stroke();
+
+  // Softkeys F1..F5 column
+  for (let i = 0; i < 5; i++) {
+    const fy = (-8.1 + i * 1.48) * U;
+    rr(g, 11.7 * U, fy - 8, 20, 16, 3);
+    g.fillStyle = '#cbd5e1'; g.fill();
+    g.strokeStyle = '#334155'; g.lineWidth = 0.8; g.stroke();
+    text(g, env, 'F' + (i + 1), 12.2 * U, fy, { size: 7.5, color: '#0f172a', weight: 900, font: MONO });
+  }
+
+  // Right control panel backdrop
+  rr(g, 13.0 * U, -9.45 * U, 11.15 * U, 8.2 * U, 5);
+  g.fillStyle = '#525856'; g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.14)'; g.lineWidth = 1; g.stroke();
+
+  text(g, env, 'VERT', 15.6 * U, -6.55 * U, { size: 7.8, color: '#f8fafc', weight: 900, font: MONO });
+  text(g, env, 'HORIZ', 19.6 * U, -6.55 * U, { size: 7.8, color: '#f8fafc', weight: 900, font: MONO });
+  text(g, env, 'TRIG', 22.8 * U, -6.55 * U, { size: 7.8, color: '#f8fafc', weight: 900, font: MONO });
+
+  // Bottom BNC connector labels & jacks (bold uncluttered labels)
+  const jacks = [
+    [14, 'CH1+'], [15, 'GND'], [17, 'CH2+'], [18, 'GND'], [20, 'EXT'], [21, 'GND'],
+  ];
+  for (const [jx, lbl] of jacks) {
+    text(g, env, lbl, jx * U, -0.78 * U, { size: 7.2, color: '#f8fafc', weight: 900, font: MONO });
+    drawBncPort(g, jx * U, 0);
+  }
+  text(g, env, '1kHz', 23.0 * U, -0.78 * U, { size: 7.2, color: '#fde047', weight: 900, font: MONO });
+  text(g, env, 'GND', 24.0 * U, -0.78 * U, { size: 7.2, color: '#e2e8f0', weight: 900, font: MONO });
+  drawBananaSocket(g, 23 * U, 0, '#f59e0b');
+  drawBananaSocket(g, 24 * U, 0, '#1f2937');
+}
+
+function computeScopeWindow(d, timeDiv) {
+  const span = timeDiv * 10;
+  const cap = d.cap, count = d.count;
+  if (count < 2) return null;
+  const idxAt = (k) => (d.head - count + k + cap) % cap;
+  const tLatest = d.bufT[idxAt(count - 1)];
+  const trigArr = d.trigSrc === 'CH2' ? d.buf2 : d.trigSrc === 'EXT' ? d.bufTrig : d.buf1;
+  let trigOffset = 0;
+  if (d.coupling === 'AC' && d.trigSrc !== 'EXT') {
+    let sum = 0, n = 0;
+    const minT = tLatest - span * 1.5;
+    for (let k = count - 1; k >= 0; k--) {
+      const i = idxAt(k);
+      if (d.bufT[i] < minT) break;
+      const v = trigArr[i];
+      if (ok(v)) { sum += v; n++; }
+    }
+    if (n) trigOffset = sum / n;
+  }
+  const tFirst = d.bufT[idxAt(0)];
+  const lvl = d.trigLevel + trigOffset;
+  let trigT = NaN;
+  const searchHi = tLatest - span * 0.5;
+  const searchLo = Math.max(tLatest - span * 1.5, tFirst + span * 0.5);
+  for (let k = count - 2; k >= 1; k--) {
+    const i1 = idxAt(k), i0 = idxAt(k - 1);
+    const t1 = d.bufT[i1];
+    if (t1 > searchHi) continue;
+    if (t1 < searchLo) break;
+    const v0 = trigArr[i0], v1 = trigArr[i1];
+    if (ok(v0) && ok(v1) && v0 < lvl && v1 >= lvl) {
+      const frac = (lvl - v0) / Math.max(1e-9, v1 - v0);
+      trigT = d.bufT[i0] + frac * (t1 - d.bufT[i0]);
+      break;
+    }
+  }
+  const triggered = Number.isFinite(trigT);
+  const tEnd = triggered ? trigT + span * 0.5 : tLatest;
+  const tStart = tEnd - span;
+  return { tStart, tEnd, span, triggered, idxAt, count };
+}
+
+function measureChannelStats(d, arr, win) {
+  let min = Infinity, max = -Infinity, sum = 0, n = 0;
+  for (let k = 0; k < win.count; k++) {
+    const idx = win.idxAt(k);
+    const t = d.bufT[idx];
+    if (t < win.tStart || t > win.tEnd) continue;
+    const v = arr[idx];
+    if (!ok(v)) continue;
+    if (v < min) min = v;
+    if (v > max) max = v;
+    sum += v;
+    n++;
+  }
+  if (!n) return { valid: false, vpp: 0, vavg: 0, min: 0, max: 0, freq: 0 };
+  const vpp = max - min, mid = (min + max) * 0.5, hyst = Math.max(0.05, vpp * 0.15);
+  let cross0 = -1, crossLast = -1, cycles = 0, armed = false;
+  for (let k = 0; k < win.count; k++) {
+    const idx = win.idxAt(k);
+    const t = d.bufT[idx];
+    if (t < win.tStart || t > win.tEnd) continue;
+    const v = arr[idx];
+    if (!ok(v)) continue;
+    if (!armed && v < mid - hyst) armed = true;
+    else if (armed && v > mid + hyst) {
+      armed = false;
+      if (cross0 < 0) cross0 = t;
+      else cycles++;
+      crossLast = t;
+    }
+  }
+  const freq = cycles > 0 && crossLast > cross0 ? cycles / (crossLast - cross0) : 0;
+  return { valid: true, vpp, vavg: sum / n, min, max, freq };
+}
+
+register({
+  type: 'oscilloscope',
+  name: 'UT2062B Oscilloscope',
+  short: 'UT2062B',
+  title: 'Dual-Channel Digital Storage Oscilloscope (60MHz 500MS/s + 1kHz Probe Comp)',
+  cat: 'Instruments',
+  aliases: ['ut2062b', 'uni-t-ut2062b', 'dso'],
+  desc: 'Dual-channel benchtop oscilloscope with rising-edge trigger, DC/AC coupling, auto-scale (AUTO), live Vpp/Vavg/Frequency measurements, Math (CH1−CH2 / CH1+CH2), X-Y Lissajous mode, and 3 V 1 kHz Probe Comp.',
+  defaults: { run: true, ch1On: true, ch2On: true, ch1Scale: 2, ch2Scale: 2, ch1Pos: 0, ch2Pos: 0, timeDiv: 0.05, coupling: 'DC', trigSrc: 'CH1', trigLevel: 1.5, measure: true, math: 'off', xyMode: false },
+  fields: [
+    { key: 'run', label: 'Acquisition', kind: 'select', options: [[true, 'RUN'], [false, 'STOP (Hold)']] },
+    { key: 'ch1On', label: 'Channel 1 (Yellow)', kind: 'select', options: [[true, 'ON'], [false, 'OFF']] },
+    { key: 'ch1Scale', label: 'CH1 Volts/Div', kind: 'select', options: [[0.1, '100 mV/div'], [0.2, '200 mV/div'], [0.5, '500 mV/div'], [1, '1.0 V/div'], [2, '2.0 V/div'], [5, '5.0 V/div'], [10, '10.0 V/div']] },
+    { key: 'ch2On', label: 'Channel 2 (Cyan)', kind: 'select', options: [[true, 'ON'], [false, 'OFF']] },
+    { key: 'ch2Scale', label: 'CH2 Volts/Div', kind: 'select', options: [[0.1, '100 mV/div'], [0.2, '200 mV/div'], [0.5, '500 mV/div'], [1, '1.0 V/div'], [2, '2.0 V/div'], [5, '5.0 V/div'], [10, '10.0 V/div']] },
+    { key: 'timeDiv', label: 'Timebase (Sec/Div)', kind: 'select', options: [[0.0005, '500 µs/div'], [0.001, '1 ms/div'], [0.002, '2 ms/div'], [0.005, '5 ms/div'], [0.01, '10 ms/div'], [0.02, '20 ms/div'], [0.05, '50 ms/div'], [0.1, '100 ms/div'], [0.2, '200 ms/div'], [0.5, '500 ms/div']] },
+    { key: 'coupling', label: 'Input Coupling', kind: 'select', options: [['DC', 'DC'], ['AC', 'AC (Block DC)']] },
+    { key: 'trigSrc', label: 'Trigger Source', kind: 'select', options: [['CH1', 'CH1'], ['CH2', 'CH2'], ['EXT', 'EXT TRIG']] },
+    { key: 'trigLevel', label: 'Trigger Level (V)', kind: 'select', options: [[0, '0.0 V'], [0.5, '0.5 V'], [1.5, '1.5 V'], [2.5, '2.5 V'], [5, '5.0 V']], custom: { unit: 'V', min: -25, max: 25 } },
+    { key: 'measure', label: 'Measurements', kind: 'select', options: [[true, 'Show Vpp / Freq'], [false, 'Hidden']] },
+    { key: 'math', label: 'Math Trace', kind: 'select', options: [['off', 'OFF'], ['sub', 'CH1 − CH2'], ['add', 'CH1 + CH2']] },
+    { key: 'xyMode', label: 'Display Mode', kind: 'select', options: [[false, 'Y-T (Timebase)'], [true, 'X-Y (Lissajous)']] },
+  ],
+  pins: () => [
+    { x: 14, y: 0, name: 'CH1+' },
+    { x: 15, y: 0, name: 'CH1 GND' },
+    { x: 17, y: 0, name: 'CH2+' },
+    { x: 18, y: 0, name: 'CH2 GND' },
+    { x: 20, y: 0, name: 'EXT TRIG' },
+    { x: 21, y: 0, name: 'TRIG GND' },
+    { x: 23, y: 0, name: 'COMP 1kHz' },
+    { x: 24, y: 0, name: 'COMP GND' },
+  ],
+  links: () => [[1, 3], [3, 5], [5, 7]],
+  staticLinks: true,
+  bounds: () => [-0.8, -10.8, 24.8, 0.5],
+  draw(g, part, env) {
+    drawScopeStatic(g, env);
+
+    const p = part.props;
+    const d = env.dev;
+
+    // Live TFT Screen region
+    const sx = 0.55 * U, sy = -9.15 * U, sw = 10.65 * U, sh = 7.6 * U;
+    const plotW = sw * 0.84, plotH = sh - 30;
+    const px0 = sx + 2, py0 = sy + 15;
+    rr(g, sx, sy, sw, sh, 3);
+    g.fillStyle = '#070b10'; g.fill();
+    g.strokeStyle = '#1f2937'; g.lineWidth = 1.2; g.stroke();
+
+    // 10×8 Graticule grid inside plot area
+    g.strokeStyle = 'rgba(148,163,184,0.2)'; g.lineWidth = 0.8;
+    g.beginPath();
+    for (let i = 0; i <= 10; i++) { const gx = px0 + (i / 10) * plotW; g.moveTo(gx, py0); g.lineTo(gx, py0 + plotH); }
+    for (let j = 0; j <= 8; j++) { const gy = py0 + (j / 8) * plotH; g.moveTo(px0, gy); g.lineTo(px0 + plotW, gy); }
+    g.stroke();
+
+    // Right softkey labels inside TFT matching F1..F5
+    g.fillStyle = '#111827';
+    g.fillRect(px0 + plotW + 2, sy + 2, sw - plotW - 6, sh - 4);
+    const softs = [p.coupling || 'DC', p.ch1On ? 'CH1' : 'OFF', p.ch2On ? 'CH2' : 'OFF', (p.math || 'off').toUpperCase(), p.xyMode ? 'X-Y' : 'Y-T'];
+    for (let i = 0; i < 5; i++) {
+      const ly = sy + 16 + i * ((sh - 20) / 5);
+      text(g, env, softs[i], px0 + plotW + (sw - plotW) * 0.5, ly, { size: 7.2, color: '#f1f5f9', weight: 800, font: MONO });
+    }
+
+    // Waveform Traces (crisp 2.2px stroke so traces stay bright when zoomed out)
+    const timeDiv = Math.max(0.0001, +p.timeDiv || 0.05);
+    const s1 = Math.max(0.05, +p.ch1Scale || 2), s2 = Math.max(0.05, +p.ch2Scale || 2);
+    const win = d ? computeScopeWindow(d, timeDiv) : null;
+    let st1 = null, st2 = null;
+
+    if (win) {
+      const ac = p.coupling === 'AC';
+      st1 = measureChannelStats(d, d.buf1, win);
+      st2 = measureChannelStats(d, d.buf2, win);
+      const off1 = ac && st1.valid ? st1.vavg : 0;
+      const off2 = ac && st2.valid ? st2.vavg : 0;
+      const midY = py0 + plotH * 0.5;
+      const divH = plotH / 8;
+
+      g.save();
+      g.lineCap = 'round';
+      g.lineJoin = 'round';
+      if (p.xyMode && p.ch1On && p.ch2On) {
+        g.strokeStyle = '#38bdf8'; g.lineWidth = 2.2; g.beginPath();
+        let moved = false;
+        for (let k = 0; k < win.count; k++) {
+          const idx = win.idxAt(k), t = d.bufT[idx];
+          if (t < win.tStart || t > win.tEnd) continue;
+          const v1 = d.buf1[idx] - off1, v2 = d.buf2[idx] - off2;
+          if (!ok(v1) || !ok(v2)) { moved = false; continue; }
+          const x = px0 + plotW * 0.5 + (v1 / s1) * (plotW / 10);
+          const y = Math.max(py0, Math.min(py0 + plotH, midY - (v2 / s2) * divH));
+          if (!moved) { g.moveTo(x, y); moved = true; } else g.lineTo(x, y);
+        }
+        g.stroke();
+      } else {
+        const plotArr = (getVal, color) => {
+          g.strokeStyle = color; g.lineWidth = 2.2; g.beginPath();
+          let moved = false;
+          for (let k = 0; k < win.count; k++) {
+            const idx = win.idxAt(k), t = d.bufT[idx];
+            if (t < win.tStart || t > win.tEnd) continue;
+            const v = getVal(idx);
+            if (!ok(v)) { moved = false; continue; }
+            const x = px0 + ((t - win.tStart) / win.span) * plotW;
+            const y = Math.max(py0 + 1, Math.min(py0 + plotH - 1, midY - v * divH));
+            if (!moved) { g.moveTo(x, y); moved = true; } else g.lineTo(x, y);
+          }
+          g.stroke();
+        };
+        const pos1 = +p.ch1Pos || 0, pos2 = +p.ch2Pos || 0;
+        if (p.ch1On) plotArr((i) => (d.buf1[i] - off1) / s1 + pos1, '#facc15');
+        if (p.ch2On) plotArr((i) => (d.buf2[i] - off2) / s2 + pos2, '#22d3ee');
+        if (p.math && p.math !== 'off') {
+          const sign = p.math === 'add' ? 1 : -1;
+          plotArr((i) => ((d.buf1[i] - off1) + sign * (d.buf2[i] - off2)) / s1, '#e879f9');
+        }
+      }
+      g.restore();
+    }
+
+    // Screen top status bar
+    const trigState = !p.run ? 'STOP' : (win && win.triggered ? "Trig'd" : 'Auto');
+    text(g, env, trigState, sx + 22, sy + 8, { size: 7.5, color: !p.run ? '#ef4444' : '#4ade80', weight: 800, font: MONO });
+    text(g, env, `M ${fmtUnits(timeDiv, 's')}`, sx + 82, sy + 8, { size: 7.5, color: '#f1f5f9', weight: 800, font: MONO });
+    text(g, env, `${p.trigSrc || 'CH1'}:${(+p.trigLevel || 0).toFixed(1)}V`, sx + plotW - 28, sy + 8, { size: 7, color: '#fb923c', weight: 800, font: MONO });
+
+    // Screen bottom badges & auto measurements
+    text(g, env, `1:${fmtUnits(s1, 'V')}`, sx + 30, sy + sh - 7, { size: 7.5, color: p.ch1On ? '#facc15' : '#64748b', weight: 800, font: MONO });
+    text(g, env, `2:${fmtUnits(s2, 'V')}`, sx + 88, sy + sh - 7, { size: 7.5, color: p.ch2On ? '#22d3ee' : '#64748b', weight: 800, font: MONO });
+    if (p.measure && st1 && st1.valid) {
+      const mStr = st1.freq > 0 ? `${st1.vpp.toFixed(1)}V ${fmtUnits(st1.freq, 'Hz')}` : `avg:${st1.vavg.toFixed(1)}V`;
+      text(g, env, mStr, sx + plotW - 38, sy + sh - 7, { size: 7.2, color: '#facc15', weight: 800, font: MONO });
+    }
+
+    // Dynamic control buttons & knobs on right panel
+    const btn = (bx, by, bw, bh, bg, label, tc = '#0f172a') => {
+      rr(g, bx - bw / 2, by - bh / 2, bw, bh, 3);
+      g.fillStyle = bg; g.fill(); g.strokeStyle = '#1e293b'; g.lineWidth = 1; g.stroke();
+      text(g, env, label, bx, by, { size: 7, color: tc, weight: 800, font: MONO });
+    };
+    btn(20.6 * U, -8.5 * U, 28, 17, '#cbd5e1', 'MEAS');
+    btn(23.1 * U, -8.5 * U, 30, 17, p.run ? '#4ade80' : '#f87171', p.run ? 'RUN' : 'STOP');
+    btn(23.1 * U, -7.45 * U, 30, 17, '#e2e8f0', 'AUTO');
+    btn(14.0 * U, -5.6 * U, 26, 15, p.ch1On ? '#fde047' : '#94a3b8', 'CH1');
+    btn(14.0 * U, -4.65 * U, 26, 15, p.ch2On ? '#67e8f9' : '#94a3b8', 'CH2');
+    btn(14.0 * U, -3.7 * U, 26, 15, p.math !== 'off' ? '#e879f9' : '#94a3b8', 'MATH');
+    btn(22.8 * U, -4.0 * U, 26, 15, '#cbd5e1', '50%');
+
+    const s1Idx = SCOPE_VDIV.indexOf(s1), tIdx = SCOPE_TDIV.indexOf(timeDiv);
+    const tlFrac = Math.max(0, Math.min(1, ((+p.trigLevel || 0) + 15) / 30));
+    drawKnob(g, 16.9 * U, -3.2 * U, 15, -Math.PI * 1.2 + ((s1Idx >= 0 ? s1Idx : 4) / 6) * Math.PI * 1.4);
+    drawKnob(g, 19.9 * U, -3.2 * U, 15, -Math.PI * 1.2 + ((tIdx >= 0 ? tIdx : 6) / 9) * Math.PI * 1.4);
+    drawKnob(g, 22.8 * U, -5.25 * U, 12, -Math.PI * 1.2 + tlFrac * Math.PI * 1.4);
+  },
+  control(part, l) {
+    if (l.x >= 21.0 && l.x <= 24.3 && l.y >= -10.35 && l.y <= -9.4) return 'inst:panel';
+    if (l.x >= 22.3 && l.x <= 23.9 && l.y >= -9.0 && l.y <= -8.0) return 'inst:run';
+    if (l.x >= 22.3 && l.x <= 23.9 && l.y >= -7.9 && l.y <= -7.0) return 'inst:auto';
+    if (l.x >= 19.8 && l.x <= 21.4 && l.y >= -9.0 && l.y <= -8.0) return 'inst:meas';
+    if (l.x >= 13.3 && l.x <= 14.7 && l.y >= -6.0 && l.y <= -5.2) return 'inst:ch1';
+    if (l.x >= 13.3 && l.x <= 14.7 && l.y >= -5.05 && l.y <= -4.25) return 'inst:ch2';
+    if (l.x >= 13.3 && l.x <= 14.7 && l.y >= -4.1 && l.y <= -3.3) return 'inst:math';
+    if (l.x >= 22.1 && l.x <= 23.5 && l.y >= -4.4 && l.y <= -3.6) return 'inst:trig50';
+    // F1..F5 softkeys
+    if (l.x >= 11.6 && l.x <= 12.8) {
+      if (Math.abs(l.y + 8.1) <= 0.45) return 'inst:cpl';
+      if (Math.abs(l.y + 6.62) <= 0.45) return 'inst:ch1';
+      if (Math.abs(l.y + 5.14) <= 0.45) return 'inst:ch2';
+      if (Math.abs(l.y + 3.66) <= 0.45) return 'inst:math';
+      if (Math.abs(l.y + 2.18) <= 0.45) return 'inst:xy';
+    }
+    if (Math.hypot(l.x - 16.9, l.y + 3.2) <= 0.9) return 'knob:ch1Scale:0:6:vdiv';
+    if (Math.hypot(l.x - 19.9, l.y + 3.2) <= 0.9) return 'knob:timeDiv:0:9:tdiv';
+    if (Math.hypot(l.x - 22.8, l.y + 5.25) <= 0.8) return 'knob:trigLevel:-15:15';
+    return null;
+  },
+  click(part, ctrl, app) {
+    const p = part.props;
+    if (ctrl === 'inst:run') { p.run = !p.run; return true; }
+    if (ctrl === 'inst:meas') { p.measure = !p.measure; return true; }
+    if (ctrl === 'inst:ch1') { p.ch1On = !p.ch1On; return true; }
+    if (ctrl === 'inst:ch2') { p.ch2On = !p.ch2On; return true; }
+    if (ctrl === 'inst:cpl') { p.coupling = p.coupling === 'AC' ? 'DC' : 'AC'; return true; }
+    if (ctrl === 'inst:math') { p.math = p.math === 'off' ? 'sub' : p.math === 'sub' ? 'add' : 'off'; return true; }
+    if (ctrl === 'inst:xy') { p.xyMode = !p.xyMode; return true; }
+    if (ctrl === 'inst:vdiv-' || ctrl === 'inst:vdiv+') {
+      const s = cycleList(SCOPE_VDIV, +p.ch1Scale || 2, ctrl.endsWith('+') ? 1 : -1);
+      p.ch1Scale = s; p.ch2Scale = s;
+      return true;
+    }
+    if (ctrl === 'inst:tdiv-' || ctrl === 'inst:tdiv+') {
+      p.timeDiv = cycleList(SCOPE_TDIV, +p.timeDiv || 0.05, ctrl.endsWith('+') ? 1 : -1);
+      return true;
+    }
+    if (ctrl === 'inst:trig50') {
+      const d = (app && app.engine.byPart.get(part.id)?.device) || part.ui?._dev;
+      if (d) {
+        const win = computeScopeWindow(d, +p.timeDiv || 0.05);
+        if (win) {
+          const st = measureChannelStats(d, p.trigSrc === 'CH2' ? d.buf2 : d.buf1, win);
+          if (st.valid) p.trigLevel = p.coupling === 'AC' ? 0 : +((st.min + st.max) * 0.5).toFixed(2);
+        }
+      }
+      return true;
+    }
+    if (ctrl === 'inst:auto') {
+      const d = (app && app.engine.byPart.get(part.id)?.device) || part.ui?._dev;
+      if (d) d.autoScale(p);
+      return true;
+    }
+    return false;
+  },
+  device(part, nets, e) {
+    const cap = SCOPE_BUF_CAP;
+    const bufT = new Float64Array(cap);
+    const buf1 = new Float32Array(cap);
+    const buf2 = new Float32Array(cap);
+    const bufTrig = new Float32Array(cap);
+    const compNet = nets[6], compGnd = nets[7];
+    const compConnected = !e || e.isNetConnected(compNet);
+    const minusConnected = !e || e.isNetConnected(nets[1]);
+    let compHigh = false;
+
+    const d = {
+      timeDependent: compConnected,
+      cap,
+      bufT,
+      buf1,
+      buf2,
+      bufTrig,
+      head: 0,
+      count: 0,
+      coupling: part.props.coupling || 'DC',
+      trigSrc: part.props.trigSrc || 'CH1',
+      trigLevel: +part.props.trigLevel || 1.5,
+      stats1: { valid: false, vpp: 0, vavg: 0, min: 0, max: 0, freq: 0 },
+      stats2: { valid: false, vpp: 0, vavg: 0, min: 0, max: 0, freq: 0 },
+      reset() {
+        this.head = 0; this.count = 0;
+        buf1.fill(NaN); buf2.fill(NaN); bufTrig.fill(NaN);
+        this.stats1.valid = this.stats2.valid = false;
+      },
+      begin(eng) {
+        this.coupling = part.props.coupling || 'DC';
+        this.trigSrc = part.props.trigSrc || 'CH1';
+        this.trigLevel = +part.props.trigLevel || 1.5;
+        if (compConnected) {
+          compHigh = ((eng.time * 1000) % 1) < 0.5;
+          eng.maxHz = Math.max(eng.maxHz, 500);
+        }
+      },
+      stamp(S) {
+        if (compConnected && compNet >= 0) {
+          if (minusConnected && compGnd >= 0) {
+            S.vdrop(compNet, compGnd, compHigh ? 3 : 0, 50);
+            S.anchor(compGnd);
+          } else {
+            S.src(compNet, compHigh ? 3 : 0, 50);
+            if (compGnd >= 0) S.src(compGnd, 0, 0.05);
+          }
+        }
+      },
+      commit(V, dt, eng) {
+        if (part.props.run === false) return;
+        const vgnd = nets[1] >= 0 && ok(V[nets[1]]) ? V[nets[1]] : 0;
+        const v1 = nets[0] >= 0 && ok(V[nets[0]]) ? V[nets[0]] - vgnd : NaN;
+        const v2 = nets[2] >= 0 && ok(V[nets[2]]) ? V[nets[2]] - vgnd : NaN;
+        const vt = nets[4] >= 0 && ok(V[nets[4]]) ? V[nets[4]] - vgnd : NaN;
+        const h = this.head;
+        bufT[h] = eng.time;
+        buf1[h] = v1;
+        buf2[h] = v2;
+        bufTrig[h] = vt;
+        this.head = (h + 1) % cap;
+        if (this.count < cap) this.count++;
+      },
+      measure() {
+        const win = computeScopeWindow(this, Math.max(0.0001, +part.props.timeDiv || 0.05));
+        if (!win) return { s1: this.stats1, s2: this.stats2 };
+        this.stats1 = measureChannelStats(this, buf1, win);
+        this.stats2 = measureChannelStats(this, buf2, win);
+        return { s1: this.stats1, s2: this.stats2 };
+      },
+      autoScale(props = part.props) {
+        if (this.count < 2) return;
+        const fullWin = {
+          tStart: bufT[(this.head - this.count + cap) % cap],
+          tEnd: bufT[(this.head - 1 + cap) % cap],
+          count: this.count,
+          idxAt: (k) => (this.head - this.count + k + cap) % cap,
+        };
+        const st1 = measureChannelStats(this, buf1, fullWin);
+        const st2 = measureChannelStats(this, buf2, fullWin);
+        const pickV = (vpp) => SCOPE_VDIV.find(s => s * 6 >= Math.max(0.2, vpp)) || 10;
+        if (st1.valid) {
+          props.ch1Scale = pickV(st1.vpp);
+          props.trigLevel = props.coupling === 'AC' ? 0 : +((st1.min + st1.max) * 0.5).toFixed(2);
+        }
+        if (st2.valid) props.ch2Scale = pickV(st2.vpp);
+        const f = st1.freq > 0 ? st1.freq : st2.freq;
+        if (f > 0) {
+          const targetDiv = 0.25 / f;
+          props.timeDiv = SCOPE_TDIV.find(td => td >= targetDiv * 0.8) || 0.5;
+        }
+      },
+    };
+    if (part.ui) part.ui._dev = d;
+    return d;
+  },
+});
+
 // ---------------------------------------------------------------- Notes ----
 register({
   type: 'label', name: 'Text Label', cat: 'Notes', desc: 'A note on the canvas. Double-click to edit.',
@@ -1746,4 +2833,4 @@ export function shade(hex, f) {
   return `rgb(${r},${g},${b})`;
 }
 
-export { LED_COLORS, U };
+export { LED_COLORS, U, SCOPE_VDIV, SCOPE_TDIV, computeScopeWindow, measureChannelStats, fmtUnits };

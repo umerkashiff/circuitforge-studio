@@ -47,6 +47,8 @@ export class Renderer {
       this._bgCache.color = getComputedStyle(document.documentElement).getPropertyValue('--canvas').trim() || '#f2f2f4';
     }
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    g.imageSmoothingEnabled = true;
+    g.imageSmoothingQuality = 'high';
     g.fillStyle = this._bgCache.color;
     g.fillRect(0, 0, this.w, this.h);
     this.drawGrid(dark);
