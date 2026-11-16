@@ -4,6 +4,7 @@
  * Markdown chat stream, starter chips, and 3-way Auto | Build | Guide composer.
  */
 import { getDef } from '../parts/registry.js';
+import { splitKeys } from './client.js';
 
 const esc = (s) => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -80,7 +81,7 @@ export function mountAiPanel(ui, container) {
     <div class="ai-key-box" id="ai-key-box" hidden>
       <div class="ai-key-title">Groq API Key <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Get free key ↗</a></div>
       <div class="ai-key-row">
-        <input type="password" class="input small" id="ai-key-input" placeholder="gsk_..." autocomplete="off" spellcheck="false">
+        <input type="password" class="input small" id="ai-key-input" placeholder="gsk_... (or comma-separated keys)" autocomplete="off" spellcheck="false">
         <button class="btn primary small" id="ai-key-save">Save</button>
       </div>
       <div class="ai-key-hint" id="ai-key-hint">Stored locally in your browser. Not needed if server key is enabled.</div>
@@ -278,11 +279,14 @@ export function mountAiPanel(ui, container) {
     keyDot.className = 'ai-key-dot ' + (okAuth ? 'on' : 'off');
     keyInp.value = ai.apiKey;
     keyBox.hidden = !keyDrawerOpen && okAuth;
-    keyHint.textContent = ai.apiKey
-      ? 'Using your personal Groq key saved in localStorage.'
-      : ai.hasServerKey
-        ? 'Connected via server Groq proxy (or paste personal key above).'
-        : 'Paste a free Groq API key (gsk_...) from console.groq.com/keys.';
+    const savedCount = splitKeys(ai.apiKey).length;
+    keyHint.textContent = savedCount > 1
+      ? `${savedCount} personal Groq keys saved — automatic quota failover active.`
+      : savedCount === 1
+        ? 'Using your personal Groq key in localStorage (you can separate multiple keys with commas).'
+        : ai.hasServerKey
+          ? 'Connected via server Groq proxy (or paste personal key above).'
+          : 'Paste a free Groq API key (gsk_...) from console.groq.com/keys.';
 
     const curMode = ai.mode;
     for (const btn of modePill.querySelectorAll('button')) {
@@ -351,6 +355,7 @@ export function mountAiPanel(ui, container) {
   });
 
   app.aiGuide.subscribe(() => renderGuide());
+  ai.onChange = () => sync();
   sync();
   return { sync, focusInput: () => inputEl.focus() };
 }

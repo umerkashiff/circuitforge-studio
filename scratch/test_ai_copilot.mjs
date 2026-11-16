@@ -4,9 +4,10 @@ import '../src/mcu/boards.js';
 import { Circuit, Board, Part, Wire } from '../src/model.js';
 import { Engine, key } from '../src/sim/engine.js';
 import { findProblems } from '../src/editor.js';
-import { filterAndSortModels, extractJsonObject, callGroq } from '../src/ai/client.js';
+import { filterAndSortModels, extractJsonObject, callGroq, splitKeys } from '../src/ai/client.js';
 import { buildPartsCatalogPrompt, serializeCircuitState } from '../src/ai/context.js';
 import { applyAiBuildPlan, resolvePartType, resolvePinIndex } from '../src/ai/builder.js';
+import { AiCopilot } from '../src/ai/copilot.js';
 import { AiGuide } from '../src/ai/guide.js';
 import { getDef } from '../src/parts/registry.js';
 
@@ -427,14 +428,14 @@ assert.match(badPinRes.errors.join(' '), /Valid pins:.*1A/);
 console.log('   [PASS] Regression safeguards passed.');
 
 console.log('9. Testing Full Incomplete-Board Awareness, Surgical removeWires & Incremental Guide...');
-// Build a broken/partial board: Uno + 555 + wrong resistor value (47 ohm) + backwards LED wire
+// Build a broken/partial board using ic7408 + wrong resistor value (47 ohm) + backwards LED wire
 const initBroken = applyAiBuildPlan(app, {
   clearExisting: true,
   board: 'half',
   parts: [
     { ref: 'V1', type: 'vcc' },
     { ref: 'G1', type: 'gnd' },
-    { ref: 'U1', type: 'ne555' },
+    { ref: 'U1', type: 'ic7408' },
     { ref: 'R1', type: 'resistor', props: { ohms: 47 } },
     { ref: 'D1', type: 'led', props: { color: 'red' } },
   ],
@@ -448,7 +449,7 @@ const initBroken = applyAiBuildPlan(app, {
 assert.equal(initBroken.ok, true);
 const r1Id = app.circuit.parts.find(p => p.type === 'resistor').id;
 const d1Id = app.circuit.parts.find(p => p.type === 'led').id;
-const u1Id = app.circuit.parts.find(p => p.type === 'ne555').id;
+const u1Id = app.circuit.parts.find(p => p.type === 'ic7408').id;
 // Add a wrong manual wire directly across D1 Cathode -> +5V
 const wrongW = new Wire(
   { x: app.circuit.partById(d1Id).worldPins()[1].x, y: 12 },
@@ -462,7 +463,7 @@ app.editor.selection = new Set([r1Id]);
 const partialSnap = serializeCircuitState(app);
 assert.ok(Array.isArray(partialSnap.wires) && partialSnap.wires.some(s => s.includes(wrongW.id)), 'Serializer must expose wire IDs & endpoints');
 const u1Snap = partialSnap.parts.find(p => p.id === u1Id);
-assert.ok(Array.isArray(u1Snap.unwired) && u1Snap.unwired.includes('OUT'), 'Serializer must list unwired pins on incomplete ICs');
+assert.ok(Array.isArray(u1Snap.unwired) && u1Snap.unwired.includes('1Y'), 'Serializer must list unwired pins on incomplete ICs');
 assert.deepEqual(partialSnap.selected, [r1Id]);
 
 // Incremental guide: remove wrong wire, update resistor to 220, keep U1/V1/G1, add missing wiring!
@@ -471,8 +472,8 @@ const incGuide = app.aiGuide.start({
   removeWires: [[`${d1Id}.K`, '+']],
   updates: [{ id: r1Id, props: { resistance: 220 } }],
   parts: [],
-  connections: [[`${u1Id}.OUT`, `${r1Id}.1`], [`${r1Id}.2`, `${d1Id}.A`], [`${d1Id}.K`, '-']],
-}, 'Finish & Fix Blinker');
+  connections: [[`${u1Id}.1Y`, `${r1Id}.1`], [`${r1Id}.2`, `${d1Id}.A`], [`${d1Id}.K`, '-']],
+}, 'Finish & Fix Gate Output');
 assert.equal(incGuide.ok, true, 'Incremental guide with removeWires + updates must succeed: ' + JSON.stringify(incGuide.errors));
 const gSteps = app.aiGuide.getState().steps;
 assert.equal(gSteps[0].kind, 'removeWire');
@@ -484,7 +485,55 @@ app.aiGuide.doCurrentStep(); // updates R1 -> 220
 assert.equal(app.circuit.partById(r1Id).props.ohms, 220);
 app.aiGuide.doAllSteps();
 assert.equal(app.aiGuide.getState().finished, true);
-assert.ok(app.circuit.partById(u1Id), 'Original ne555 must be preserved');
+assert.ok(app.circuit.partById(u1Id), 'Original ic7408 must be preserved');
 console.log('   [PASS] Incomplete-board awareness, surgical wire repair & incremental Guide passed.');
+
+console.log('10. Testing Multi-Key Failover, Fuzzy 555/DIP8 Safeguards & Instant User Message Hook...');
+assert.deepEqual(splitKeys('gsk_a, gsk_b\ngsk_c;gsk_d'), ['gsk_a', 'gsk_b', 'gsk_c', 'gsk_d']);
+
+const mkTrace = [];
+const multiKeyRes = await callGroq({
+  apiKey: 'gsk_dead1, gsk_live2',
+  model: 'openai/gpt-oss-120b',
+  messages: [{ role: 'user', content: 'hi' }],
+  fetchFn: async (_u, opts) => {
+    const k = opts.headers.Authorization.replace('Bearer ', '');
+    const b = JSON.parse(opts.body);
+    mkTrace.push(`${k}:${b.model}`);
+    if (k === 'gsk_dead1') {
+      return { ok: false, status: 429, json: async () => ({ error: { message: 'tokens per day (TPD) exceeded, try again in 15m' } }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"intent":"analyze","reply":"Key2 works!"}' } }] }) };
+  },
+});
+assert.deepEqual(mkTrace, ['gsk_dead1:openai/gpt-oss-120b', 'gsk_live2:openai/gpt-oss-120b']);
+assert.equal(multiKeyRes.modelUsed, 'openai/gpt-oss-120b');
+
+const tmp555 = new Part('ne555', 5, 11, 0);
+assert.equal(resolvePinIndex(tmp555, 'DISC'), 6, 'Fuzzy pin resolver must map DISC -> DIS (pin 7)');
+const dipClash = applyAiBuildPlan(app, {
+  clearExisting: true,
+  board: 'half',
+  parts: [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'D1', type: 'dip8' }],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['D1.S1', '+']],
+});
+assert.equal(dipClash.ok, false);
+assert.match(dipClash.errors.join(' '), /DIP Switch/);
+
+// Verify user message appears synchronously via onChange before async API completes
+let savedModel = 'openai/gpt-oss-120b';
+const copApp = {
+  ...app,
+  settings: { get: (k) => (k === 'groqKey' ? 'gsk_mock' : k === 'aiModel' ? savedModel : 'auto'), set: (k, v) => { if (k === 'aiModel') savedModel = v; } },
+};
+const cop = new AiCopilot(copApp);
+cop.hasServerKey = true;
+let echoedImmediately = false;
+cop.onChange = () => {
+  if (cop.busy && cop.messages.length === 1 && cop.messages[0].text === 'instant check') echoedImmediately = true;
+};
+try { await cop.ask('instant check'); } catch { /* expected in offline mock */ }
+assert.equal(echoedImmediately, true, 'User message & busy state must emit before API finishes');
+console.log('   [PASS] Multi-key failover, fuzzy pins, DIP8 clash check & instant message hook passed.');
 
 console.log('\nALL AI COPILOT AUTOMATED TESTS PASSED 100%!');

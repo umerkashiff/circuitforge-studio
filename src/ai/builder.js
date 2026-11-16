@@ -40,7 +40,9 @@ export function resolvePartType(rawType, rawProps = {}) {
   if (getDef(s, true)) return { type: s, props };
 
   const low = s.toLowerCase().replace(/\s+/g, ' ');
-  if (low === '555' || low === 'ne-555' || low === 'lm555' || low === '555 timer') return { type: 'ne555', props: { ...props } };
+  if (low === '555' || low === 'ne-555' || low === 'lm555' || low === 'ic555' || low === '555 timer') return { type: 'ne555', props: { ...props } };
+  if (low === 'dip8' || low === 'dip-8' || low === 'dip 8' || low === '8 dip switch' || low === '8-dip switch' || low === 'dip switch 8' || low === 'dip switch') return { type: 'dip8', props: { ...props } };
+  if (low === 'dip4' || low === 'dip-4' || low === 'dip 4' || low === '4 dip switch' || low === 'dip switch 4') return { type: 'dip4', props: { ...props } };
   if (low === 'resistor' || low === 'r') return { type: 'resistor', props: { ...props } };
   if (low === 'capacitor' || low === 'cap' || low === 'c') return { type: 'capacitor', props: { ...props } };
   if (low === 'inductor' || low === 'l') return { type: 'inductor', props: { ...props } };
@@ -145,6 +147,30 @@ export function resolvePinIndex(part, rawPin) {
   if (/^\d+$/.test(target)) {
     const n = parseInt(target, 10) - 1;
     if (n >= 0 && n < pins.length) return n;
+  }
+
+  // 6. Forgiving fuzzy match: ignore punctuation, accept long names (DISCHARGE, THRESHOLD, OUTPUT, GROUND, CONTROL)
+  //    and 1-letter typos (DISC -> DIS)
+  const squash = (s) => normPin(s).replace(/[^A-Z0-9]/g, '');
+  const t = squash(target);
+  if (t.length >= 2) {
+    const names = pins.map(p => squash(p.name));
+    let i = names.findIndex(n => n === t);
+    if (i >= 0) return i;
+    const pref = names.map((n, idx) => ({ n, idx })).filter(o => o.n.length >= 2 && (t.startsWith(o.n) || o.n.startsWith(t)));
+    if (pref.length === 1) return pref[0].idx;
+    const lev1 = (a, b) => {
+      if (Math.abs(a.length - b.length) > 1) return false;
+      let i2 = 0, j = 0, diff = 0;
+      while (i2 < a.length && j < b.length) {
+        if (a[i2] === b[j]) { i2++; j++; continue; }
+        if (++diff > 1) return false;
+        if (a.length > b.length) i2++; else if (a.length < b.length) j++; else { i2++; j++; }
+      }
+      return diff + (a.length - i2) + (b.length - j) <= 1;
+    };
+    const near = names.map((n, idx) => ({ n, idx })).filter(o => o.n.length >= 3 && lev1(t, o.n));
+    if (near.length === 1) return near[0].idx;
   }
   return -1;
 }
@@ -505,6 +531,19 @@ export function verifyCircuitHealth(app, refById = null) {
       if (n >= 0 && supplyNets.has(n)) {
         errors.push(`${getDef(p.type).short || p.type} (ref "${tag}") OUT is a 1-pin active HIGH/LOW driver; do NOT wire it directly to +5V or GND (wire "${tag}.OUT" directly to its destination input).`);
       }
+    } else if (p.type === 'dip4' || p.type === 'dip8') {
+      for (let i = 0; i < ent.pinNets.length; i++) {
+        const n = ent.pinNets[i];
+        if (n >= 0 && supplyNets.has(n)) {
+          errors.push(`${getDef(p.type).name} (ref "${tag}") S${i + 1} is an active 5V/0V output switch; do NOT wire it directly to +5V or GND (wire "${tag}.S${i + 1}" directly to your load or gate).`);
+        }
+      }
+    } else if (p.type === 'vcc' || p.type === 'gnd') {
+      const n = ent.pinNets?.[0] ?? -1;
+      if (n >= 0 && !sim.isNetConnected(n)) {
+        const rail = p.type === 'vcc' ? '+' : '-';
+        errors.push(`${p.type} ("${tag}") is placed but unconnected — wire "${tag}.1" to "${rail}" so the breadboard rail has power.`);
+      }
     } else if (p.type === 'ne555') {
       const nCtrl = ent.pinNets?.[4] ?? -1;
       const nDis = ent.pinNets?.[6] ?? -1;
@@ -513,6 +552,12 @@ export function verifyCircuitHealth(app, refById = null) {
       }
       if (nDis >= 0 && supplyNets.has(nDis)) {
         errors.push(`ne555 ("${tag}") DIS (pin 7) must NOT be wired directly to +5V or GND (connect R1 from + to DIS and R2 from DIS to THR).`);
+      }
+      for (const [idx, nm] of [[1, 'TRIG'], [2, 'OUT'], [5, 'THR']]) {
+        const pn = ent.pinNets?.[idx] ?? -1;
+        if (pn >= 0 && !sim.isNetConnected(pn)) {
+          errors.push(`ne555 ("${tag}") ${nm} pin is unconnected — for astable, tie THR to TRIG, R1(+->DIS), R2(DIS->THR), C(THR->-), RESET->+.`);
+        }
       }
     } else if (p.type === 'resistor' || p.type === 'led' || p.type === 'diode' || p.type === 'capacitor' || p.type === 'inductor') {
       const wPins = p.worldPins();
@@ -791,8 +836,21 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true } =
       }
     }
 
+    const skippedNotes = [];
+    const isNe555Ctrl = (tok) => {
+      const m = /^([^.\s]+)\.(.+)$/.exec(String(tok || '').trim());
+      if (!m) return false;
+      const part = refMap.get(m[1]) || refMap.get(m[1].toUpperCase()) || app.circuit.partById(m[1]);
+      return Boolean(part && part.type === 'ne555' && resolvePinIndex(part, m[2].replace(/@.+$/, '')) === 4);
+    };
+
     for (const pair of flatConnections) {
       const [aTok, bTok] = pair;
+      // A 555 CTRL pin tied straight to a rail breaks oscillation; leave it floating like a real astable.
+      if ((isNe555Ctrl(aTok) && parseRailToken(bTok)) || (isNe555Ctrl(bTok) && parseRailToken(aTok))) {
+        skippedNotes.push('Skipped wiring 555 CTRL (pin 5) straight to a rail — left open so it can oscillate.');
+        continue;
+      }
       const aRail = parseRailToken(aTok);
       const bRail = parseRailToken(bTok);
 
@@ -889,7 +947,7 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true } =
 
     return {
       ok: true,
-      warnings: health.warnings,
+      warnings: [...new Set([...health.warnings, ...skippedNotes])],
       refMap,
       boardSize: app.circuit.boards[0]?.size || 'half',
       placedParts: placedSpecs,

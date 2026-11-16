@@ -14,6 +14,7 @@ export class AiCopilot {
     this.models = PREFERRED_MODELS.map(id => ({ id, fallback: true }));
     this.hasServerKey = false;
     this.busy = false;
+    this.onChange = null;
     this.lastModelUsed = null;
   }
 
@@ -74,6 +75,7 @@ export class AiCopilot {
     this.busy = true;
     const userMsg = { id: 'm' + Date.now(), role: 'user', text: prompt, mode: activeMode };
     this.messages.push(userMsg);
+    try { this.onChange?.(); } catch { /* UI hook */ }
 
     try {
       const recentHistory = this.history.slice(-6);
@@ -97,7 +99,7 @@ export class AiCopilot {
       });
 
       this.lastModelUsed = res.modelUsed;
-      if (res.switchedFrom && this.models.some(m => m.id === res.modelUsed)) {
+      if (res.decommissioned && res.switchedFrom && this.models.some(m => m.id === res.modelUsed)) {
         this.app.settings.set('aiModel', res.modelUsed);
       }
 
@@ -172,42 +174,41 @@ export class AiCopilot {
         }
       }
 
+      const MAX_REPAIRS = 2;
       if (effectiveIntent === 'build' && this._hasBuildOperations(parsed)) {
         buildSummary = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true });
-        if (!buildSummary.ok && buildSummary.errors?.length) {
+        for (let attempt = 0; attempt < MAX_REPAIRS && !buildSummary.ok && buildSummary.errors?.length; attempt++) {
           const powerHint = buildSummary.errors.some(e => /no power|vcc|gnd/i.test(e))
             ? '\nHint: Breadboard "+"/"-" rails need BOTH a "vcc" part wired to "+" AND a "gnd" part wired to "-", and every IC VCC->"+" and GND->"-".'
             : '';
-          const fixPrompt = `Your previous circuit JSON failed CircuitForge DRC / simulation verification:\nErrors:\n- ${buildSummary.errors.join('\n- ')}${powerHint}\n\nFix the part types, pins, connections, supplies, or MCU code and output corrected STRICT JSON.`;
+          const fixPrompt = `Your previous circuit JSON failed CircuitForge DRC / simulation verification:\nErrors:\n- ${buildSummary.errors.join('\n- ')}${powerHint}\n\nFix ONLY these problems using EXACT pin names from the schemas and output the complete corrected STRICT JSON (all parts + connections).`;
           const retry = await this._tryFollowUp(res, llmMessages, fixPrompt);
-          if (retry) {
-            res = retry;
-            if (retry.parsed) {
-              parsed = retry.parsed;
-              const retryBuild = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true });
-              buildSummary = retryBuild;
-              if (retryBuild.ok) selfFixed = true;
-            }
-          } else {
-            parsed.reply = `${parsed.reply || 'Build failed verification.'}\n\n*(Auto-retry skipped due to API rate limit; errors: ${buildSummary.errors.join('; ')})*`;
-          }
+          if (!retry) break;
+          res = retry;
+          if (!retry.parsed) continue;
+          parsed = retry.parsed;
+          buildSummary = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true });
+          if (buildSummary.ok) selfFixed = true;
         }
       } else if (effectiveIntent === 'guide' && this._hasBuildOperations(parsed)) {
         const title = parsed.title || prompt.slice(0, 48);
         guideSummary = this.app.aiGuide.start(parsed, title);
-        if (!guideSummary.ok && guideSummary.errors?.length) {
-          const fixPrompt = `Your previous guided circuit JSON failed verification:\nErrors:\n- ${guideSummary.errors.join('\n- ')}\n\nFix the part types, pins, or connections and output corrected STRICT JSON.`;
+        for (let attempt = 0; attempt < MAX_REPAIRS && !guideSummary.ok && guideSummary.errors?.length; attempt++) {
+          const fixPrompt = `Your previous guided circuit JSON failed verification:\nErrors:\n- ${guideSummary.errors.join('\n- ')}\n\nFix ONLY these problems using EXACT pin names from the schemas and output the complete corrected STRICT JSON (parts, connections, steps).`;
           const retry = await this._tryFollowUp(res, llmMessages, fixPrompt);
-          if (retry) {
-            res = retry;
-            if (retry.parsed) {
-              parsed = retry.parsed;
-              const retryGuide = this.app.aiGuide.start(parsed, title);
-              guideSummary = retryGuide;
-              if (retryGuide.ok) selfFixed = true;
-            }
-          }
+          if (!retry) break;
+          res = retry;
+          if (!retry.parsed) continue;
+          parsed = retry.parsed;
+          guideSummary = this.app.aiGuide.start(parsed, title);
+          if (guideSummary.ok) selfFixed = true;
         }
+      }
+
+      const failedAction = (buildSummary && !buildSummary.ok) || (guideSummary && !guideSummary.ok);
+      if (failedAction) {
+        const errs = (buildSummary?.errors || guideSummary?.errors || []).slice(0, 2).join('; ');
+        parsed = { ...parsed, reply: `I couldn't produce a circuit that passes verification (${errs}). Nothing on your board was changed. Try rephrasing or breaking it into smaller steps, or pick a different model.` };
       }
 
       // Persist compact conversation context (including what edits/guides were applied so follow-ups know)
@@ -216,8 +217,10 @@ export class AiCopilot {
         : guideSummary?.ok
           ? ` [Started Guide: ${guideSummary.stepCount} steps]`
           : '';
-      this.history.push({ role: 'user', content: prompt.slice(0, 600) });
-      this.history.push({ role: 'assistant', content: `${String(parsed.reply || res.rawText).slice(0, 450)}${actionNote}` });
+      if (!failedAction) {
+        this.history.push({ role: 'user', content: prompt.slice(0, 600) });
+        this.history.push({ role: 'assistant', content: `${String(parsed.reply || res.rawText).slice(0, 450)}${actionNote}` });
+      }
 
       const aiMsg = {
         id: 'a' + Date.now(),

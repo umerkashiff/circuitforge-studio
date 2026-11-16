@@ -49,30 +49,34 @@ export async function checkServerKey(fetchFn = fetch) {
   }
 }
 
+const cooldownUntil = new Map();
+
+export function splitKeys(raw = '') {
+  return String(raw || '').split(/[\s,;]+/).map(k => k.trim()).filter(Boolean);
+}
+
 export async function fetchModels(apiKey = '', fetchFn = fetch) {
-  const cleanKey = (apiKey || '').trim();
+  const keys = splitKeys(apiKey);
+  const tryKeys = keys.length ? keys : [''];
   const fallback = PREFERRED_MODELS.map(id => ({ id, owned_by: 'fallback', fallback: true }));
-  try {
-    let res;
-    if (cleanKey) {
-      res = await fetchFn(`${GROQ_BASE}/models`, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${cleanKey}` },
-      });
-    } else {
-      res = await fetchFn('/api/ai?models=1', { method: 'GET' });
-    }
-    if (!res.ok) return { models: fallback, live: false, status: res.status };
-    const payload = await res.json();
-    const sorted = filterAndSortModels(payload?.data || []);
-    return {
-      models: sorted.length ? sorted : fallback,
-      live: sorted.length > 0,
-      status: res.status,
-    };
-  } catch {
-    return { models: fallback, live: false, status: 0 };
+  let lastStatus = 0;
+  for (const cleanKey of tryKeys) {
+    try {
+      const res = cleanKey
+        ? await fetchFn(`${GROQ_BASE}/models`, { method: 'GET', headers: { Authorization: `Bearer ${cleanKey}` } })
+        : await fetchFn('/api/ai?models=1', { method: 'GET' });
+      lastStatus = res.status;
+      if (!res.ok) continue;
+      const payload = await res.json();
+      const sorted = filterAndSortModels(payload?.data || []);
+      return {
+        models: sorted.length ? sorted : fallback,
+        live: sorted.length > 0,
+        status: res.status,
+      };
+    } catch { /* try next key */ }
   }
+  return { models: fallback, live: false, status: lastStatus };
 }
 
 export function extractJsonObject(text) {
@@ -205,7 +209,8 @@ export async function callGroq({
   availableModels = null,
   fetchFn = fetch,
 }) {
-  const cleanKey = (apiKey || '').trim();
+  const parsedKeys = splitKeys(apiKey);
+  const keyList = parsedKeys.length ? parsedKeys : [''];
   const liveIds = (availableModels || []).filter(m => !m.fallback).map(m => (typeof m === 'string' ? m : m.id)).filter(isChatModelId);
   const baseOrder = liveIds.length ? liveIds : PREFERRED_MODELS;
   const tried = new Set();
@@ -217,7 +222,7 @@ export async function callGroq({
     if (!id || tried.has(id)) return false;
     tried.add(id);
     return true;
-  });
+  }).slice(0, 4);
 
   if (!candidates.length) candidates.push(PREFERRED_MODELS[0]);
 
@@ -231,198 +236,149 @@ export async function callGroq({
   let lastRateLimitErr = null;
   let tpmRateLimitErr = null;
   let tpmRetryModel = null;
+  let tpmRetryKey = '';
   let tpmRetryWaitMs = 0;
   let tpmRetryMaxTokens = adaptiveMax;
+  let requestedDecommissioned = false;
   const requestedModel = model;
+  const now = Date.now();
 
-  for (let i = 0; i < candidates.length && i < 4; i++) {
+  const buildBody = (activeModel, modelMax) => {
+    const body = { model: activeModel, messages, temperature, max_completion_tokens: modelMax };
+    if (/^openai\/gpt-oss-20b/i.test(activeModel)) body.reasoning_effort = 'low';
+    if (jsonMode) body.response_format = { type: 'json_object' };
+    return body;
+  };
+
+  const makeResult = (activeModel, rawText, parsed, truncated, usage = null, partialReply = '') => ({
+    modelUsed: activeModel,
+    switchedFrom: activeModel !== requestedModel ? requestedModel : null,
+    decommissioned: requestedDecommissioned && activeModel !== requestedModel,
+    rawText,
+    parsed,
+    truncated,
+    partialReply,
+    usage,
+  });
+
+  // Model-first across saved keys so Key #2 / #3 keeps the flagship model active when Key #1 hits TPD
+  for (let i = 0; i < candidates.length; i++) {
     const activeModel = candidates[i];
-    // Skip tiny-context fallback models (e.g. allam-2-7b) for large circuit prompts
     if (i > 0 && /allam-2-7b/i.test(activeModel) && estInputTokens > 1200) continue;
-    // Qwen3 on Groq free tier enforces a strict 1,000 OTPM limit
-    let modelMax = /^qwen\/qwen3/i.test(activeModel) ? Math.min(adaptiveMax, 920) : adaptiveMax;
-    const baseBody = {
-      model: activeModel,
-      messages,
-      temperature,
-      max_completion_tokens: modelMax,
-    };
-    // Keep 20b/Qwen3 concise so silent <think> reasoning does not truncate large circuit JSONs
-    if (/^openai\/gpt-oss-20b/i.test(activeModel)) baseBody.reasoning_effort = 'low';
-    else if (/^qwen\/qwen3/i.test(activeModel) && jsonMode) baseBody.reasoning_effort = 'none';
-    if (jsonMode) baseBody.response_format = { type: 'json_object' };
 
-    let attempt = await sendCompletion({ cleanKey, body: baseBody, fetchFn });
+    // Skip cached TPD-exhausted (key,model) pairs first unless every key for this model is cooling down
+    const uncooledKeys = keyList.filter(k => (cooldownUntil.get(`${k}|${activeModel}`) || 0) <= now);
+    const activeKeys = uncooledKeys.length ? uncooledKeys : keyList;
 
-    if (!attempt.ok && attempt.status === 400 && baseBody.reasoning_effort !== undefined
-      && /reasoning_effort/i.test(String(attempt.payload?.error?.message || ''))) {
-      const stripped = { ...baseBody };
-      delete stripped.reasoning_effort;
-      attempt = await sendCompletion({ cleanKey, body: stripped, fetchFn });
-    }
+    for (const cleanKey of activeKeys) {
+      let modelMax = /^qwen\/qwen3/i.test(activeModel) ? Math.min(adaptiveMax, 920) : adaptiveMax;
+      const baseBody = buildBody(activeModel, modelMax);
+      let attempt = await sendCompletion({ cleanKey, body: baseBody, fetchFn });
 
-    if (!attempt.ok && attempt.status === 400 && baseBody.reasoning_effort !== undefined
-      && /reasoning_effort/i.test(String(attempt.payload?.error?.message || ''))) {
-      const stripped = { ...baseBody };
-      delete stripped.reasoning_effort;
-      attempt = await sendCompletion({ cleanKey, body: stripped, fetchFn });
-    }
-
-    // Handle json_validate_failed / failed_generation recovery or retry without response_format
-    if (!attempt.ok && jsonMode && isResponseFormatError(attempt.status, attempt.payload)) {
-      const failedGen = attempt.payload?.error?.failed_generation;
-      if (typeof failedGen === 'string' && failedGen.trim()) {
-        const salvaged = extractJsonObject(failedGen);
-        if (salvaged) {
-          return {
-            modelUsed: activeModel,
-            switchedFrom: activeModel !== requestedModel ? requestedModel : null,
-            rawText: failedGen,
-            parsed: salvaged,
-            truncated: false,
-            partialReply: '',
-            usage: null,
-          };
-        }
-        // If explicitly testing a tiny maxTokens cap that truncated mid-JSON, report clean truncation!
-        const partial = extractPartialReply(failedGen);
-        if (maxTokens !== null && maxTokens <= 250) {
-          return {
-            modelUsed: activeModel,
-            switchedFrom: activeModel !== requestedModel ? requestedModel : null,
-            rawText: failedGen,
-            parsed: null,
-            truncated: true,
-            partialReply: partial,
-            usage: null,
-          };
-        }
+      if (!attempt.ok && attempt.status === 400 && baseBody.reasoning_effort !== undefined
+        && /reasoning_effort/i.test(String(attempt.payload?.error?.message || ''))) {
+        const stripped = { ...baseBody };
+        delete stripped.reasoning_effort;
+        attempt = await sendCompletion({ cleanKey, body: stripped, fetchFn });
       }
-      const retryBody = { ...baseBody };
-      delete retryBody.response_format;
-      attempt = await sendCompletion({ cleanKey, body: retryBody, fetchFn });
-    }
 
-    if (attempt.ok) {
-      const choice = attempt.payload?.choices?.[0];
-      const rawText = String(choice?.message?.content || '');
-      const truncated = choice?.finish_reason === 'length';
-      let parsed = jsonMode ? extractJsonObject(rawText) : null;
-      if (jsonMode && !truncated && !parsed && maxTokens === null) {
-        const repairRes = await sendCompletion({
-          cleanKey,
-          body: {
-            model: activeModel,
-            messages: [...messages, { role: 'assistant', content: rawText.slice(0, 800) }, { role: 'user', content: 'Your previous response had invalid JSON syntax. Output ONLY a single strictly valid JSON object matching the schema.' }],
-            temperature,
-            max_completion_tokens: modelMax,
-            ...(baseBody.reasoning_effort ? { reasoning_effort: baseBody.reasoning_effort } : {}),
-          },
-          fetchFn,
-        });
-        if (repairRes.ok) {
-          const rc = repairRes.payload?.choices?.[0];
-          const rText = String(rc?.message?.content || '');
-          const rParsed = extractJsonObject(rText);
-          if (rParsed) {
-            return {
-              modelUsed: activeModel,
-              switchedFrom: activeModel !== requestedModel ? requestedModel : null,
-              rawText: rText,
-              parsed: rParsed,
-              truncated: rc?.finish_reason === 'length',
-              partialReply: '',
-              usage: repairRes.payload?.usage || attempt.payload?.usage || null,
-            };
+      if (!attempt.ok && jsonMode && isResponseFormatError(attempt.status, attempt.payload)) {
+        const failedGen = attempt.payload?.error?.failed_generation;
+        if (typeof failedGen === 'string' && failedGen.trim()) {
+          const salvaged = extractJsonObject(failedGen);
+          if (salvaged) return makeResult(activeModel, failedGen, salvaged, false);
+          if (maxTokens !== null && maxTokens <= 250) {
+            return makeResult(activeModel, failedGen, null, true, null, extractPartialReply(failedGen));
           }
         }
+        const retryBody = { ...baseBody };
+        delete retryBody.response_format;
+        attempt = await sendCompletion({ cleanKey, body: retryBody, fetchFn });
       }
-      return {
-        modelUsed: activeModel,
-        switchedFrom: activeModel !== requestedModel ? requestedModel : null,
-        rawText,
-        parsed,
-        truncated,
-        partialReply: !parsed && truncated ? extractPartialReply(rawText) : '',
-        usage: attempt.payload?.usage || null,
-      };
-    }
 
-    const msg = attempt.payload?.error?.message || `Groq HTTP ${attempt.status}`;
-    lastErr = new Error(msg);
-    lastErr.status = attempt.status;
-    lastErr.code = attempt.payload?.error?.code || '';
-
-    if (attempt.status === 401 || attempt.status === 403) {
-      if (!isModelDecommissionedError(attempt.status, attempt.payload)) throw lastErr;
-    }
-    if (attempt.status === 429) {
-      // If OTPM error shows >= 450 output tokens still available, shrink max_completion_tokens & retry immediately
-      const otpmAvail = parseOtpBudgetRemaining(attempt.payload);
-      if (otpmAvail !== null && otpmAvail >= 450 && otpmAvail < modelMax) {
-        modelMax = otpmAvail;
-        const shrunkBody = { ...baseBody, max_completion_tokens: modelMax };
-        const shrunkRes = await sendCompletion({ cleanKey, body: shrunkBody, fetchFn });
-        if (shrunkRes.ok) {
-          const choice = shrunkRes.payload?.choices?.[0];
-          const rawText = String(choice?.message?.content || '');
-          const truncated = choice?.finish_reason === 'length';
-          const parsed = jsonMode ? extractJsonObject(rawText) : null;
-          return {
-            modelUsed: activeModel,
-            switchedFrom: activeModel !== requestedModel ? requestedModel : null,
-            rawText,
-            parsed,
-            truncated,
-            partialReply: !parsed && truncated ? extractPartialReply(rawText) : '',
-            usage: shrunkRes.payload?.usage || null,
-          };
+      if (attempt.ok) {
+        const choice = attempt.payload?.choices?.[0];
+        const rawText = String(choice?.message?.content || '');
+        const truncated = choice?.finish_reason === 'length';
+        const parsed = jsonMode ? extractJsonObject(rawText) : null;
+        if (jsonMode && !truncated && !parsed && maxTokens === null) {
+          const repairRes = await sendCompletion({
+            cleanKey,
+            body: {
+              model: activeModel,
+              messages: [...messages, { role: 'assistant', content: rawText.slice(0, 800) }, { role: 'user', content: 'Your previous response had invalid JSON syntax. Output ONLY a single strictly valid JSON object matching the schema.' }],
+              temperature,
+              max_completion_tokens: modelMax,
+              ...(baseBody.reasoning_effort ? { reasoning_effort: baseBody.reasoning_effort } : {}),
+            },
+            fetchFn,
+          });
+          if (repairRes.ok) {
+            const rc = repairRes.payload?.choices?.[0];
+            const rText = String(rc?.message?.content || '');
+            const rParsed = extractJsonObject(rText);
+            if (rParsed) {
+              return makeResult(activeModel, rText, rParsed, rc?.finish_reason === 'length', repairRes.payload?.usage || attempt.payload?.usage || null);
+            }
+          }
         }
+        return makeResult(activeModel, rawText, parsed, truncated, attempt.payload?.usage || null, !parsed && truncated ? extractPartialReply(rawText) : '');
       }
 
-      if (!lastRateLimitErr) lastRateLimitErr = lastErr;
-      const d = parseRetryDelayMs(attempt.payload);
-      if (d !== Infinity && !tpmRateLimitErr) {
-        tpmRateLimitErr = lastErr;
-        tpmRetryModel = activeModel;
-        tpmRetryWaitMs = d;
-        tpmRetryMaxTokens = modelMax;
+      const msg = attempt.payload?.error?.message || `Groq HTTP ${attempt.status}`;
+      lastErr = new Error(msg);
+      lastErr.status = attempt.status;
+      lastErr.code = attempt.payload?.error?.code || '';
+
+      if (isModelDecommissionedError(attempt.status, attempt.payload)) {
+        if (activeModel === requestedModel) requestedDecommissioned = true;
+        break; // model itself is unavailable globally; move to next candidate model
       }
+      if (attempt.status === 401 || attempt.status === 403) {
+        if (cleanKey) cooldownUntil.set(`${cleanKey}|${activeModel}`, now + 15 * 60_000);
+        continue; // try next key; if none work, lastErr (401) is thrown
+      }
+      if (attempt.status === 429) {
+        const otpmAvail = parseOtpBudgetRemaining(attempt.payload);
+        if (otpmAvail !== null && otpmAvail >= 450 && otpmAvail < modelMax) {
+          modelMax = otpmAvail;
+          const shrunkRes = await sendCompletion({ cleanKey, body: { ...baseBody, max_completion_tokens: modelMax }, fetchFn });
+          if (shrunkRes.ok) {
+            const choice = shrunkRes.payload?.choices?.[0];
+            const rawText = String(choice?.message?.content || '');
+            const truncated = choice?.finish_reason === 'length';
+            return makeResult(activeModel, rawText, jsonMode ? extractJsonObject(rawText) : null, truncated, shrunkRes.payload?.usage || null);
+          }
+        }
+
+        if (!lastRateLimitErr) lastRateLimitErr = lastErr;
+        const d = parseRetryDelayMs(attempt.payload);
+        if (d === Infinity) {
+          if (cleanKey) cooldownUntil.set(`${cleanKey}|${activeModel}`, now + 15 * 60_000);
+        } else if (!tpmRateLimitErr) {
+          tpmRateLimitErr = lastErr;
+          tpmRetryModel = activeModel;
+          tpmRetryKey = cleanKey;
+          tpmRetryWaitMs = d;
+          tpmRetryMaxTokens = modelMax;
+        }
+        continue;
+      }
+      if (attempt.status === 413) continue;
+      throw lastErr;
     }
-    if (isModelDecommissionedError(attempt.status, attempt.payload) || attempt.status === 429 || attempt.status === 413) {
-      continue;
-    }
-    throw lastErr;
   }
 
-  // Only pause-and-retry a transient TPM-limited candidate (never wait on exhausted daily TPD quotas!)
+  // Only pause-and-retry a transient TPM-limited pair (never wait on exhausted daily TPD quotas!)
   if (tpmRateLimitErr) {
     const waitMs = Math.max(2000, Math.min(12500, tpmRetryWaitMs || 3500));
     await new Promise(r => setTimeout(r, waitMs));
-    const retryRes = await sendCompletion({
-      cleanKey,
-      body: {
-        model: tpmRetryModel,
-        messages,
-        temperature,
-        max_completion_tokens: tpmRetryMaxTokens,
-        ...(/^openai\/gpt-oss-20b/i.test(tpmRetryModel) ? { reasoning_effort: 'low' } : {}),
-        ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
-      },
-      fetchFn,
-    });
+    const retryBody = buildBody(tpmRetryModel, tpmRetryMaxTokens);
+    const retryRes = await sendCompletion({ cleanKey: tpmRetryKey, body: retryBody, fetchFn });
     if (retryRes.ok) {
       const choice = retryRes.payload?.choices?.[0];
       const rawText = String(choice?.message?.content || '');
-      return {
-        modelUsed: tpmRetryModel,
-        switchedFrom: tpmRetryModel !== requestedModel ? requestedModel : null,
-        rawText,
-        parsed: jsonMode ? extractJsonObject(rawText) : null,
-        truncated: choice?.finish_reason === 'length',
-        partialReply: '',
-        usage: retryRes.payload?.usage || null,
-      };
+      return makeResult(tpmRetryModel, rawText, jsonMode ? extractJsonObject(rawText) : null, choice?.finish_reason === 'length', retryRes.payload?.usage || null);
     }
     const rMsg = retryRes.payload?.error?.message || `Groq HTTP ${retryRes.status}`;
     const rErr = new Error(rMsg);
