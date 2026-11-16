@@ -583,13 +583,12 @@ export class UI {
           h('div', { class: 'about-logo' }),
           h('div', { class: 'about-name' }, 'CircuitForge Studio'),
           h('div', { class: 'about-ver' }, 'Version 2.0'),
-          h('div', { class: 'about-by' }, 'Designed and built by ', h('b', {}, 'Umer')),
-          h('p', { class: 'about-text' }, 'A breadboard workbench for learning electronics: real 74-series logic, 555 timers, LEDs and passives, and Arduino, ESP32 and STM32 boards you can program — all simulated live in your browser.')),
-        box(row('Simulation engine', h('span', { class: 'set-val' }, 'Nodal analysis · datasheet IC models')),
-          row('Microcontrollers', h('span', { class: 'set-val' }, 'Uno · Nano · ESP32 · ESP32-S3 · Blue Pill')),
-          row('Runs', h('span', { class: 'set-val' }, 'Entirely in your browser — nothing is uploaded')),
-          row('Your work', h('span', { class: 'set-val' }, 'Saved automatically on this device'))),
-        h('div', { class: 'about-foot' }, `© ${new Date().getFullYear()} Umer. All rights reserved.`),
+          h('div', { class: 'about-by' }, 'Designed and built by ', h('b', {}, 'Umer Kashif')),
+          h('div', { class: 'about-web' },
+            h('a', { class: 'about-link', href: 'https://umerkashif.vercel.app/', target: '_blank', rel: 'noopener noreferrer' }, 'https://umerkashif.vercel.app/')),
+          h('p', { class: 'about-text' }, 'A customizable electronics lab in your browser. Build circuits with standard logic chips, timers, and components or code for Arduino and ESP32 boards with zero physical parts.')),
+        this._buildRetroAsciiStage(),
+        h('div', { class: 'about-foot' }, `© ${new Date().getFullYear()} Umer Kashif. All rights reserved.`),
       ],
     };
     const nav = h('nav', { class: 'set-nav' });
@@ -609,6 +608,145 @@ export class UI {
     window.addEventListener('keydown', onKey, true);
     render();
     document.body.append(sheet);
+  }
+
+  _buildRetroAsciiStage() {
+    const W = 68, H = 15;
+    const LETTERS = [
+      [' _   _ ', '| | | |', '| |_| |', ' \\___/ '], // U (7)
+      [' __  __ ', '|  \\/  |', '| |\\/| |', '|_|  |_|'], // M (8)
+      [' ___ ', '| __|', '| _| ', '|___|'],           // E (5)
+      [' ___  ', '| _ \\ ', '|   / ', '|_|_\\ '],      // R (6)
+      ['  ', '  ', '  ', '  '],                       // space (2)
+      [' _  __', '| |/ /', '| \' < ', '|_|\\_\\'],     // K (6)
+      ['   _   ', '  /_\\  ', ' / _ \\ ', '/_/ \\_\\'], // A (7)
+      ['  ___ ', ' / __|', ' \\__ \\', ' |___/'],      // S (6)
+      [' _  _ ', '| || |', '| __ |', '|_||_|'],       // H (6)
+      [' ___ ', '|_ _|', '  |  ', '|___|'],           // I (5)
+      [' ___ ', '| __|', '| _| ', '|_|  '],           // F (5)
+    ];
+    const NAME_ART = [0, 1, 2, 3].map(r => LETTERS.map(g => g[r]).join(''));
+    const NAME_X = Math.floor((W - NAME_ART[0].length) / 2);
+    const WIZ_WALK = [
+      ['   /\\    ', '  (oo)  *', ' /|\\/--+', '  / \\    '],
+      ['   /\\    ', '  (oo)  +', ' /|\\/--o', '  | |    '],
+    ];
+    const WIZ_L = [
+      '    /\\     ',
+      '   /  \\  * ',
+      '  ( oo ) | ',
+      '  /|  |\\-+ ',
+      ' /_|__|_\\  ',
+      '  /    \\   ',
+    ];
+    const WIZ_R = [
+      '     /\\    ',
+      '  + /  \\   ',
+      '  |( oo )  ',
+      ' +-/|  |\\  ',
+      '  /_|__|_\\ ',
+      '   /    \\  ',
+    ];
+    const FIGHTER = [
+      '    .-.       ',
+      ' __/_|_\\__    ',
+      '/===(=)===)-->',
+    ];
+    const stars = Array.from({ length: 28 }, (_, i) => ({
+      x: (i * 19 + 5) % (W - 2) + 1,
+      y: (i * 7 + 2) % (H - 3) + 1,
+      ph: i % 5,
+    }));
+
+    const pre = h('pre', { class: 'ascii-screen' });
+    const paused = !!this.app.settings.get('reduceMotion');
+    let tick = paused ? 24 : 0;
+    const theater = h('div', { class: 'ascii-theater' }, pre);
+
+    const drawFrame = () => {
+      const buf = Array.from({ length: H }, () => Array(W).fill(' '));
+      const put = (x0, y, s) => {
+        if (y < 0 || y >= H) return;
+        const ix = Math.round(x0);
+        for (let i = 0; i < s.length; i++) {
+          const x = ix + i;
+          if (x > 0 && x < W - 1 && s[i] !== ' ') buf[y][x] = s[i];
+        }
+      };
+      const putBlock = (x0, y0, lines, maxLines = lines.length) => {
+        for (let r = 0; r < Math.min(maxLines, lines.length); r++) put(x0, y0 + r, lines[r]);
+      };
+
+      // CRT Starfield + Outer Border
+      const glyph = ['.', ' ', '+', '*', ' '];
+      for (const s of stars) buf[s.y][s.x] = glyph[(Math.floor(tick / 4) + s.ph) % glyph.length];
+
+      const scene = Math.floor(tick / 90) % 3;
+      const local = tick % 90;
+
+      if (scene === 0) {
+        const intro = 'A long time ago on a breadboard far, far away...';
+        const shown = intro.slice(0, Math.min(intro.length, local * 2));
+        put(Math.floor((W - intro.length) / 2), 2, shown);
+
+        const bannerRows = Math.min(4, Math.floor(local / 5) + 1);
+        putBlock(NAME_X, 4, NAME_ART, bannerRows);
+
+        const wx = ((local * 0.85) % (W + 10)) - 9;
+        putBlock(wx, 9, WIZ_WALK[Math.floor(tick / 3) % 2]);
+        const sparks = ['*', '+', '.', 'o'];
+        for (let k = 0; k < 4; k++) {
+          put(wx + 9 + k * 2, 10 - ((k + tick) % 3), sparks[(tick + k) % sparks.length]);
+        }
+        put(8, 13, 'CircuitForge Wizards present: UMER KASHIF');
+      } else if (scene === 1) {
+        putBlock(NAME_X, 1, NAME_ART);
+
+        putBlock(2, 7, WIZ_L);
+        putBlock(W - 13, 7, WIZ_R);
+
+        // Animated spell beams + sparkling collision burst between the wizards
+        const pulse = (tick % 18) < 9;
+        const beamL = pulse ? '~~=*~+~*~' : '=~+~*=~~*';
+        const beamR = pulse ? '~*~+~*=~~' : '*~~=*~+~=';
+        put(13, 10, beamL);
+        put(W - 22, 10, beamR);
+        const burst = ['* + *', ' \\|/ ', '--@--', ' /|\\ '];
+        const bRow = burst[Math.floor(tick / 2) % burst.length];
+        put(31, 9, tick % 4 < 2 ? '. * +' : '+ @ *');
+        put(31, 10, bRow);
+        put(31, 11, tick % 4 < 2 ? '0 1 0' : '1 0 1');
+        put(23, 13, 'CASTING LOGIC GATES [74xx]');
+      } else {
+        const fx = (local * 1.1) % (W + 18) - 14;
+        putBlock(fx, 1, FIGHTER);
+        put(fx + 15, 3, (tick % 3 === 0 ? '----  ----' : '  ----'));
+
+        putBlock(NAME_X, 5, NAME_ART);
+
+        // Flying wizard waving spark trail + scrolling IC trench below
+        const flyX = W - ((local * 0.9) % (W + 18));
+        put(flyX, 10, '(=^o^)==* + .');
+        const trench = '..[555]....[7493]....[UT2062B]....[EGC3235A]....[MPS3005]..';
+        const off = tick % trench.length;
+        const ground = (trench + trench).slice(off, off + W - 2);
+        put(1, 13, ground);
+      }
+
+      buf[0] = ('+' + '-'.repeat(W - 2) + '+').split('');
+      buf[H - 1] = ('+' + '-'.repeat(W - 2) + '+').split('');
+      for (let y = 1; y < H - 1; y++) { buf[y][0] = '|'; buf[y][W - 1] = '|'; }
+
+      pre.textContent = buf.map(r => r.join('')).join('\n');
+    };
+
+    drawFrame();
+    const timer = setInterval(() => {
+      if (!theater.isConnected) { clearInterval(timer); return; }
+      if (!paused) { tick++; drawFrame(); }
+    }, 90);
+
+    return theater;
   }
 
   showShortcuts() {
