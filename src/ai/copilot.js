@@ -176,31 +176,31 @@ export class AiCopilot {
 
       const MAX_REPAIRS = 2;
       if (effectiveIntent === 'build' && this._hasBuildOperations(parsed)) {
-        buildSummary = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true });
+        buildSummary = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true, prompt });
         for (let attempt = 0; attempt < MAX_REPAIRS && !buildSummary.ok && buildSummary.errors?.length; attempt++) {
           const powerHint = buildSummary.errors.some(e => /no power|vcc|gnd/i.test(e))
             ? '\nHint: Breadboard "+"/"-" rails need BOTH a "vcc" part wired to "+" AND a "gnd" part wired to "-", and every IC VCC->"+" and GND->"-".'
             : '';
-          const fixPrompt = `Your previous circuit JSON failed CircuitForge DRC / simulation verification:\nErrors:\n- ${buildSummary.errors.join('\n- ')}${powerHint}\n\nFix ONLY these problems using EXACT pin names from the schemas and output the complete corrected STRICT JSON (all parts + connections).`;
+          const fixPrompt = `Your previous circuit JSON failed CircuitForge verification:\nErrors:\n- ${buildSummary.errors.join('\n- ')}${powerHint}\n\nFix ONLY these problems using EXACT pin names from the schemas and output complete STRICT JSON objects (all parts as {"ref","type","props"} + connections).`;
           const retry = await this._tryFollowUp(res, llmMessages, fixPrompt);
           if (!retry) break;
           res = retry;
           if (!retry.parsed) continue;
           parsed = retry.parsed;
-          buildSummary = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true });
+          buildSummary = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true, prompt });
           if (buildSummary.ok) selfFixed = true;
         }
       } else if (effectiveIntent === 'guide' && this._hasBuildOperations(parsed)) {
         const title = parsed.title || prompt.slice(0, 48);
-        guideSummary = this.app.aiGuide.start(parsed, title);
+        guideSummary = this.app.aiGuide.start(parsed, title, { prompt });
         for (let attempt = 0; attempt < MAX_REPAIRS && !guideSummary.ok && guideSummary.errors?.length; attempt++) {
-          const fixPrompt = `Your previous guided circuit JSON failed verification:\nErrors:\n- ${guideSummary.errors.join('\n- ')}\n\nFix ONLY these problems using EXACT pin names from the schemas and output the complete corrected STRICT JSON (parts, connections, steps).`;
+          const fixPrompt = `Your previous guided circuit JSON failed verification:\nErrors:\n- ${guideSummary.errors.join('\n- ')}\n\nFix ONLY these problems using EXACT pin names from the schemas and output complete STRICT JSON objects (parts as {"ref","type","props"}, connections, steps).`;
           const retry = await this._tryFollowUp(res, llmMessages, fixPrompt);
           if (!retry) break;
           res = retry;
           if (!retry.parsed) continue;
           parsed = retry.parsed;
-          guideSummary = this.app.aiGuide.start(parsed, title);
+          guideSummary = this.app.aiGuide.start(parsed, title, { prompt });
           if (guideSummary.ok) selfFixed = true;
         }
       }

@@ -8,22 +8,38 @@ import { getDef, allDefs } from '../parts/registry.js';
 import { Engine, key } from '../sim/engine.js';
 import { route, tidy } from '../sim/router.js';
 import { WIRE_COLORS } from '../view/renderer.js';
+import {
+  verifyPromptConstraints,
+  verifyFloatingIcInputs,
+  verifyOutputContention,
+  verifyBooleanBehavior,
+  verifySequentialClockLiveness,
+  verifyCombinationalSwitchLiveness,
+} from './logic_verify.js';
 
 const SIGNAL_COLORS = ['#0a84ff', '#30a46c', '#ff8a00', '#8e4ec6', '#f5c400', '#ffffff'];
 const PROBE_COLORS = ['#ff9f0a', '#30d158', '#0a84ff', '#ff375f', '#bf5af2', '#64d2ff', '#ffd60a', '#ac8e68'];
 
 const KNOWN_PROP_KEYS = ['code', 'sketch', 'program', 'ohms', 'resistance', 'value', 'watts', 'uf', 'capacitance', 'vmax', 'color', 'protect', 'hz', 'duty', 'vpp', 'wave', 'offset', 'power', 'common', 'on', 'label', 'run', 'ch1On', 'ch2On', 'ch1Scale', 'ch2Scale', 'timeDiv', 'coupling', 'trigSrc', 'trigLevel'];
 
-/** Normalize malformed LLM part specs (e.g. `part`/`component` instead of `type`, or top-level `ohms`/`code`). */
+/** Normalize malformed LLM part specs (e.g. string items, `part`/`component` instead of `type`, or top-level `ohms`/`code`). */
 export function normalizePartSpec(raw = {}) {
-  if (!raw || typeof raw !== 'object') return raw;
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    const colon = s.indexOf(':');
+    if (colon > 0) return { ref: s.slice(0, colon).trim(), type: s.slice(colon + 1).trim(), props: {} };
+    return { ref: '', type: s, props: {} };
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ref: '', type: '', props: {}, _invalid: true };
+  }
   const props = { ...(raw.props || {}) };
   for (const k of KNOWN_PROP_KEYS) {
     if (raw[k] !== undefined && props[k] === undefined) props[k] = raw[k];
   }
   const type = raw.type ?? raw.part ?? raw.component ?? raw.kind ?? raw.device ?? raw.model ?? raw.name ?? '';
   const ref = raw.ref ?? raw.id ?? raw.name ?? '';
-  return { ...raw, ref, type, props };
+  return { ...raw, ref, type: type == null ? '' : String(type), props };
 }
 
 /** Normalize common AI part type synonyms to registered part types. */
@@ -78,22 +94,68 @@ export function resolvePartType(rawType, rawProps = {}) {
   return null;
 }
 
-const normPin = (s) => String(s || '').trim().replace(/−/g, '-').replace(/\u0305/g, '').toUpperCase();
+const normRawPin = (s) => String(s || '').trim().replace(/−/g, '-').toUpperCase();
+const normPin = (s) => normRawPin(s).replace(/\u0305/g, '');
+const squashPin = (s) => normPin(s).replace(/[^A-Z0-9]/g, '');
 
-/** Resolve a symbolic pin identifier (name, alias, or 1-based number) on a Part. */
+function extractInvertedStem(targetRaw) {
+  const s = targetRaw.trim();
+  if (/\u0305/.test(s)) return squashPin(s);
+  let m = /^[/!~](.+)$/.exec(s);
+  if (m) return squashPin(m[1]);
+  m = /^(.+?)(?:_?BAR|_?NOT|N|['′~])$/.exec(s);
+  if (m && m[1].length >= 1) return squashPin(m[1]);
+  return null;
+}
+
+/** Resolve a symbolic pin identifier (name, inverted bar, CMOS VDD/VSS, alias, or 1-based number) on a Part. */
 export function resolvePinIndex(part, rawPin) {
   const pins = part.worldPins();
+  const targetRaw = normRawPin(rawPin);
   const target = normPin(rawPin);
   if (!target) return -1;
 
-  // 1. Exact case-insensitive match
+  // 1a. Exact match preserving overline \u0305 so 1Q and 1Q̅ never collide
   for (let i = 0; i < pins.length; i++) {
-    if (normPin(pins[i].name) === target) return i;
+    if (normRawPin(pins[i].name) === targetRaw) return i;
   }
+
+  // 1b. Inverted / barred pin matching (e.g. 1Q_BAR, /1Q, 1QN, 1Q', Q1_BAR -> 1Q̅ or Q̅1)
+  const invStem = extractInvertedStem(targetRaw);
+  if (invStem) {
+    for (let i = 0; i < pins.length; i++) {
+      if (!/\u0305/.test(pins[i].name)) continue;
+      const pinStem = squashPin(pins[i].name);
+      const swappedPinStem = pinStem.replace(/^([A-Z]+)(\d+)$/, '$2$1');
+      if (pinStem === invStem || swappedPinStem === invStem || pinStem.replace(/^(\d+)([A-Z]+)$/, '$2$1') === invStem) {
+        return i;
+      }
+    }
+  }
+
+  // 1c. Exact match ignoring \u0305 only on non-barred pins (and handle bare leading '/' active-low control names like /CLR -> CLR)
+  const targetNoSlash = target.replace(/^[/!~]/, '');
+  for (let i = 0; i < pins.length; i++) {
+    if (/\u0305/.test(pins[i].name)) continue;
+    const pn = normPin(pins[i].name);
+    if (pn === target || pn === targetNoSlash) return i;
+  }
+
+  // 1d. Universal power pin mapping (VCC <-> VDD, GND <-> VSS) for CMOS & TTL ICs
+  if (target === 'VCC' || target === 'VDD' || target === '+5V' || target === '5V') {
+    const idx = pins.findIndex(p => { const n = normPin(p.name); return n === 'VCC' || n === 'VDD'; });
+    if (idx >= 0) return idx;
+  }
+  if (target === 'GND' || target === 'VSS' || target === '0V') {
+    const idx = pins.findIndex(p => { const n = normPin(p.name); return n === 'GND' || n === 'VSS'; });
+    if (idx >= 0) return idx;
+  }
+
   // 2. Match either half of slash-combined labels (e.g., D13/SCK -> D13 or SCK)
   for (let i = 0; i < pins.length; i++) {
+    if (/\u0305/.test(pins[i].name)) continue;
     const parts = normPin(pins[i].name).split('/');
-    if (parts.includes(target)) return i;
+    if (parts.includes(target) || parts.includes(targetNoSlash)) return i;
   }
   // 3. Semantic pin aliases per part type
   const aliasMap = {
@@ -125,9 +187,15 @@ export function resolvePinIndex(part, rawPin) {
     ic7447: { BI: 3, RBO: 3, '/LT': 2, '/RBI': 4, '/RBO': 3 },
     ic7448: { BI: 3, RBO: 3, '/LT': 2, '/RBI': 4, '/RBO': 3 },
     ic7483: { CIN: 12, C_IN: 12, COUT: 13, C_OUT: 13, S1: 8, SUM1: 8, S2: 5, SUM2: 5, S3: 1, SUM3: 1, S4: 14, SUM4: 14, C1: 8, C2: 5, C3: 1, C4_SUM: 14 },
+    ic74283: { CIN: 6, C_IN: 6, COUT: 8, C_OUT: 8, S1: 3, SUM1: 3, S2: 0, SUM2: 0, S3: 12, SUM3: 12, S4: 9, SUM4: 9, C1: 3, C2: 0, C3: 12, C4_SUM: 9 },
+    ic7485: { AGT: 4, AEQ: 5, ALT: 6, 'A>B': 4, 'A=B': 5, 'A<B': 6, GT: 4, EQ: 5, LT: 6, 'IA>B': 3, 'IA=B': 2, 'IA<B': 1 },
+    ic74138: { A0: 0, S0: 0, A1: 1, S1: 1, A2: 2, S2: 2, E1: 3, E2: 4, E3: 5, G2A_BAR: 3, G2B_BAR: 4 },
+    ic74238: { A0: 0, S0: 0, A1: 1, S1: 1, A2: 2, S2: 2, E1: 3, E2: 4, E3: 5, G2A_BAR: 3, G2B_BAR: 4 },
     ic74151: { I0: 3, I1: 2, I2: 1, I3: 0, I4: 15, I5: 14, I6: 13, I7: 12, S0: 10, S1: 9, S2: 8, E: 6, EN: 6, Z: 4, Q: 4, Y_BAR: 5, W: 5 },
-    ic7493: { CLKA: 13, CLKB: 0, 'CK0': 13, 'CK1': 0, RST1: 1, RST2: 2, R1: 1, R2: 2, MR1: 1, MR2: 2 },
-    ic7490: { CLKA: 13, CLKB: 0, RST1: 1, RST2: 2, R1: 1, R2: 2 },
+    ic7493: { CLKA: 13, CLKB: 0, CK0: 13, CK1: 0, RST1: 1, RST2: 2, R1: 1, R2: 2, MR1: 1, MR2: 2 },
+    ic7490: { CLKA: 13, CLKB: 0, RST1: 1, RST2: 2, R1: 1, R2: 2, MR1: 1, MR2: 2, MS1: 5, MS2: 6 },
+    ic74595: { Q0: 14, Q1: 0, Q2: 1, Q3: 2, Q4: 3, Q5: 4, Q6: 5, Q7: 6, DS: 13, DATA: 13, SHCP: 10, SH_CP: 10, STCP: 11, ST_CP: 11, MR: 9, OE_BAR: 12, MR_BAR: 9, "QH'": 8, Q7S: 8, SQH: 8 },
+    ic4017: { CP0: 13, CP: 13, MR: 14, RESET: 14, R: 14, CE: 12, EN: 12, CLKEN: 12, CARRY: 11, COUT: 11 },
   };
   const map = aliasMap[part.type];
   if (map && target in map && map[target] < pins.length) return map[target];
@@ -149,18 +217,30 @@ export function resolvePinIndex(part, rawPin) {
     if (n >= 0 && n < pins.length) return n;
   }
 
+  // 5b. Unambiguous digit<->letter swap (e.g. A1 -> 1A, B2 -> 2B, CLK1 -> 1CLK on gates/FFs)
+  const swapA = /^([A-Z]+)(\d+)$/.exec(targetNoSlash);
+  const swapB = /^(\d+)([A-Z]+)$/.exec(targetNoSlash);
+  const swapped = swapA ? (swapA[2] + swapA[1]) : swapB ? (swapB[2] + swapB[1]) : null;
+  if (swapped) {
+    const hits = [];
+    for (let i = 0; i < pins.length; i++) {
+      if (!/\u0305/.test(pins[i].name) && squashPin(pins[i].name) === swapped) hits.push(i);
+    }
+    if (hits.length === 1) return hits[0];
+  }
+
   // 6. Forgiving fuzzy match: ignore punctuation, accept long names (DISCHARGE, THRESHOLD, OUTPUT, GROUND, CONTROL)
-  //    and 1-letter typos (DISC -> DIS)
-  const squash = (s) => normPin(s).replace(/[^A-Z0-9]/g, '');
-  const t = squash(target);
+  //    and 1-letter non-digit typos (DISC -> DIS) without colliding with barred Q̅ or differing numbered pins
+  const t = squashPin(targetNoSlash);
   if (t.length >= 2) {
-    const names = pins.map(p => squash(p.name));
-    let i = names.findIndex(n => n === t);
-    if (i >= 0) return i;
-    const pref = names.map((n, idx) => ({ n, idx })).filter(o => o.n.length >= 2 && (t.startsWith(o.n) || o.n.startsWith(t)));
+    const eligible = pins.map((p, idx) => ({ n: squashPin(p.name), idx, bar: /\u0305/.test(p.name) })).filter(o => !o.bar);
+    const exactSq = eligible.find(o => o.n === t);
+    if (exactSq) return exactSq.idx;
+    const pref = eligible.filter(o => o.n.length >= 2 && (t.startsWith(o.n) || o.n.startsWith(t)) && t.replace(/\D/g, '') === o.n.replace(/\D/g, ''));
     if (pref.length === 1) return pref[0].idx;
     const lev1 = (a, b) => {
       if (Math.abs(a.length - b.length) > 1) return false;
+      if (a.replace(/[A-Z]/g, '') !== b.replace(/[A-Z]/g, '')) return false; // Never blur numbered pins like D1 vs D2
       let i2 = 0, j = 0, diff = 0;
       while (i2 < a.length && j < b.length) {
         if (a[i2] === b[j]) { i2++; j++; continue; }
@@ -169,7 +249,7 @@ export function resolvePinIndex(part, rawPin) {
       }
       return diff + (a.length - i2) + (b.length - j) <= 1;
     };
-    const near = names.map((n, idx) => ({ n, idx })).filter(o => o.n.length >= 3 && lev1(t, o.n));
+    const near = eligible.filter(o => o.n.length >= 3 && lev1(t, o.n));
     if (near.length === 1) return near[0].idx;
   }
   return -1;
@@ -493,8 +573,8 @@ export function pickWireColor(aTok, bTok, aRail, bRail, sigIdx) {
   return SIGNAL_COLORS[sigIdx % SIGNAL_COLORS.length];
 }
 
-/** Run headless DRC + 50 ms simulation check on current app.circuit without touching history. */
-export function verifyCircuitHealth(app, refById = null) {
+/** Run headless DRC, logic/constraint verification & 50 ms simulation check on current app.circuit without touching history. */
+export function verifyCircuitHealth(app, refById = null, { prompt = '', incremental = false } = {}) {
   app.reindex(false);
   const errors = [];
   const warnings = [];
@@ -506,6 +586,8 @@ export function verifyCircuitHealth(app, refById = null) {
     if (iss.level === 'error') errors.push(iss.text);
     else if (iss.level === 'warn') warnings.push(iss.text);
   }
+
+  for (const cErr of verifyPromptConstraints(prompt, app.circuit, refById)) errors.push(cErr);
 
   // Short headless simulation pass (also compiles any MCU sketches via runtime)
   const sim = new Engine();
@@ -591,6 +673,18 @@ export function verifyCircuitHealth(app, refById = null) {
     if (d.rt?.error) errors.push(`${getDef(d.part.type).name} runtime error: ${d.rt.error}`);
   }
 
+  if (!errors.length) {
+    for (const cErr of verifyOutputContention(sim, app.circuit, refById)) errors.push(cErr);
+    if (!incremental) {
+      for (const fErr of verifyFloatingIcInputs(sim, app.circuit, refById)) errors.push(fErr);
+    }
+  }
+  if (!errors.length && !incremental) {
+    for (const bErr of verifyBooleanBehavior(prompt, sim, app.circuit, refById)) errors.push(bErr);
+    for (const cErr of verifyCombinationalSwitchLiveness(sim, app.circuit)) errors.push(cErr);
+    for (const sErr of verifySequentialClockLiveness(sim, app.circuit, refById)) errors.push(sErr);
+  }
+
   return { ok: errors.length === 0, errors: [...new Set(errors)], warnings: [...new Set(warnings)] };
 }
 
@@ -645,7 +739,7 @@ function wireEndMatchesToken(app, endPt, rawTok, refMap) {
  * Allocates components deterministically, routes clean wires, configures MCUs/probes,
  * verifies circuit health headlessly, and rolls back safely on unrecoverable errors.
  */
-export function applyAiBuildPlan(app, plan, { commit = true, startSim = true } = {}) {
+export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, prompt = '' } = {}) {
   const backup = JSON.stringify(app.circuit);
   const prevMode = app.mode;
   const refMap = new Map();
@@ -786,6 +880,9 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true } =
 
     const placedSpecs = [];
     for (const sp of partSpecs) {
+      if (!sp || sp._invalid || !String(sp.type || '').trim()) {
+        throw new Error('Invalid entry in "parts" array — each part must be { "ref": "U1", "type": "<valid_type>", "props": {} }');
+      }
       // Skip accidentally echoed existing part IDs during incremental builds
       if (!clear && sp.ref && app.circuit.partById(sp.ref)) continue;
       const placed = placePartSmart(app, sp, layoutState);
@@ -931,7 +1028,7 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true } =
 
     const refById = new Map();
     for (const sp of placedSpecs) refById.set(sp.partId, sp.ref);
-    const health = verifyCircuitHealth(app, refById);
+    const health = verifyCircuitHealth(app, refById, { prompt, incremental: !clear });
     if (!health.ok) {
       app.load(backup, true);
       app.setMode(prevMode);

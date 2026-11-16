@@ -7,6 +7,7 @@ import { findProblems } from '../src/editor.js';
 import { filterAndSortModels, extractJsonObject, callGroq, splitKeys } from '../src/ai/client.js';
 import { buildPartsCatalogPrompt, serializeCircuitState } from '../src/ai/context.js';
 import { applyAiBuildPlan, resolvePartType, resolvePinIndex } from '../src/ai/builder.js';
+import { parseBooleanExpr, evalBooleanAst, extractGateConstraints, extractBooleanSpec } from '../src/ai/logic_verify.js';
 import { AiCopilot } from '../src/ai/copilot.js';
 import { AiGuide } from '../src/ai/guide.js';
 import { getDef } from '../src/parts/registry.js';
@@ -535,5 +536,112 @@ cop.onChange = () => {
 try { await cop.ask('instant check'); } catch { /* expected in offline mock */ }
 assert.equal(echoedImmediately, true, 'User message & busy state must emit before API finishes');
 console.log('   [PASS] Multi-key failover, fuzzy pins, DIP8 clash check & instant message hook passed.');
+
+console.log('11. Testing Universal Pin Disambiguation, IC Floating DRC, Output Contention & Boolean Verifier...');
+const tmp74 = new Part('ic7474', 5, 11, 0);
+assert.equal(resolvePinIndex(tmp74, '1Q'), 4, '1Q must stay index 4');
+assert.equal(resolvePinIndex(tmp74, '1Q̅'), 5, '1Q̅ must map to index 5');
+assert.equal(resolvePinIndex(tmp74, '1Q_BAR'), 5, '1Q_BAR must map to inverted output index 5');
+assert.equal(resolvePinIndex(tmp74, '/1Q'), 5, '/1Q must map to inverted output index 5');
+assert.equal(resolvePinIndex(tmp74, '1QN'), 5, '1QN must map to inverted output index 5');
+assert.equal(resolvePinIndex(tmp74, 'D1'), 1, 'Digit-letter swap D1 -> 1D');
+assert.equal(resolvePinIndex(tmp74, 'CLK1'), 2, 'Digit-letter swap CLK1 -> 1CLK');
+
+const tmp4017 = new Part('ic4017', 5, 11, 0);
+assert.equal(resolvePinIndex(tmp4017, 'VCC'), 15, 'CMOS ic4017 VCC -> VDD');
+assert.equal(resolvePinIndex(tmp4017, 'GND'), 7, 'CMOS ic4017 GND -> VSS');
+assert.equal(resolvePinIndex(tmp4017, 'MR'), 14, 'ic4017 MR -> RST');
+
+const tmp283 = new Part('ic74283', 5, 11, 0);
+assert.equal(resolvePinIndex(tmp283, 'S1'), 3, 'ic74283 S1 -> Σ1');
+assert.equal(resolvePinIndex(tmp283, 'CIN'), 6, 'ic74283 CIN -> C0');
+const tmp595 = new Part('ic74595', 5, 11, 0);
+assert.equal(resolvePinIndex(tmp595, 'DS'), 13, 'ic74595 DS -> SER');
+assert.equal(resolvePinIndex(tmp595, 'SHCP'), 10, 'ic74595 SHCP -> SRCLK');
+assert.equal(resolvePinIndex(tmp595, 'STCP'), 11, 'ic74595 STCP -> RCLK');
+const tmp7400 = new Part('ic7400', 5, 11, 0);
+assert.equal(resolvePinIndex(tmp7400, 'A1'), 0, 'ic7400 A1 -> 1A');
+assert.equal(resolvePinIndex(tmp7400, 'Y1'), 2, 'ic7400 Y1 -> 1Y');
+
+// Malformed parts guard
+const badPartEntry = applyAiBuildPlan(app, { clearExisting: true, board: 'half', parts: [123], connections: [] });
+assert.equal(badPartEntry.ok, false);
+assert.doesNotMatch(badPartEntry.errors.join(' '), /Unknown component type "undefined"/);
+
+// Constraint & Boolean parsing checks
+assert.equal(extractGateConstraints("build F = A'B + AC' using ONLY 7400 NAND gates (no AND/OR/NOT chips)").nandOnly, true);
+assert.equal(extractGateConstraints('build using NAND gates and XOR gates').nandOnly, false);
+const bSpec = extractBooleanSpec('we have to make Y = (A + B) * C using NAND gates only');
+assert.ok(bSpec && bSpec.vars.join(',') === 'A,B,C');
+assert.equal(evalBooleanAst(bSpec.ast, { A: 0, B: 0, C: 1 }), 0);
+assert.equal(evalBooleanAst(bSpec.ast, { A: 0, B: 1, C: 1 }), 1);
+
+// NAND-only constraint rejection when non-NAND gate placed
+const nonNandRes = applyAiBuildPlan(app, {
+  clearExisting: true,
+  board: 'half',
+  parts: [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'U1', type: 'ic7408' }, { ref: 'A', type: 'toggle' }, { ref: 'B', type: 'toggle' }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'L1', type: 'led' }],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['U1.VCC', '+'], ['U1.GND', '-'], ['A.OUT', 'U1.1A'], ['B.OUT', 'U1.1B'], ['U1.1Y', 'R1.1'], ['R1.2', 'L1.A'], ['L1.K', '-']],
+}, { prompt: 'make F = A * B using NAND gates only' });
+assert.equal(nonNandRes.ok, false);
+assert.match(nonNandRes.errors.join(' '), /NAND gates ONLY/);
+
+// Floating gate input & output contention check
+const halfGateRes = applyAiBuildPlan(app, {
+  clearExisting: true,
+  board: 'half',
+  parts: [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'U1', type: 'ic7400' }, { ref: 'A', type: 'toggle' }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'L1', type: 'led' }],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['U1.VCC', '+'], ['U1.GND', '-'], ['A.OUT', 'U1.1A'], ['U1.1Y', 'R1.1'], ['R1.2', 'L1.A'], ['L1.K', '-']],
+});
+assert.equal(halfGateRes.ok, false);
+assert.match(halfGateRes.errors.join(' '), /1B floating/);
+
+const shortedOutRes = applyAiBuildPlan(app, {
+  clearExisting: true,
+  board: 'half',
+  parts: [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'U1', type: 'ic7486' }, { ref: 'U2', type: 'ic7408' }, { ref: 'A', type: 'toggle' }, { ref: 'B', type: 'toggle' }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'L1', type: 'led' }],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['U1.VCC', '+'], ['U1.GND', '-'], ['U2.VCC', '+'], ['U2.GND', '-'], ['A.OUT', 'U1.1A'], ['B.OUT', 'U1.1B'], ['U1.1Y', 'U2.1A'], ['A.OUT', 'U2.1A'], ['B.OUT', 'U2.1B'], ['U2.1Y', 'R1.1'], ['R1.2', 'L1.A'], ['L1.K', '-']],
+});
+assert.equal(shortedOutRes.ok, false);
+assert.match(shortedOutRes.errors.join(' '), /driver contention/i);
+
+// Boolean truth-table rejection on wrong logic vs pass on correct logic
+const wrongBool = applyAiBuildPlan(app, {
+  clearExisting: true,
+  board: 'half',
+  parts: [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'U1', type: 'ic7400' }, { ref: 'D1', type: 'dip4' }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'L1', type: 'led' }],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['U1.VCC', '+'], ['U1.GND', '-'], ['D1.S1', 'U1.1A'], ['D1.S2', 'U1.1B'], ['U1.1Y', 'U1.2A'], ['D1.S3', 'U1.2B'], ['U1.2Y', 'R1.1'], ['R1.2', 'L1.A'], ['L1.K', '-']],
+}, { prompt: 'make Y = (A + B) * C using NAND gates only' });
+assert.equal(wrongBool.ok, false);
+assert.match(wrongBool.errors.join(' '), /Boolean logic verification failed/);
+
+// 7474 floating 1D rejection vs working 1Q̅ -> 1D divide-by-2 acceptance
+const stuck7474 = applyAiBuildPlan(app, {
+  clearExisting: true,
+  board: 'half',
+  parts: [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'U1', type: 'ic7474' }, { ref: 'CLK', type: 'clock', props: { hz: 5 } }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'L1', type: 'led' }],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['U1.VCC', '+'], ['U1.GND', '-'], ['CLK.CLK', 'U1.1CLK'], ['U1.1Q', 'U1.1D'], ['U1.1PRE', '+'], ['U1.1CLR', '+'], ['U1.1Q', 'R1.1'], ['R1.2', 'L1.A'], ['L1.K', '-']],
+});
+assert.equal(stuck7474.ok, false);
+assert.match(stuck7474.errors.join(' '), /stayed stuck/);
+
+const good7474 = applyAiBuildPlan(app, {
+  clearExisting: true,
+  board: 'half',
+  parts: [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'U1', type: 'ic7474' }, { ref: 'CLK', type: 'clock', props: { hz: 5 } }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'L1', type: 'led' }],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['U1.VCC', '+'], ['U1.GND', '-'], ['CLK.CLK', 'U1.1CLK'], ['U1.1Q_BAR', 'U1.1D'], ['U1.1PRE', '+'], ['U1.1CLR', '+'], ['U1.1Q', 'R1.1'], ['R1.2', 'L1.A'], ['L1.K', '-']],
+});
+assert.equal(good7474.ok, true, 'Working 7474 divide-by-2 must pass: ' + JSON.stringify(good7474.errors));
+
+// Contradiction / dead combinational output detection (A & ~A always 0)
+const deadCombo = applyAiBuildPlan(app, {
+  clearExisting: true,
+  board: 'half',
+  parts: [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'U1', type: 'ic7404' }, { ref: 'U2', type: 'ic7408' }, { ref: 'A', type: 'toggle' }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'L1', type: 'led' }],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['U1.VCC', '+'], ['U1.GND', '-'], ['U2.VCC', '+'], ['U2.GND', '-'], ['A.OUT', 'U1.1A'], ['A.OUT', 'U2.1A'], ['U1.1Y', 'U2.1B'], ['U2.1Y', 'R1.1'], ['R1.2', 'L1.A'], ['L1.K', '-']],
+});
+assert.equal(deadCombo.ok, false);
+assert.match(deadCombo.errors.join(' '), /Combinational logic check failed/);
+console.log('   [PASS] Universal pin disambiguation, IC floating DRC, output contention, Boolean & 7474 liveness checks passed.');
 
 console.log('\nALL AI COPILOT AUTOMATED TESTS PASSED 100%!');

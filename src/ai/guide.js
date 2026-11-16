@@ -50,11 +50,11 @@ function createSandbox(realApp) {
       this.computeNetKinds();
       if (!fast) this.computeChecks();
     },
-    computeNetKinds() { realApp.computeNetKinds.call(this); },
+    computeNetKinds() { realApp.computeNetKinds?.call(this); },
     clash(a, b) { return realApp.clash(a, b); },
-    supplyClash(x, y, kind, ignoreIds) { return realApp.supplyClash.call(this, x, y, kind, ignoreIds); },
-    shortReason(a, b, ign) { return realApp.shortReason.call(this, a, b, ign); },
-    computeChecks() { realApp.computeChecks.call(this); },
+    supplyClash(x, y, kind, ignoreIds) { return realApp.supplyClash?.call(this, x, y, kind, ignoreIds) ?? null; },
+    shortReason(a, b, ign) { return realApp.shortReason?.call(this, a, b, ign) ?? null; },
+    computeChecks() { realApp.computeChecks?.call(this); },
     allIssues() { return [...this.checks]; },
     editor: null,
   };
@@ -129,12 +129,12 @@ export class AiGuide {
   }
 
   /** Validate a plan offscreen and start an interactive step-by-step guide session. */
-  start(plan, title = 'Guided Circuit Build') {
+  start(plan, title = 'Guided Circuit Build', { prompt = '' } = {}) {
     const sbx = createSandbox(this.app);
     if (plan.clearExisting === false) {
       sbx.load(JSON.stringify(this.app.circuit));
     }
-    const res = applyAiBuildPlan(sbx, plan, { commit: false, startSim: false });
+    const res = applyAiBuildPlan(sbx, plan, { commit: false, startSim: false, prompt });
     if (!res.ok) return res;
 
     // Prepare workspace if starting a fresh guided build

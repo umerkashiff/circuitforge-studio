@@ -1,0 +1,613 @@
+/**
+ * Deterministic Logic, Constraint & IC-Input Verifier for CircuitForge AI.
+ * Catches LLM omissions before accepting a circuit:
+ *  - Gate-family constraints (e.g. "using ONLY NAND gates", "NOR gates only")
+ *  - Floating IC control/input pins (used gate inputs, adder C0, FF D/J/K, decoder/mux enables)
+ *  - Combinational Boolean truth-table verification across switch states
+ *  - Clocked sequential flip-flop/counter liveness checks
+ */
+import { getDef } from '../parts/registry.js';
+
+const NAND_TYPES = new Set(['ic7400', 'ic7410', 'ic7420', 'ic7430']);
+const NOR_TYPES = new Set(['ic7402', 'ic7427']);
+const LOGIC_GATE_TYPES = new Set([
+  'ic7400', 'ic7402', 'ic7404', 'ic7408', 'ic7410', 'ic7411',
+  'ic7414', 'ic7420', 'ic7421', 'ic7427', 'ic7430', 'ic7432',
+  'ic7486', 'ic74266',
+]);
+
+// Subunit [inputIndices, outputIndex] map (0-based, matching src/parts/ics.js)
+const GATE_SUBUNITS = {
+  ic7400: [[[0, 1], 2], [[3, 4], 5], [[8, 9], 7], [[11, 12], 10]],
+  ic7408: [[[0, 1], 2], [[3, 4], 5], [[8, 9], 7], [[11, 12], 10]],
+  ic7432: [[[0, 1], 2], [[3, 4], 5], [[8, 9], 7], [[11, 12], 10]],
+  ic7486: [[[0, 1], 2], [[3, 4], 5], [[8, 9], 7], [[11, 12], 10]],
+  ic7402: [[[1, 2], 0], [[4, 5], 3], [[7, 8], 9], [[10, 11], 12]],
+  ic74266: [[[0, 1], 2], [[4, 5], 3], [[7, 8], 9], [[11, 12], 10]],
+  ic7404: [[[0], 1], [[2], 3], [[4], 5], [[8], 7], [[10], 9], [[12], 11]],
+  ic7414: [[[0], 1], [[2], 3], [[4], 5], [[8], 7], [[10], 9], [[12], 11]],
+  ic7410: [[[0, 1, 12], 11], [[2, 3, 4], 5], [[8, 9, 10], 7]],
+  ic7411: [[[0, 1, 12], 11], [[2, 3, 4], 5], [[8, 9, 10], 7]],
+  ic7427: [[[0, 1, 12], 11], [[2, 3, 4], 5], [[8, 9, 10], 7]],
+  ic7420: [[[0, 1, 3, 4], 5], [[8, 9, 11, 12], 7]],
+  ic7421: [[[0, 1, 3, 4], 5], [[8, 9, 11, 12], 7]],
+  ic7430: [[[0, 1, 2, 3, 4, 5, 10, 11], 7]],
+};
+
+const SEQUENTIAL_OR_ANALOG_RE = /\b(clock|flip[-\s]?flop|latch|counter|decade|divide|freq|hz|blink|flash|timer|555|7474|7473|7476|7490|7493|4013|4017|74193|74595|arduino|uno|nano|esp32|stm32|7[-\s]?seg|seg7|7447|7448|adder|7483|74283|comparator|7485)\b/i;
+
+/** Extract explicit gate-family or chip exclusion constraints from user prompt. */
+export function extractGateConstraints(prompt = '') {
+  const raw = String(prompt || '');
+  if (!raw.trim()) return {};
+  // Remove negative exclusions before checking positive gate-type mentions
+  const strippedNeg = raw
+    .replace(/\((?:[^)]*\b(?:no|not|without|instead\s+of|avoid)\b[^)]*)\)/gi, ' ')
+    .replace(/\b(?:no|not|without|avoid|instead\s+of)\s+[a-z0-9\/\s,-]*\b(?:gates?|chips?|ics?|74\d+|and|or|not|xor|nor|xnor)\b/gi, ' ');
+
+  const mentionsOtherGates = /\b(ic?7402|ic?7404|ic?7408|ic?7411|ic?7414|ic?7421|ic?7427|ic?7432|ic?7486|ic?74266|and\s+gates?|or\s+gates?|not\s+gates?|xor\s+gates?|xnor\s+gates?|nor\s+gates?|inverters?)\b/i.test(strippedNeg);
+  const mentionsNand = /\b(nand|7400|7410|7420|7430)\b/i.test(raw);
+  const explicitOnlyNand = /\b(?:nand[-\s]+only|only\s+(?:use\s+|with\s+)?(?:(?:7400|7410|7420|7430)\s+)?nand(?:\s+gates?)?|(?:using|with)\s+(?:only|just)\s+(?:(?:7400|7410|7420|7430)\s+)?nand(?:\s+gates?)?|only\s+7400)\b/i.test(raw);
+
+  const mentionsNonNorGates = /\b(ic?7400|ic?7404|ic?7408|ic?7410|ic?7411|ic?7414|ic?7420|ic?7421|ic?7430|ic?7432|ic?7486|ic?74266|and\s+gates?|or\s+gates?|not\s+gates?|xor\s+gates?|xnor\s+gates?|nand\s+gates?|inverters?)\b/i.test(strippedNeg);
+  const explicitOnlyNor = /\b(?:nor[-\s]+only|only\s+(?:use\s+|with\s+)?(?:(?:7402|7427)\s+)?nor(?:\s+gates?)?|(?:using|with)\s+(?:only|just)\s+(?:(?:7402|7427)\s+)?nor(?:\s+gates?)?|only\s+7402)\b/i.test(raw);
+
+  const nandOnly = explicitOnlyNand || (mentionsNand && /\busing\s+(?:a\s+|the\s+)?nand\s+gates?\b|\bwith\s+nand\s+gates?\b/i.test(raw) && !mentionsOtherGates);
+  const norOnly = !nandOnly && (explicitOnlyNor || (/\b(nor|7402|7427)\b/i.test(raw) && /\b(?:using|with)\s+(?:a\s+|the\s+)?nor\s+gates?\b/i.test(raw) && !mentionsNonNorGates));
+
+  return { nandOnly, norOnly };
+}
+
+/** Verify built parts satisfy user gate-family constraints. */
+export function verifyPromptConstraints(prompt, circuit, refById = null) {
+  const errors = [];
+  const { nandOnly, norOnly } = extractGateConstraints(prompt);
+  if (nandOnly) {
+    for (const p of circuit.parts) {
+      if (LOGIC_GATE_TYPES.has(p.type) && !NAND_TYPES.has(p.type)) {
+        const tag = refById?.get(p.id) || p.id;
+        errors.push(`Constraint failed: user asked for NAND gates ONLY, so remove "${tag}" (${p.type}) and implement its logic with ic7400/ic7410/ic7420 NAND gates.`);
+      }
+    }
+  } else if (norOnly) {
+    for (const p of circuit.parts) {
+      if (LOGIC_GATE_TYPES.has(p.type) && !NOR_TYPES.has(p.type)) {
+        const tag = refById?.get(p.id) || p.id;
+        errors.push(`Constraint failed: user asked for NOR gates ONLY, so remove "${tag}" (${p.type}) and implement its logic with ic7402/ic7427 NOR gates.`);
+      }
+    }
+  }
+  return errors;
+}
+
+/** Parse a Boolean expression AST safely (variables A..F, X..Z) or return null if invalid. */
+export function parseBooleanExpr(rawExpr) {
+  let s = String(rawExpr || '').trim();
+  if (!s) return null;
+  s = s
+    .replace(/\\overline\s*\{([A-Za-z0-9])\}/g, "$1'")
+    .replace(/\\bar\s*\{([A-Za-z0-9])\}/g, "$1'")
+    .replace(/\\cdot/g, '*')
+    .replace(/\\oplus/g, '^')
+    .replace(/([A-Za-z])\u0305/g, "$1'")
+    .replace(/[−–]/g, '-')
+    .replace(/⊕/g, '^')
+    .replace(/[·•×]/g, '*')
+    .replace(/[’′`]/g, "'");
+
+  const tokens = [];
+  let i = 0;
+  const wordOps = new Map([
+    ['AND', 'AND'], ['OR', 'OR'], ['XOR', 'XOR'],
+    ['XNOR', 'XNOR'], ['NAND', 'NAND'], ['NOR', 'NOR'], ['NOT', 'NOT'],
+  ]);
+
+  while (i < s.length) {
+    const ch = s[i];
+    if (/\s/.test(ch)) { i++; continue; }
+    if (ch === '(' || ch === ')' || ch === "'" || ch === '^' || ch === '+' || ch === '*' || ch === '&' || ch === '|' || ch === '!' || ch === '~') {
+      if ((ch === '&' && s[i + 1] === '&') || (ch === '|' && s[i + 1] === '|')) i++;
+      if (ch === '(') tokens.push({ t: 'LP' });
+      else if (ch === ')') tokens.push({ t: 'RP' });
+      else if (ch === "'") tokens.push({ t: 'POST_NOT' });
+      else if (ch === '!' || ch === '~') tokens.push({ t: 'NOT' });
+      else if (ch === '^') tokens.push({ t: 'XOR' });
+      else if (ch === '+' || ch === '|') tokens.push({ t: 'OR' });
+      else if (ch === '*' || ch === '&') tokens.push({ t: 'AND' });
+      i++;
+      continue;
+    }
+    if (ch === '0' || ch === '1') {
+      if (/\d|[A-Za-z]/.test(s[i + 1] || '')) return null; // Reject 5V, 7400, 10k, etc.
+      tokens.push({ t: 'CONST', v: ch === '1' ? 1 : 0 });
+      i++;
+      continue;
+    }
+    if (/\d/.test(ch)) return null;
+    if (/[A-Za-z_]/.test(ch)) {
+      let j = i;
+      while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) j++;
+      const word = s.slice(i, j);
+      const up = word.toUpperCase();
+      if (wordOps.has(up)) {
+        tokens.push({ t: wordOps.get(up) });
+      } else if (/^[A-FW-Z]+$/.test(up) && up.length <= 4 && !/^(IN|OR|ON|TO|OF|IF|IS|AS|BY|AT|BE)$/.test(up)) {
+        for (const c of up) tokens.push({ t: 'VAR', v: c });
+      } else {
+        return null;
+      }
+      i = j;
+      continue;
+    }
+    return null;
+  }
+
+  if (!tokens.length) return null;
+  let pos = 0;
+  const peek = () => tokens[pos] || null;
+  const consume = () => tokens[pos++];
+
+  const startsAtom = (tok) => tok && (tok.t === 'VAR' || tok.t === 'CONST' || tok.t === 'LP' || tok.t === 'NOT');
+
+  function parseOr() {
+    let left = parseGateMid();
+    while (peek()?.t === 'OR') {
+      consume();
+      left = { op: 'OR', l: left, r: parseGateMid() };
+    }
+    return left;
+  }
+  function parseGateMid() {
+    let left = parseXor();
+    while (peek()?.t === 'NAND' || peek()?.t === 'NOR') {
+      const op = consume().t;
+      left = { op, l: left, r: parseXor() };
+    }
+    return left;
+  }
+  function parseXor() {
+    let left = parseAnd();
+    while (peek()?.t === 'XOR' || peek()?.t === 'XNOR') {
+      const op = consume().t;
+      left = { op, l: left, r: parseAnd() };
+    }
+    return left;
+  }
+  function parseAnd() {
+    let left = parseUnary();
+    while (true) {
+      if (peek()?.t === 'AND') {
+        consume();
+        left = { op: 'AND', l: left, r: parseUnary() };
+      } else if (startsAtom(peek())) {
+        left = { op: 'AND', l: left, r: parseUnary() };
+      } else break;
+    }
+    return left;
+  }
+  function parseUnary() {
+    if (peek()?.t === 'NOT') {
+      consume();
+      return { op: 'NOT', x: parseUnary() };
+    }
+    let node = parsePrimary();
+    while (peek()?.t === 'POST_NOT') {
+      consume();
+      node = { op: 'NOT', x: node };
+    }
+    return node;
+  }
+  function parsePrimary() {
+    const tk = peek();
+    if (!tk) throw new Error('eof');
+    if (tk.t === 'VAR') { consume(); return { op: 'VAR', v: tk.v }; }
+    if (tk.t === 'CONST') { consume(); return { op: 'CONST', v: tk.v }; }
+    if (tk.t === 'LP') {
+      consume();
+      const inner = parseOr();
+      if (consume()?.t !== 'RP') throw new Error('paren');
+      return inner;
+    }
+    throw new Error('badtok');
+  }
+
+  let ast;
+  try {
+    ast = parseOr();
+    if (pos !== tokens.length) return null;
+  } catch {
+    return null;
+  }
+
+  const vars = new Set();
+  const collect = (n) => {
+    if (!n) return;
+    if (n.op === 'VAR') vars.add(n.v);
+    if (n.l) collect(n.l);
+    if (n.r) collect(n.r);
+    if (n.x) collect(n.x);
+  };
+  collect(ast);
+  const varList = [...vars].sort();
+  if (varList.length < 2 || varList.length > 4) return null;
+  return { ast, vars: varList, raw: rawExpr.trim() };
+}
+
+export function evalBooleanAst(node, env) {
+  switch (node.op) {
+    case 'VAR': return env[node.v] ? 1 : 0;
+    case 'CONST': return node.v ? 1 : 0;
+    case 'NOT': return evalBooleanAst(node.x, env) ? 0 : 1;
+    case 'AND': return (evalBooleanAst(node.l, env) && evalBooleanAst(node.r, env)) ? 1 : 0;
+    case 'OR': return (evalBooleanAst(node.l, env) || evalBooleanAst(node.r, env)) ? 1 : 0;
+    case 'XOR': return (evalBooleanAst(node.l, env) ^ evalBooleanAst(node.r, env)) ? 1 : 0;
+    case 'XNOR': return (evalBooleanAst(node.l, env) ^ evalBooleanAst(node.r, env)) ? 0 : 1;
+    case 'NAND': return (evalBooleanAst(node.l, env) && evalBooleanAst(node.r, env)) ? 0 : 1;
+    case 'NOR': return (evalBooleanAst(node.l, env) || evalBooleanAst(node.r, env)) ? 0 : 1;
+    default: return 0;
+  }
+}
+
+/** Extract an explicit combinational Boolean function (e.g. `F = A'B + AC'`, `Y = (A + B) * C`) from prompt. */
+export function extractBooleanSpec(prompt = '') {
+  const txt = String(prompt || '');
+  if (!txt || SEQUENTIAL_OR_ANALOG_RE.test(txt)) return null;
+
+  const eqRe = /(?:^|[\s,;(])(?:[FYZQ]|OUT|[FYZQ]\s*\([A-Ea-e,\s]+\))\s*=\s*([^\n.;,!?]{2,90})/gi;
+  let m;
+  while ((m = eqRe.exec(txt))) {
+    let rhs = m[1]
+      .replace(/\s+(?:using|with|via|by|from|on|in|for|where|so|that|and\s+(?:toggle|dip|switch|led|resistor|only)|only)\b.*$/i, '')
+      .trim();
+    if (!rhs) continue;
+    // Must contain at least one Boolean operator, parenthesis, complement mark, or multi-var product
+    if (!/['’′\u0305!~*&|+^·⊕()]|\b(?:AND|OR|XOR|XNOR|NAND|NOR|NOT)\b|[A-F]{2,}/i.test(rhs)) continue;
+    const parsed = parseBooleanExpr(rhs);
+    if (parsed) return { exprText: `${m[0].split('=')[0].trim()} = ${rhs}`, ...parsed };
+  }
+  return null;
+}
+
+/** Check floating inputs on active gate subunits, adders, flip-flops & decoder/mux enables. */
+export function verifyFloatingIcInputs(sim, circuit, refById = null) {
+  const errors = [];
+  for (const p of circuit.parts) {
+    const ent = sim.byPart.get(p.id);
+    if (!ent) continue;
+    const pins = p.worldPins();
+    const tag = refById?.get(p.id) || p.id;
+    const conn = (idx) => idx >= 0 && idx < ent.pinNets.length && sim.isNetConnected(ent.pinNets[idx]);
+
+    const subs = GATE_SUBUNITS[p.type];
+    if (subs) {
+      for (let gIdx = 0; gIdx < subs.length; gIdx++) {
+        const [ins, out] = subs[gIdx];
+        const anyIn = ins.some(conn);
+        const outConn = conn(out);
+        if (!anyIn && !outConn) continue;
+        const openIns = ins.filter(idx => !conn(idx)).map(idx => pins[idx]?.name).filter(Boolean);
+        if (openIns.length) {
+          errors.push(`${p.type} ("${tag}") gate ${gIdx + 1}: input pin${openIns.length > 1 ? 's' : ''} ${openIns.join(', ')} floating while gate is in use! Wire ${openIns.join(', ')} to a signal (or tie unused gate input appropriately, e.g. to "+" or ${pins[ins[0]].name} on NAND/AND).`);
+        }
+      }
+      continue;
+    }
+
+    if (p.type === 'ic7483' || p.type === 'ic74283') {
+      const c0Idx = p.type === 'ic7483' ? 12 : 6;
+      const ioUsed = pins.some((q, idx) => idx !== c0Idx && q.name !== 'VCC' && q.name !== 'GND' && q.name !== 'C4' && conn(idx));
+      if (ioUsed && !conn(c0Idx)) {
+        errors.push(`${p.type} ("${tag}") carry-in C0 is floating (TTL reads HIGH = +1!). Wire "${tag}.C0" to "-" for addition (or "+"/mode signal for subtraction).`);
+      }
+    } else if (p.type === 'ic7474' || p.type === 'ic4013') {
+      const units = p.type === 'ic7474'
+        ? [[1, 1, 2, 4, 5], [2, 11, 10, 8, 7]]
+        : [[1, 4, 2, 0, 1], [2, 8, 10, 12, 11]];
+      for (const [u, dIdx, ckIdx, qIdx, qnIdx] of units) {
+        if ((conn(ckIdx) || conn(qIdx) || conn(qnIdx)) && !conn(dIdx)) {
+          const dName = pins[dIdx].name;
+          const qnName = pins[qnIdx].name;
+          errors.push(`${p.type} ("${tag}") unit ${u}: ${dName} data input is unconnected! Connect "${tag}.${dName}" (e.g. "${tag}.${qnName}" to "${tag}.${dName}" for divide-by-2 toggle).`);
+        }
+      }
+    } else if (p.type === 'ic7473' || p.type === 'ic7476' || p.type === 'ic74112') {
+      const units = p.type === 'ic7473'
+        ? [[1, 13, 2, 0, 11, 12], [2, 6, 9, 4, 8, 7]]
+        : p.type === 'ic7476'
+          ? [[1, 3, 15, 0, 14, 13], [2, 8, 11, 5, 10, 9]]
+          : [[1, 2, 1, 0, 4, 5], [2, 10, 11, 12, 8, 6]];
+      for (const [u, jIdx, kIdx, ckIdx, qIdx, qnIdx] of units) {
+        if ((conn(ckIdx) || conn(qIdx) || conn(qnIdx)) && !conn(jIdx) && !conn(kIdx)) {
+          errors.push(`${p.type} ("${tag}") unit ${u}: ${pins[jIdx].name} and ${pins[kIdx].name} inputs are unconnected — wire both (e.g. to "+" for JK toggle).`);
+        }
+      }
+    } else if (p.type === 'ic74138' || p.type === 'ic74238') {
+      const used = pins.some((q, idx) => (idx < 3 || (idx >= 6 && idx <= 14 && idx !== 7)) && conn(idx));
+      if (used && (!conn(3) || !conn(4) || !conn(5))) {
+        const miss = [3, 4, 5].filter(i => !conn(i)).map(i => pins[i].name);
+        errors.push(`${p.type} ("${tag}") enable pin(s) ${miss.join(', ')} floating (TTL floating G2A/G2B disables outputs!). Wire G1->"+", G2A->"-", G2B->"-".`);
+      }
+    } else if (p.type === 'ic74151' || p.type === 'ic74157' || p.type === 'ic74158') {
+      const gIdx = p.type === 'ic74151' ? 6 : 14;
+      const used = pins.some((q, idx) => idx !== gIdx && q.name !== 'VCC' && q.name !== 'GND' && conn(idx));
+      if (used && !conn(gIdx)) {
+        errors.push(`${p.type} ("${tag}") strobe G is floating (TTL reads HIGH and disables output). Wire "${tag}.G" to "-".`);
+      }
+    } else if (p.type === 'ic74139' || p.type === 'ic74153') {
+      const u1Used = [1, 2, 3, 4, 5, 6].some(conn);
+      const u2Used = [8, 9, 10, 11, 12, 13].some(conn);
+      if (u1Used && !conn(0)) errors.push(`${p.type} ("${tag}") 1G enable is floating — wire "${tag}.1G" to "-".`);
+      if (u2Used && !conn(14)) errors.push(`${p.type} ("${tag}") 2G enable is floating — wire "${tag}.2G" to "-".`);
+    }
+  }
+  return errors;
+}
+
+/** Verify combinational Boolean circuits against all input switch combinations in simulation. */
+export function verifyBooleanBehavior(prompt, sim, circuit, refById = null) {
+  const spec = extractBooleanSpec(prompt);
+  if (!spec) return [];
+
+  // Do not evaluate if circuit has clocked/timer/MCU parts
+  const hasDynamic = circuit.parts.some(p => {
+    const def = getDef(p.type);
+    return def.mcu || p.type === 'clock' || p.type === 'funcgen' || p.type === 'ne555' ||
+      ['ic7474', 'ic7473', 'ic7476', 'ic74112', 'ic4013', 'ic7490', 'ic7493', 'ic4017', 'ic74193', 'ic74194', 'ic74165', 'ic74595'].includes(p.type);
+  });
+  if (hasDynamic) return [];
+
+  const wiredLeds = circuit.parts.filter(p => {
+    if (p.type !== 'led') return false;
+    const ent = sim.byPart.get(p.id);
+    return ent && sim.isNetConnected(ent.pinNets[0]) && sim.isNetConnected(ent.pinNets[1]);
+  });
+  if (wiredLeds.length !== 1) return [];
+  const led = wiredLeds[0];
+
+  // Collect controllable binary switch inputs (dip4/dip8 channels OR toggles)
+  const dips = circuit.parts.filter(p => (p.type === 'dip4' || p.type === 'dip8'));
+  const toggles = circuit.parts.filter(p => {
+    if (p.type !== 'toggle') return false;
+    const ent = sim.byPart.get(p.id);
+    return ent && sim.isNetConnected(ent.pinNets[0]);
+  });
+
+  const bindings = []; // Array<{ name, set(bool) }>
+  const vars = spec.vars;
+
+  if (dips.length === 1 && toggles.length === 0) {
+    const dip = dips[0];
+    const ent = sim.byPart.get(dip.id);
+    const activeBits = [];
+    for (let i = 0; i < ent.pinNets.length; i++) {
+      if (sim.isNetConnected(ent.pinNets[i])) activeBits.push(i);
+    }
+    if (activeBits.length !== vars.length) return [];
+    for (let k = 0; k < vars.length; k++) {
+      const bitIdx = activeBits[k];
+      bindings.push({
+        name: vars[k],
+        set: (v) => { dip.props.bits[bitIdx] = v; },
+      });
+    }
+  } else if (toggles.length === vars.length && dips.length === 0) {
+    // Prefer matching toggle label/ref to variable letter when unambiguous
+    const used = new Set();
+    for (const vName of vars) {
+      let match = toggles.find(t => !used.has(t.id) && String(t.props?.label || '').trim().toUpperCase() === vName);
+      if (!match && refById) {
+        match = toggles.find(t => !used.has(t.id) && String(refById.get(t.id) || '').trim().toUpperCase() === vName);
+      }
+      if (!match) {
+        bindings.length = 0;
+        break;
+      }
+      used.add(match.id);
+      bindings.push({ name: vName, set: (v) => { match.props.on = v; } });
+    }
+    if (bindings.length !== vars.length) {
+      for (let k = 0; k < vars.length; k++) {
+        const sw = toggles[k];
+        bindings.push({ name: vars[k], set: (v) => { sw.props.on = v; } });
+      }
+    }
+  } else {
+    return [];
+  }
+
+  // Save original switch states to restore cleanly after verification
+  const savedDipBits = dips.map(d => d.props.bits.slice());
+  const savedToggleStates = toggles.map(t => Boolean(t.props.on));
+
+  const mismatches = [];
+  const rows = 1 << vars.length;
+  try {
+    for (let mask = 0; mask < rows; mask++) {
+      const env = {};
+      for (let k = 0; k < vars.length; k++) {
+        const val = Boolean((mask >> (vars.length - 1 - k)) & 1);
+        env[vars[k]] = val ? 1 : 0;
+        bindings[k].set(val);
+      }
+      for (let s = 0; s < 4; s++) sim.step(0.005);
+      const ledDev = sim.byPart.get(led.id)?.device;
+      const curA = ledDev?.cur?.[0] || 0;
+      const got = curA > 0.0005 ? 1 : 0;
+      const exp = evalBooleanAst(spec.ast, env);
+      if (got !== exp) {
+        const assign = vars.map(v => `${v}=${env[v]}`).join(', ');
+        mismatches.push(`when (${assign}): expected ${exp}, got LED ${got ? 'ON (1)' : 'OFF (0)'}`);
+      }
+    }
+  } finally {
+    dips.forEach((d, idx) => { d.props.bits = savedDipBits[idx]; });
+    toggles.forEach((t, idx) => { t.props.on = savedToggleStates[idx]; });
+    for (let s = 0; s < 3; s++) sim.step(0.005);
+  }
+
+  if (mismatches.length) {
+    return [
+      `Boolean logic verification failed for ${spec.exprText}: ${mismatches.slice(0, 4).join('; ')}. Double-check your gate algebra, inversions, and wire connections so the output LED matches all ${rows} truth-table rows.`,
+    ];
+  }
+  return [];
+}
+
+/** Detect multiple push-pull / active logic outputs wired onto the same net even when initially equal. */
+export function verifyOutputContention(sim, circuit, refById = null) {
+  const driversByNet = new Map();
+  const addDriver = (net, label) => {
+    if (net < 0) return;
+    if (!driversByNet.has(net)) driversByNet.set(net, []);
+    driversByNet.get(net).push(label);
+  };
+
+  for (const p of circuit.parts) {
+    const ent = sim.byPart.get(p.id);
+    if (!ent) continue;
+    const tag = refById?.get(p.id) || p.id;
+    const pins = p.worldPins();
+    if (p.type === 'toggle' || p.type === 'button' || p.type === 'clock') {
+      addDriver(ent.pinNets[0], `${tag}.${pins[0]?.name || 'OUT'}`);
+    } else if (p.type === 'dip4' || p.type === 'dip8') {
+      for (let i = 0; i < ent.pinNets.length; i++) {
+        addDriver(ent.pinNets[i], `${tag}.${pins[i]?.name || ('S' + (i + 1))}`);
+      }
+    } else if (p.type === 'ne555') {
+      addDriver(ent.pinNets[2], `${tag}.OUT`);
+    } else if (ent.device && Array.isArray(ent.device.out)) {
+      const d = ent.device;
+      for (let pinNum = 1; pinNum < d.out.length; pinNum++) {
+        if (d.out[pinNum] !== undefined && d.out[pinNum] !== null && d.mode?.[pinNum] === 'pp') {
+          addDriver(ent.pinNets[pinNum - 1], `${tag}.${pins[pinNum - 1]?.name || pinNum}`);
+        }
+      }
+    }
+  }
+
+  const errors = [];
+  for (const [, drivers] of driversByNet) {
+    if (drivers.length >= 2) {
+      errors.push(`Shorted outputs / driver contention: ${drivers.join(' and ')} are both driving the same node — never wire two outputs directly together.`);
+    }
+  }
+  return errors;
+}
+
+/** Verify un-gated clocked flip-flop / counter circuits actually transition (catch stuck PRE/CLR/Q feedback). */
+export function verifySequentialClockLiveness(sim, circuit, refById = null) {
+  const clocks = circuit.parts.filter(p => p.type === 'clock');
+  if (clocks.length !== 1) return [];
+  const hasSwitches = circuit.parts.some(p => ['toggle', 'button', 'dip4', 'dip8', 'slide'].includes(p.type));
+  if (hasSwitches) return [];
+
+  const seqTypes = new Set(['ic7474', 'ic7473', 'ic7476', 'ic74112', 'ic4013', 'ic4017', 'ic7490', 'ic7493', 'ic74193']);
+  const seqParts = circuit.parts.filter(p => seqTypes.has(p.type));
+  if (!seqParts.length) return [];
+
+  const leds = circuit.parts.filter(p => {
+    if (p.type !== 'led') return false;
+    const ent = sim.byPart.get(p.id);
+    return ent && sim.isNetConnected(ent.pinNets[0]) && sim.isNetConnected(ent.pinNets[1]);
+  });
+  if (!leds.length) return [];
+
+  const hz = Math.max(0.25, Math.min(200, +(clocks[0].props.frequency || clocks[0].props.hz || 1)));
+  const dt = Math.min(0.01, 1 / (hz * 20));
+  const totalSteps = Math.min(350, Math.ceil((2.6 / hz) / dt));
+  const ledSeen = leds.map(() => ({ hi: false, lo: false }));
+
+  for (let i = 0; i < totalSteps; i++) {
+    sim.step(dt);
+    for (let k = 0; k < leds.length; k++) {
+      const mA = (sim.byPart.get(leds[k].id)?.device?.cur?.[0] || 0) * 1000;
+      if (mA > 0.5) ledSeen[k].hi = true; else ledSeen[k].lo = true;
+    }
+  }
+
+  const allStuck = ledSeen.every(s => !(s.hi && s.lo));
+  if (!allStuck) return [];
+
+  const stuckDesc = seqParts.map(p => `${p.type} ("${refById?.get(p.id) || p.id}")`).join(', ');
+  const isFf = seqParts.some(p => ['ic7474', 'ic7473', 'ic7476', 'ic74112', 'ic4013'].includes(p.type));
+  return [
+    isFf
+      ? `Clocked flip-flop ${stuckDesc} output LED stayed stuck (${ledSeen[0].hi ? 'always ON' : 'always OFF'}) over 2.5+ clock cycles! Check: for 7474 divide-by-2, tie 1Q̅ (inverted output) -> 1D, and tie active-low 1PRE and 1CLR to "+".`
+      : `Clocked counter ${stuckDesc} LED output(s) never toggled over 2.5+ clock cycles! Check clock pin, active-high/low resets (tie 7490/7493 R0(1)/R0(2) or 4017 RST to "-"), and power pins.`,
+  ];
+}
+
+/** Verify combinational switch + logic-IC builds aren't dead/constant across switch states. */
+export function verifyCombinationalSwitchLiveness(sim, circuit) {
+  const hasDynamic = circuit.parts.some(p => {
+    const def = getDef(p.type);
+    return def.mcu || p.type === 'clock' || p.type === 'funcgen' || p.type === 'ne555' ||
+      ['ic7474', 'ic7473', 'ic7476', 'ic74112', 'ic4013', 'ic7490', 'ic7493', 'ic4017', 'ic74193', 'ic74194', 'ic74165', 'ic74595'].includes(p.type);
+  });
+  if (hasDynamic) return [];
+
+  const hasLogicIc = circuit.parts.some(p => LOGIC_GATE_TYPES.has(p.type) || ['ic7483', 'ic74283', 'ic7485', 'ic74138', 'ic74238', 'ic74139', 'ic74151', 'ic74153', 'ic74157', 'ic74158'].includes(p.type));
+  if (!hasLogicIc) return [];
+
+  const leds = circuit.parts.filter(p => {
+    if (p.type !== 'led') return false;
+    const ent = sim.byPart.get(p.id);
+    return ent && sim.isNetConnected(ent.pinNets[0]) && sim.isNetConnected(ent.pinNets[1]);
+  });
+  if (!leds.length) return [];
+
+  const dips = circuit.parts.filter(p => p.type === 'dip4' || p.type === 'dip8');
+  const toggles = circuit.parts.filter(p => {
+    if (p.type !== 'toggle') return false;
+    const ent = sim.byPart.get(p.id);
+    return ent && sim.isNetConnected(ent.pinNets[0]);
+  });
+
+  const setters = [];
+  for (const dip of dips) {
+    const ent = sim.byPart.get(dip.id);
+    for (let i = 0; i < ent.pinNets.length; i++) {
+      if (sim.isNetConnected(ent.pinNets[i])) setters.push(v => { dip.props.bits[i] = v; });
+    }
+  }
+  for (const sw of toggles) setters.push(v => { sw.props.on = v; });
+  if (!setters.length) return [];
+
+  const savedDipBits = dips.map(d => d.props.bits.slice());
+  const savedToggles = toggles.map(t => Boolean(t.props.on));
+  const ledSeen = leds.map(() => ({ hi: false, lo: false }));
+
+  const patterns = [];
+  if (setters.length <= 4) {
+    const nRows = 1 << setters.length;
+    for (let m = 0; m < nRows; m++) patterns.push(setters.map((_, k) => Boolean((m >> k) & 1)));
+  } else {
+    patterns.push(setters.map(() => false), setters.map(() => true));
+    patterns.push(setters.map((_, k) => k % 2 === 0), setters.map((_, k) => k % 2 === 1));
+    patterns.push(setters.map((_, k) => k < setters.length / 2), setters.map((_, k) => k >= setters.length / 2));
+    for (let k = 0; k < Math.min(setters.length, 8); k++) {
+      patterns.push(setters.map((_, j) => j === k));
+    }
+  }
+
+  try {
+    for (const pat of patterns) {
+      pat.forEach((v, k) => setters[k](v));
+      for (let s = 0; s < 4; s++) sim.step(0.005);
+      for (let k = 0; k < leds.length; k++) {
+        const mA = (sim.byPart.get(leds[k].id)?.device?.cur?.[0] || 0) * 1000;
+        if (mA > 0.5) ledSeen[k].hi = true; else ledSeen[k].lo = true;
+      }
+    }
+  } finally {
+    dips.forEach((d, idx) => { d.props.bits = savedDipBits[idx]; });
+    toggles.forEach((t, idx) => { t.props.on = savedToggles[idx]; });
+    for (let s = 0; s < 3; s++) sim.step(0.005);
+  }
+
+  const allDead = ledSeen.every(s => !(s.hi && s.lo));
+  if (allDead) {
+    return [`Combinational logic check failed: output LED(s) stayed stuck (${ledSeen[0].hi ? 'always ON' : 'always OFF'}) across all ${patterns.length} tested switch input patterns! Verify gate/IC wiring and active-low/high polarities.`];
+  }
+  return [];
+}
