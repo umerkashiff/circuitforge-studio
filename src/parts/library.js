@@ -1779,20 +1779,20 @@ const PSU_I_STEPS = [0.1, 0.5, 1, 2, 3, 5];
 
 function drawPsuStatic(g, env) {
   // Subtle crisp drop bezel (vector-sharp at every zoom, zero shadowBlur cost)
-  rr(g, -0.5 * U + 2, -9.5 * U + 3, 19.0 * U, 9.95 * U, 8);
+  rr(g, -0.5 * U + 2, -9.65 * U + 3, 19.0 * U, 10.55 * U, 8);
   g.fillStyle = 'rgba(0,0,0,0.22)'; g.fill();
   // Cream metal chassis matching MATRIX MPS-3005L-3
-  rr(g, -0.5 * U, -9.5 * U, 19.0 * U, 9.95 * U, 8);
-  g.fillStyle = lin(g, 0, -9.5 * U, 0, 0.45 * U, [[0, '#eeece4'], [1, '#d3d0c4']]);
+  rr(g, -0.5 * U, -9.65 * U, 19.0 * U, 10.55 * U, 8);
+  g.fillStyle = lin(g, 0, -9.65 * U, 0, 0.9 * U, [[0, '#eeece4'], [1, '#d3d0c4']]);
   g.fill();
   g.strokeStyle = 'rgba(0,0,0,0.28)'; g.lineWidth = 1.4; g.stroke();
 
-  // Brand badge + PANEL pop-out badge (high-contrast readable sizes)
-  rr(g, -0.1 * U, -9.32 * U, 10.6 * U, 0.72 * U, 3);
+  // Brand badge + PANEL pop-out badge (clear of meter bezel)
+  rr(g, -0.1 * U, -9.42 * U, 10.6 * U, 0.72 * U, 3);
   g.fillStyle = '#d97706'; g.fill();
-  text(g, env, 'MATRIX', 1.65 * U, -8.96 * U, { size: 9, color: '#111827', weight: 900, font: MONO });
-  text(g, env, 'MPS-3005L-3', 6.8 * U, -8.96 * U, { size: 8.5, color: '#111827', weight: 800, font: MONO });
-  drawPanelBadge(g, env, 15.2 * U, -9.38 * U, 58, 16);
+  text(g, env, 'MATRIX', 1.65 * U, -9.06 * U, { size: 9, color: '#111827', weight: 900, font: MONO });
+  text(g, env, 'MPS-3005L-3', 6.8 * U, -9.06 * U, { size: 8.5, color: '#111827', weight: 800, font: MONO });
+  drawPanelBadge(g, env, 15.2 * U, -9.45 * U, 56, 15);
 
   // Recessed dark digital meter bay
   rr(g, 0.25 * U, -8.45 * U, 17.5 * U, 2.55 * U, 5);
@@ -1805,9 +1805,9 @@ function drawPsuStatic(g, env) {
     text(g, env, i % 2 === 0 ? 'A' : 'V', wx + 1.85 * U, -8.12 * U, { size: 8.5, color: '#cbd5e1', weight: 800, font: MONO });
   }
 
-  // Ochre/gold lower control deck
-  rr(g, 0.0 * U, -5.65 * U, 18.0 * U, 5.85 * U, 5);
-  g.fillStyle = lin(g, 0, -5.65 * U, 0, 0.2 * U, [[0, '#cfa958'], [1, '#b68f40']]);
+  // Ochre/gold lower control deck (extends below y=0 binding posts cleanly)
+  rr(g, 0.0 * U, -5.65 * U, 18.0 * U, 6.27 * U, 5);
+  g.fillStyle = lin(g, 0, -5.65 * U, 0, 0.62 * U, [[0, '#cfa958'], [1, '#b68f40']]);
   g.fill();
   g.strokeStyle = 'rgba(0,0,0,0.22)'; g.lineWidth = 1.2; g.stroke();
 
@@ -1830,7 +1830,7 @@ function drawPsuStatic(g, env) {
     [15, '#111827', '−'], [17, '#dc2626', '+'],
   ];
   for (const [px, col, lbl] of posts) {
-    text(g, env, lbl, px * U, -0.78 * U, { size: 8, color: '#111827', weight: 900, font: MONO });
+    text(g, env, lbl, px * U, -0.82 * U, { size: 8, color: '#111827', weight: 900, font: MONO });
     drawBananaSocket(g, px * U, 0, col);
   }
 }
@@ -1874,7 +1874,7 @@ register({
     { i: 6, kind: 'B-:' + part.id + '_f' },
     { i: 7, kind: 'B+:' + part.id + '_f' },
   ],
-  bounds: () => [-0.8, -9.8, 18.8, 0.5],
+  bounds: () => [-0.8, -9.85, 18.8, 0.95],
   draw(g, part, env) {
     drawPsuStatic(g, env);
 
@@ -2106,50 +2106,50 @@ const FG_VPP_STEPS = [0.5, 1, 2, 5, 10, 15, 20];
 
 function drawFuncGenStatic(g, env) {
   // Vector drop bezel (no shadowBlur blurriness) + tilt cabinet matching ESCORT EGC-3235A
-  rr(g, -0.6 * U + 2, -7.0 * U + 3, 16.2 * U, 7.45 * U, 6);
+  rr(g, -0.6 * U + 2, -7.55 * U + 3, 16.2 * U, 8.45 * U, 6);
   g.fillStyle = 'rgba(0,0,0,0.22)'; g.fill();
-  rr(g, -0.6 * U, -7.0 * U, 16.2 * U, 7.45 * U, 6);
-  g.fillStyle = lin(g, 0, -7.0 * U, 0, 0.45 * U, [[0, '#5a6368'], [1, '#3f474c']]);
+  rr(g, -0.6 * U, -7.55 * U, 16.2 * U, 8.45 * U, 6);
+  g.fillStyle = lin(g, 0, -7.55 * U, 0, 0.9 * U, [[0, '#5a6368'], [1, '#3f474c']]);
   g.fill();
   g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1.4; g.stroke();
 
-  // Cream front panel insert
-  rr(g, -0.25 * U, -6.7 * U, 15.5 * U, 6.2 * U, 4);
-  g.fillStyle = lin(g, 0, -6.7 * U, 0, -0.5 * U, [[0, '#dedbd0'], [1, '#c8c4b6']]);
+  // Dedicated header bar above cream front panel
+  text(g, env, 'ESCORT', 1.15 * U, -7.02 * U, { size: 9, color: '#f8fafc', weight: 900, font: MONO });
+  text(g, env, 'EGC-3235A', 4.35 * U, -7.02 * U, { size: 8.5, color: '#cbd5e1', weight: 800, font: MONO });
+  drawPanelBadge(g, env, 12.1 * U, -7.38 * U, 56, 15);
+
+  // Cream front panel insert (spans well past y=0 BNC sockets so sockets sit cleanly inside)
+  rr(g, -0.25 * U, -6.5 * U, 15.5 * U, 7.12 * U, 4);
+  g.fillStyle = lin(g, 0, -6.5 * U, 0, 0.62 * U, [[0, '#dedbd0'], [1, '#c8c4b6']]);
   g.fill();
   g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 1.1; g.stroke();
 
-  // Header brand + PANEL badge (bold, readable when zoomed out)
-  text(g, env, 'ESCORT', 1.15 * U, -6.32 * U, { size: 9, color: '#0f172a', weight: 900, font: MONO });
-  text(g, env, 'EGC-3235A', 4.15 * U, -6.32 * U, { size: 8.5, color: '#111827', weight: 800, font: MONO });
-  drawPanelBadge(g, env, 12.1 * U, -6.65 * U, 58, 15);
-
   // Crisp Green LCD window
-  rr(g, 1.85 * U, -5.9 * U, 4.1 * U, 1.65 * U, 4);
+  rr(g, 1.85 * U, -6.0 * U, 3.9 * U, 1.65 * U, 4);
   g.fillStyle = '#0c3520'; g.fill();
   g.strokeStyle = '#1f2937'; g.lineWidth = 1.3; g.stroke();
 
-  // Range UP/DN buttons
+  // Range UP/DN buttons (clear spacing from LCD and SYM knob)
   for (const [ry, arr] of [[-5.55 * U, '▲'], [-4.8 * U, '▼']]) {
-    rr(g, 6.9 * U, ry - 6, 18, 12, 2.5);
+    rr(g, 6.2 * U, ry - 5.5, 16, 11, 2.5);
     g.fillStyle = '#fef3c7'; g.fill(); g.strokeStyle = '#57534e'; g.lineWidth = 1; g.stroke();
-    text(g, env, arr, 7.35 * U, ry, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+    text(g, env, arr, 6.6 * U, ry, { size: 7, color: '#111827', weight: 800, font: MONO });
   }
 
-  // Bold uncluttered control labels
+  // Bold uncluttered control labels (zero overlap with panel badge or knobs)
   text(g, env, 'PWR', 0.85 * U, -4.65 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
   text(g, env, 'FREQUENCY', 3.7 * U, -3.75 * U, { size: 8, color: '#111827', weight: 900, font: MONO });
-  text(g, env, 'SYM', 8.5 * U, -6.25 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
-  text(g, env, 'OFF', 10.2 * U, -6.25 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
-  text(g, env, 'SWEEP', 12.2 * U, -6.25 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
-  text(g, env, 'AMP', 12.1 * U, -1.65 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+  text(g, env, 'SYM', 8.4 * U, -6.08 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+  text(g, env, 'OFF', 10.1 * U, -6.08 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+  text(g, env, 'SWEEP', 12.95 * U, -6.08 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
+  text(g, env, 'AMP', 12.35 * U, -1.65 * U, { size: 7.5, color: '#111827', weight: 800, font: MONO });
 
-  // BNC sockets across bottom (y = 0) with bold labels
+  // BNC sockets across bottom (y = 0) with bold labels inside cream deck
   const bncs = [
     [1, 'EXT'], [6, 'SYNC'], [7, 'GND'], [9, 'SWP'], [13, 'OUT+'], [14, 'OUT−'],
   ];
   for (const [bx, lbl] of bncs) {
-    text(g, env, lbl, bx * U, -0.78 * U, { size: 7.5, color: '#111827', weight: 900, font: MONO });
+    text(g, env, lbl, bx * U, -0.82 * U, { size: 7.5, color: '#111827', weight: 900, font: MONO });
     drawBncPort(g, bx * U, 0);
   }
 }
@@ -2186,7 +2186,7 @@ register({
   ],
   links: () => [[2, 5]],
   staticLinks: true,
-  bounds: () => [-0.8, -7.2, 15.8, 0.5],
+  bounds: () => [-0.8, -7.75, 15.8, 0.95],
   draw(g, part, env) {
     drawFuncGenStatic(g, env);
 
@@ -2203,52 +2203,52 @@ register({
     // LCD digital readout (high-contrast crisp sizes)
     const hzTxt = hz >= 1000 ? `${+(hz / 1000).toFixed(2)}k` : `${+hz.toFixed(1)}`;
     const waveGlyph = p.wave === 'tri' ? '∧' : p.wave === 'square' ? '⊓' : '∿';
-    text(g, env, on ? `${hzTxt} Hz` : 'OFF', 3.9 * U, -5.25 * U, { size: 13.5, color: on ? '#86efac' : '#1b4332', weight: 800, font: MONO });
-    text(g, env, on ? `${waveGlyph} ${vppEff.toFixed(1)}Vpp` : '', 3.9 * U, -4.55 * U, { size: 8.2, color: '#bbf7d0', weight: 700, font: MONO });
+    text(g, env, on ? `${hzTxt} Hz` : 'OFF', 3.8 * U, -5.35 * U, { size: 13.5, color: on ? '#86efac' : '#1b4332', weight: 800, font: MONO });
+    text(g, env, on ? `${waveGlyph} ${vppEff.toFixed(1)}Vpp` : '', 3.8 * U, -4.65 * U, { size: 8.2, color: '#bbf7d0', weight: 700, font: MONO });
 
-    // Main FREQUENCY & secondary knobs
+    // Main FREQUENCY & secondary knobs (clean spacing with zero overlap)
     const logFrac = Math.max(0, Math.min(1, Math.log10(Math.max(0.5, hz) / 0.5) / Math.log10(20000)));
     const ang = (f) => -Math.PI * 1.25 + f * Math.PI * 1.5;
-    drawKnob(g, 3.7 * U, -2.55 * U, 17, ang(logFrac), '#fde68a', '#57534e');
-    drawKnob(g, 8.5 * U, -5.25 * U, 13, ang(((+p.duty || 50) - 10) / 80), '#fde68a', '#57534e');
-    drawKnob(g, 10.2 * U, -5.25 * U, 13, ang(((+p.offset || 0) + 10) / 20), '#fde68a', '#57534e');
-    drawKnob(g, 12.1 * U, -5.25 * U, 11, ang(0.35), '#fde68a', '#57534e');
-    drawKnob(g, 14.1 * U, -5.25 * U, 11, ang(Math.min(1, (+p.sweepStopHz || 50) / 1000)), '#fde68a', '#57534e');
-    drawKnob(g, 12.1 * U, -2.85 * U, 14, ang((+p.vpp || 5) / 20), '#fde68a', '#57534e');
+    drawKnob(g, 3.7 * U, -2.55 * U, 16, ang(logFrac), '#fde68a', '#57534e');
+    drawKnob(g, 8.4 * U, -5.15 * U, 12, ang(((+p.duty || 50) - 10) / 80), '#fde68a', '#57534e');
+    drawKnob(g, 10.1 * U, -5.15 * U, 12, ang(((+p.offset || 0) + 10) / 20), '#fde68a', '#57534e');
+    drawKnob(g, 11.95 * U, -5.15 * U, 10, ang(0.35), '#fde68a', '#57534e');
+    drawKnob(g, 13.95 * U, -5.15 * U, 10, ang(Math.min(1, (+p.sweepStopHz || 50) / 1000)), '#fde68a', '#57534e');
+    drawKnob(g, 12.35 * U, -2.75 * U, 12, ang((+p.vpp || 5) / 20), '#fde68a', '#57534e');
 
     // Toggle pushbuttons (SYM ON, OFFSET ON, SWEEP ON, -20dB)
     const drawBtn = (bx, by, w, h2, active, lbl) => {
       rr(g, bx - w / 2, by - h2 / 2, w, h2, 2.5);
       g.fillStyle = active ? '#fbbf24' : '#fef3c7'; g.fill();
       g.strokeStyle = '#44403c'; g.lineWidth = 1; g.stroke();
-      if (lbl) text(g, env, lbl, bx, by, { size: 7.2, color: '#111827', weight: 800, font: MONO });
+      if (lbl) text(g, env, lbl, bx, by, { size: 7, color: '#111827', weight: 800, font: MONO });
     };
-    drawBtn(8.5 * U, -4.0 * U, 18, 13, !!p.symOn, 'ON');
-    drawBtn(10.2 * U, -4.0 * U, 18, 13, !!p.offsetOn, 'ON');
-    drawBtn(13.1 * U, -5.25 * U, 18, 13, !!p.sweepOn, 'SWP');
-    drawBtn(13.7 * U, -2.85 * U, 19, 14, !!p.att20dB, '−20');
+    drawBtn(8.4 * U, -3.95 * U, 18, 12, !!p.symOn, 'ON');
+    drawBtn(10.1 * U, -3.95 * U, 18, 12, !!p.offsetOn, 'ON');
+    drawBtn(12.95 * U, -3.95 * U, 24, 12, !!p.sweepOn, 'SWP');
+    drawBtn(14.1 * U, -2.75 * U, 20, 14, !!p.att20dB, '−20');
 
-    // Waveform selector buttons (Sine, Triangle, Square)
-    drawBtn(9.2 * U, -2.75 * U, 17, 15, p.wave === 'sine', '∿');
-    drawBtn(10.15 * U, -2.75 * U, 17, 15, p.wave === 'tri', '∧');
-    drawBtn(11.1 * U, -2.75 * U, 17, 15, p.wave === 'square', '⊓');
+    // Waveform selector buttons (Sine, Triangle, Square — cleanly separated from AMP knob)
+    drawBtn(8.9 * U, -2.65 * U, 15, 14, p.wave === 'sine', '∿');
+    drawBtn(9.8 * U, -2.65 * U, 15, 14, p.wave === 'tri', '∧');
+    drawBtn(10.7 * U, -2.65 * U, 15, 14, p.wave === 'square', '⊓');
   },
   control(part, l) {
-    if (l.x >= 12.0 && l.x <= 15.2 && l.y >= -6.75 && l.y <= -5.85) return 'inst:panel';
+    if (l.x >= 12.0 && l.x <= 15.2 && l.y >= -7.5 && l.y <= -6.6) return 'inst:panel';
     if (l.x >= 0.2 && l.x <= 1.6 && l.y >= -6.0 && l.y <= -4.9) return 'inst:power';
-    if (Math.hypot(l.x - 7.35, l.y + 5.55) <= 0.45) return 'inst:range+';
-    if (Math.hypot(l.x - 7.35, l.y + 4.9) <= 0.45) return 'inst:range-';
-    if (Math.hypot(l.x - 9.2, l.y + 2.75) <= 0.48) return 'inst:wave:sine';
-    if (Math.hypot(l.x - 10.15, l.y + 2.75) <= 0.48) return 'inst:wave:tri';
-    if (Math.hypot(l.x - 11.1, l.y + 2.75) <= 0.48) return 'inst:wave:square';
-    if (Math.hypot(l.x - 8.5, l.y + 4.0) <= 0.5) return 'inst:sym';
-    if (Math.hypot(l.x - 10.2, l.y + 4.0) <= 0.5) return 'inst:offset';
-    if (Math.hypot(l.x - 13.7, l.y + 2.85) <= 0.5) return 'inst:att20';
-    if (Math.hypot(l.x - 13.1, l.y + 5.25) <= 0.5) return 'inst:sweep';
+    if (Math.hypot(l.x - 6.6, l.y + 5.55) <= 0.45) return 'inst:range+';
+    if (Math.hypot(l.x - 6.6, l.y + 4.8) <= 0.45) return 'inst:range-';
+    if (Math.hypot(l.x - 8.9, l.y + 2.65) <= 0.45) return 'inst:wave:sine';
+    if (Math.hypot(l.x - 9.8, l.y + 2.65) <= 0.45) return 'inst:wave:tri';
+    if (Math.hypot(l.x - 10.7, l.y + 2.65) <= 0.45) return 'inst:wave:square';
+    if (Math.hypot(l.x - 8.4, l.y + 3.95) <= 0.5) return 'inst:sym';
+    if (Math.hypot(l.x - 10.1, l.y + 3.95) <= 0.5) return 'inst:offset';
+    if (Math.hypot(l.x - 14.1, l.y + 2.75) <= 0.55) return 'inst:att20';
+    if (Math.hypot(l.x - 12.95, l.y + 3.95) <= 0.6) return 'inst:sweep';
     if (Math.hypot(l.x - 3.7, l.y + 2.55) <= 1.0) return 'knob:hz:0.5:10000:log';
-    if (Math.hypot(l.x - 8.5, l.y + 5.25) <= 0.75) return 'knob:duty:10:90';
-    if (Math.hypot(l.x - 10.2, l.y + 5.25) <= 0.75) return 'knob:offset:-10:10';
-    if (Math.hypot(l.x - 12.1, l.y + 2.85) <= 0.9) return 'knob:vpp:0.2:20';
+    if (Math.hypot(l.x - 8.4, l.y + 5.15) <= 0.72) return 'knob:duty:10:90';
+    if (Math.hypot(l.x - 10.1, l.y + 5.15) <= 0.72) return 'knob:offset:-10:10';
+    if (Math.hypot(l.x - 12.35, l.y + 2.75) <= 0.85) return 'knob:vpp:0.2:20';
     return null;
   },
   click(part, ctrl) {
@@ -2371,23 +2371,23 @@ function fmtUnits(v, unit) {
 }
 
 function drawScopeStatic(g, env) {
-  // Vector-sharp UNI-T charcoal body (crisp at all zoom levels)
-  rr(g, -0.6 * U + 2, -10.5 * U + 3, 25.2 * U, 10.95 * U, 8);
+  // Vector-sharp UNI-T charcoal body (extended top & bottom margins so PANEL badge and BNC jacks never touch borders)
+  rr(g, -0.6 * U + 2, -10.8 * U + 3, 25.2 * U, 11.7 * U, 8);
   g.fillStyle = 'rgba(0,0,0,0.24)'; g.fill();
-  rr(g, -0.6 * U, -10.5 * U, 25.2 * U, 10.95 * U, 8);
-  g.fillStyle = lin(g, 0, -10.5 * U, 0, 0.45 * U, [[0, '#5a605d'], [0.5, '#464b49'], [1, '#363a38']]);
+  rr(g, -0.6 * U, -10.8 * U, 25.2 * U, 11.7 * U, 8);
+  g.fillStyle = lin(g, 0, -10.8 * U, 0, 0.9 * U, [[0, '#5a605d'], [0.5, '#464b49'], [1, '#363a38']]);
   g.fill();
   g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1.4; g.stroke();
 
-  // Brand header, model label & PANEL badge (high-contrast legible typography)
-  rr(g, -0.1 * U, -10.22 * U, 2.7 * U, 0.65 * U, 3);
+  // Brand header, model label & PANEL badge (well clear of -9.45*U panel border)
+  rr(g, -0.1 * U, -10.48 * U, 2.7 * U, 0.65 * U, 3);
   g.fillStyle = '#dc2626'; g.fill();
-  text(g, env, 'UNI-T', 1.25 * U, -9.9 * U, { size: 9, color: '#ffffff', weight: 900, font: MONO });
-  text(g, env, 'UT2062B  60MHz DSO', 7.35 * U, -9.9 * U, { size: 8.5, color: '#f1f5f9', weight: 800, font: MONO });
-  drawPanelBadge(g, env, 21.15 * U, -10.26 * U, 58, 16);
+  text(g, env, 'UNI-T', 1.25 * U, -10.16 * U, { size: 9, color: '#ffffff', weight: 900, font: MONO });
+  text(g, env, 'UT2062B  60MHz DSO', 7.35 * U, -10.16 * U, { size: 8.5, color: '#f1f5f9', weight: 800, font: MONO });
+  drawPanelBadge(g, env, 21.15 * U, -10.52 * U, 56, 15);
 
   // Outer recessed bezel around screen
-  rr(g, 0.3 * U, -9.45 * U, 11.15 * U, 8.2 * U, 6);
+  rr(g, 0.3 * U, -9.45 * U, 11.15 * U, 8.1 * U, 6);
   g.fillStyle = '#262a29'; g.fill();
   g.strokeStyle = '#141716'; g.lineWidth = 1.4; g.stroke();
 
@@ -2401,24 +2401,24 @@ function drawScopeStatic(g, env) {
   }
 
   // Right control panel backdrop
-  rr(g, 13.0 * U, -9.45 * U, 11.15 * U, 8.2 * U, 5);
+  rr(g, 13.0 * U, -9.45 * U, 11.15 * U, 8.1 * U, 5);
   g.fillStyle = '#525856'; g.fill();
   g.strokeStyle = 'rgba(255,255,255,0.14)'; g.lineWidth = 1; g.stroke();
 
-  text(g, env, 'VERT', 15.6 * U, -6.55 * U, { size: 7.8, color: '#f8fafc', weight: 900, font: MONO });
-  text(g, env, 'HORIZ', 19.6 * U, -6.55 * U, { size: 7.8, color: '#f8fafc', weight: 900, font: MONO });
-  text(g, env, 'TRIG', 22.8 * U, -6.55 * U, { size: 7.8, color: '#f8fafc', weight: 900, font: MONO });
+  text(g, env, 'VERT', 15.6 * U, -6.4 * U, { size: 7.8, color: '#f8fafc', weight: 900, font: MONO });
+  text(g, env, 'HORIZ', 19.6 * U, -6.4 * U, { size: 7.8, color: '#f8fafc', weight: 900, font: MONO });
+  text(g, env, 'TRIG', 22.8 * U, -6.4 * U, { size: 7.8, color: '#f8fafc', weight: 900, font: MONO });
 
-  // Bottom BNC connector labels & jacks (bold uncluttered labels)
+  // Bottom BNC connector labels & jacks (centered in dedicated bottom deck)
   const jacks = [
     [14, 'CH1+'], [15, 'GND'], [17, 'CH2+'], [18, 'GND'], [20, 'EXT'], [21, 'GND'],
   ];
   for (const [jx, lbl] of jacks) {
-    text(g, env, lbl, jx * U, -0.78 * U, { size: 7.2, color: '#f8fafc', weight: 900, font: MONO });
+    text(g, env, lbl, jx * U, -0.82 * U, { size: 7.2, color: '#f8fafc', weight: 900, font: MONO });
     drawBncPort(g, jx * U, 0);
   }
-  text(g, env, '1kHz', 23.0 * U, -0.78 * U, { size: 7.2, color: '#fde047', weight: 900, font: MONO });
-  text(g, env, 'GND', 24.0 * U, -0.78 * U, { size: 7.2, color: '#e2e8f0', weight: 900, font: MONO });
+  text(g, env, '1kHz', 23.0 * U, -0.82 * U, { size: 7.2, color: '#fde047', weight: 900, font: MONO });
+  text(g, env, 'GND', 24.0 * U, -0.82 * U, { size: 7.2, color: '#e2e8f0', weight: 900, font: MONO });
   drawBananaSocket(g, 23 * U, 0, '#f59e0b');
   drawBananaSocket(g, 24 * U, 0, '#1f2937');
 }
@@ -2534,7 +2534,7 @@ register({
   ],
   links: () => [[1, 3], [3, 5], [5, 7]],
   staticLinks: true,
-  bounds: () => [-0.8, -10.8, 24.8, 0.5],
+  bounds: () => [-0.8, -10.95, 24.8, 0.95],
   draw(g, part, env) {
     drawScopeStatic(g, env);
 
@@ -2642,29 +2642,29 @@ register({
       g.fillStyle = bg; g.fill(); g.strokeStyle = '#1e293b'; g.lineWidth = 1; g.stroke();
       text(g, env, label, bx, by, { size: 7, color: tc, weight: 800, font: MONO });
     };
-    btn(20.6 * U, -8.5 * U, 28, 17, '#cbd5e1', 'MEAS');
-    btn(23.1 * U, -8.5 * U, 30, 17, p.run ? '#4ade80' : '#f87171', p.run ? 'RUN' : 'STOP');
-    btn(23.1 * U, -7.45 * U, 30, 17, '#e2e8f0', 'AUTO');
+    btn(20.6 * U, -8.7 * U, 28, 15, '#cbd5e1', 'MEAS');
+    btn(23.1 * U, -8.7 * U, 30, 15, p.run ? '#4ade80' : '#f87171', p.run ? 'RUN' : 'STOP');
+    btn(23.1 * U, -7.65 * U, 30, 15, '#e2e8f0', 'AUTO');
     btn(14.0 * U, -5.6 * U, 26, 15, p.ch1On ? '#fde047' : '#94a3b8', 'CH1');
     btn(14.0 * U, -4.65 * U, 26, 15, p.ch2On ? '#67e8f9' : '#94a3b8', 'CH2');
     btn(14.0 * U, -3.7 * U, 26, 15, p.math !== 'off' ? '#e879f9' : '#94a3b8', 'MATH');
-    btn(22.8 * U, -4.0 * U, 26, 15, '#cbd5e1', '50%');
+    btn(22.8 * U, -3.75 * U, 26, 14, '#cbd5e1', '50%');
 
     const s1Idx = SCOPE_VDIV.indexOf(s1), tIdx = SCOPE_TDIV.indexOf(timeDiv);
     const tlFrac = Math.max(0, Math.min(1, ((+p.trigLevel || 0) + 15) / 30));
     drawKnob(g, 16.9 * U, -3.2 * U, 15, -Math.PI * 1.2 + ((s1Idx >= 0 ? s1Idx : 4) / 6) * Math.PI * 1.4);
     drawKnob(g, 19.9 * U, -3.2 * U, 15, -Math.PI * 1.2 + ((tIdx >= 0 ? tIdx : 6) / 9) * Math.PI * 1.4);
-    drawKnob(g, 22.8 * U, -5.25 * U, 12, -Math.PI * 1.2 + tlFrac * Math.PI * 1.4);
+    drawKnob(g, 22.8 * U, -5.1 * U, 11.5, -Math.PI * 1.2 + tlFrac * Math.PI * 1.4);
   },
   control(part, l) {
-    if (l.x >= 21.0 && l.x <= 24.3 && l.y >= -10.35 && l.y <= -9.4) return 'inst:panel';
-    if (l.x >= 22.3 && l.x <= 23.9 && l.y >= -9.0 && l.y <= -8.0) return 'inst:run';
-    if (l.x >= 22.3 && l.x <= 23.9 && l.y >= -7.9 && l.y <= -7.0) return 'inst:auto';
-    if (l.x >= 19.8 && l.x <= 21.4 && l.y >= -9.0 && l.y <= -8.0) return 'inst:meas';
+    if (l.x >= 21.0 && l.x <= 24.3 && l.y >= -10.65 && l.y <= -9.65) return 'inst:panel';
+    if (l.x >= 22.3 && l.x <= 23.9 && l.y >= -9.15 && l.y <= -8.25) return 'inst:run';
+    if (l.x >= 22.3 && l.x <= 23.9 && l.y >= -8.05 && l.y <= -7.2) return 'inst:auto';
+    if (l.x >= 19.8 && l.x <= 21.4 && l.y >= -9.15 && l.y <= -8.25) return 'inst:meas';
     if (l.x >= 13.3 && l.x <= 14.7 && l.y >= -6.0 && l.y <= -5.2) return 'inst:ch1';
     if (l.x >= 13.3 && l.x <= 14.7 && l.y >= -5.05 && l.y <= -4.25) return 'inst:ch2';
     if (l.x >= 13.3 && l.x <= 14.7 && l.y >= -4.1 && l.y <= -3.3) return 'inst:math';
-    if (l.x >= 22.1 && l.x <= 23.5 && l.y >= -4.4 && l.y <= -3.6) return 'inst:trig50';
+    if (l.x >= 22.1 && l.x <= 23.5 && l.y >= -4.15 && l.y <= -3.35) return 'inst:trig50';
     // F1..F5 softkeys
     if (l.x >= 11.6 && l.x <= 12.8) {
       if (Math.abs(l.y + 8.1) <= 0.45) return 'inst:cpl';
@@ -2675,7 +2675,7 @@ register({
     }
     if (Math.hypot(l.x - 16.9, l.y + 3.2) <= 0.9) return 'knob:ch1Scale:0:6:vdiv';
     if (Math.hypot(l.x - 19.9, l.y + 3.2) <= 0.9) return 'knob:timeDiv:0:9:tdiv';
-    if (Math.hypot(l.x - 22.8, l.y + 5.25) <= 0.8) return 'knob:trigLevel:-15:15';
+    if (Math.hypot(l.x - 22.8, l.y + 5.1) <= 0.8) return 'knob:trigLevel:-15:15';
     return null;
   },
   click(part, ctrl, app) {

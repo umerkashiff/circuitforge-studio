@@ -368,10 +368,10 @@ function makeMockCtx() {
   assert.equal(psuDef.control(p0, { x: 14.9, y: -3.7 }), 'knob:v1:0:30');
   assert.equal(psuDef.control(p0, { x: 16.8, y: -9.0 }), 'inst:panel');
   assert.equal(fgDef.control(f0, { x: 3.7, y: -2.55 }), 'knob:hz:0.5:10000:log');
-  assert.equal(fgDef.control(f0, { x: 13.8, y: -6.3 }), 'inst:panel');
+  assert.equal(fgDef.control(f0, { x: 13.5, y: -7.0 }), 'inst:panel');
   assert.equal(scDef.control(s0, { x: 16.9, y: -3.2 }), 'knob:ch1Scale:0:6:vdiv');
   assert.equal(scDef.control(s0, { x: 19.9, y: -3.2 }), 'knob:timeDiv:0:9:tdiv');
-  assert.equal(scDef.control(s0, { x: 22.8, y: -9.8 }), 'inst:panel');
+  assert.equal(scDef.control(s0, { x: 22.8, y: -10.15 }), 'inst:panel');
 
   // 5b. Bipolar ±12V split-rail supply (SLAVE+ tied to MASTER- and GND)
   const cb = new Circuit();
