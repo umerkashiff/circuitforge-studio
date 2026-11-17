@@ -415,7 +415,11 @@ export function verifyBooleanBehavior(prompt, sim, circuit, refById = null) {
     for (let i = 0; i < ent.pinNets.length; i++) {
       if (sim.isNetConnected(ent.pinNets[i])) activeBits.push(i);
     }
-    if (activeBits.length !== vars.length) return [];
+    if (activeBits.length !== vars.length) {
+      return [
+        `Boolean logic verification failed for ${spec.exprText}: expected ${vars.length} active DIP switch channels for (${vars.join(', ')}), got ${activeBits.length}. Wire all ${vars.length} switch inputs so every truth-table row can be tested.`,
+      ];
+    }
     for (let k = 0; k < vars.length; k++) {
       const bitIdx = activeBits[k];
       bindings.push({
@@ -423,7 +427,12 @@ export function verifyBooleanBehavior(prompt, sim, circuit, refById = null) {
         set: (v) => { dip.props.bits[bitIdx] = v; },
       });
     }
-  } else if (toggles.length === vars.length && dips.length === 0) {
+  } else if (dips.length === 0 && toggles.length > 0) {
+    if (toggles.length !== vars.length) {
+      return [
+        `Boolean logic verification failed for ${spec.exprText}: expected ${vars.length} wired toggle switches for (${vars.join(', ')}), got ${toggles.length}. Add/wire all ${vars.length} input toggles (${vars.join(', ')}).`,
+      ];
+    }
     // Prefer matching toggle label/ref to variable letter when unambiguous
     const used = new Set();
     for (const vName of vars) {

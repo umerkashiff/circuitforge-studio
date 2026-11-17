@@ -276,6 +276,7 @@ export function serializeCircuitState(app, { maxChars = 4800 } = {}) {
       out.readings = { on: Boolean(p.props.power), wave: p.props.wave, hz: +(dev.instHz || p.props.hz || 10).toFixed(2), vpp: +p.props.vpp };
     } else if (def.mcu && dev?.rt) {
       out.mcu = { err: dev.rt.error || null, serial: dev.rt.serial.slice(-8).map(l => l.text).join('') };
+      if (dev.rt.notes?.length) out.mcu.notes = dev.rt.notes.slice(0, 4);
     } else if (p.type === 'led') {
       const ld = ledDiagById?.get(p.id);
       if (ld) {
@@ -296,7 +297,7 @@ export function serializeCircuitState(app, { maxChars = 4800 } = {}) {
     wireCount: c.wires.length,
   };
   if (c.wires.length) {
-    summary.wires = c.wires.slice(0, 60).map(w => `${w.id}: ${pointLabel(app, w.a.x, w.a.y, stripPins)} <-> ${pointLabel(app, w.b.x, w.b.y, stripPins)}`);
+    summary.wires = c.wires.slice(0, 80).map(w => `${w.id}: ${pointLabel(app, w.a.x, w.a.y, stripPins)} <-> ${pointLabel(app, w.b.x, w.b.y, stripPins)}`);
   }
   if (app.editor?.selection?.size) {
     summary.selected = [...app.editor.selection];

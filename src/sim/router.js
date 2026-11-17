@@ -7,7 +7,7 @@
  */
 import { key } from './engine.js';
 
-const STEP = 1, TURN = 2.2, HOLE = 0.7, BODY = 40, PIN = 25, OVERLAP = 9, CROSS = 1.2;
+const STEP = 1, TURN = 2.6, HOLE = 0.8, BODY = 180, PIN = 45, OVERLAP = 28, ADJ_LANE = 4.5, CROSS = 2.8;
 const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 
 class Heap {
@@ -36,15 +36,23 @@ class Heap {
 }
 
 /** Lattice-edge keys used by a polyline (coordinates in half-pitch units). */
-function rasterize(pts, edges, nodes) {
+function rasterize(pts, edges, nodes, nearEdges = null) {
   for (let k = 0; k < pts.length - 1; k++) {
     let x = Math.round(pts[k].x * 2), y = Math.round(pts[k].y * 2);
     const x1 = Math.round(pts[k + 1].x * 2), y1 = Math.round(pts[k + 1].y * 2);
     if (x !== x1 && y !== y1) continue; // diagonal jumpers don't block lanes
     const dx = Math.sign(x1 - x), dy = Math.sign(y1 - y);
+    const px = dy !== 0 ? 1 : 0, py = dx !== 0 ? 1 : 0; // perpendicular half-step lane buffer
     while (x !== x1 || y !== y1) {
       const nx = x + dx, ny = y + dy;
       edges.add(x < nx || y < ny ? `${x},${y},${nx},${ny}` : `${nx},${ny},${x},${y}`);
+      if (nearEdges) {
+        for (const s of [-1, 1]) {
+          const ox = x + px * s, oy = y + py * s;
+          const onx = nx + px * s, ony = ny + py * s;
+          nearEdges.add(ox < onx || oy < ony ? `${ox},${oy},${onx},${ony}` : `${onx},${ony},${ox},${oy}`);
+        }
+      }
       nodes.add(`${x},${y}`);
       x = nx; y = ny;
     }
@@ -55,7 +63,8 @@ function rasterize(pts, edges, nodes) {
 export function route(app, a, b, ignoreWire = null, others = null) {
   const c = app.circuit;
   const ax = Math.round(a.x * 2), ay = Math.round(a.y * 2), bx = Math.round(b.x * 2), by = Math.round(b.y * 2);
-  const M = 14;
+  const span = Math.abs(ax - bx) + Math.abs(ay - by);
+  const M = span > 120 ? 10 : span > 60 ? 15 : 22;
   const x0 = Math.min(ax, bx) - M, x1 = Math.max(ax, bx) + M, y0 = Math.min(ay, by) - M, y1 = Math.max(ay, by) + M;
   const W = x1 - x0 + 1, H = y1 - y0 + 1;
   const cost = new Float32Array(W * H);
@@ -79,8 +88,8 @@ export function route(app, a, b, ignoreWire = null, others = null) {
     if (X >= x0 && X <= x1 && Y >= y0 && Y <= y1) cost[at(X, Y)] += HOLE;
   }
   // other wires
-  const edges = new Set(), nodes = new Set();
-  for (const w of others || c.wires) if (w !== ignoreWire) rasterize(w.path(), edges, nodes);
+  const edges = new Set(), nearEdges = new Set(), nodes = new Set();
+  for (const w of others || c.wires) if (w !== ignoreWire) rasterize(w.path(), edges, nodes, nearEdges);
 
   cost[at(ax, ay)] = 0; cost[at(bx, by)] = 0;
 
@@ -94,7 +103,7 @@ export function route(app, a, b, ignoreWire = null, others = null) {
   heap.push(s0, Math.abs(ax - bx) + Math.abs(ay - by));
   const goal = at(bx, by);
   let end = -1, guard = 0;
-  while (heap.size && guard++ < 200000) {
+  while (heap.size && guard++ < 250000) {
     const s = heap.pop();
     const cell = (s / 5) | 0, d = s % 5;
     if (cell === goal) { end = s; break; }
@@ -107,6 +116,7 @@ export function route(app, a, b, ignoreWire = null, others = null) {
       const ek = cx < nx || cy < ny ? `${cx},${cy},${nx},${ny}` : `${nx},${ny},${cx},${cy}`;
       let step = STEP + cost[nc] + (d !== 4 && d !== nd ? TURN : 0);
       if (edges.has(ek)) step += OVERLAP;
+      else if (nearEdges.has(ek)) step += ADJ_LANE;
       else if (nodes.has(`${nx},${ny}`)) step += CROSS;
       const ns = nc * 5 + nd;
       const ng = g[s] + step;

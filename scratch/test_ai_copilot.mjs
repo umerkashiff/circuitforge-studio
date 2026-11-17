@@ -1050,4 +1050,224 @@ const ctrRes = applyAiBuildPlan(appCtr, {
 assert.equal(ctrRes.ok, true, '7493 multi-clock QD LED must pass 9-cycle liveness check: ' + JSON.stringify(ctrRes.errors));
 console.log('   [PASS] Strict follow-up LED health, broken-LED telemetry & 9-cycle counter check passed.');
 
+console.log('19. Testing Body-Span Locking, 5-Hole Strip Tie Hubs, Multi-Board Overflow, Auto-Nudge & Wire Colors...');
+// 19a + 19b: Dense inductor + 6 parallel LEDs driven off one single U1.1Y pin (>5 holes!) + colliding override
+const app19 = createHeadlessApp();
+const hubParts = [
+  { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+  { ref: 'CLK', type: 'clock', props: { hz: 2 } },
+  { ref: 'L1', type: 'inductor', props: { mh: 10 }, x: 5, y: 12, rot: 0 },
+  { ref: 'U1', type: 'ic7400' },
+  // Deliberately give colliding x,y for R_NUDGE to verify silent auto-nudge away from L1!
+  { ref: 'R1', type: 'resistor', props: { ohms: 220 }, x: 5, y: 12, rot: 0 },
+  { ref: 'D1', type: 'led' },
+];
+const hubConns = [
+  ['V1.1', '+'], ['G1.1', '-'],
+  ['CLK.OUT', 'L1.1'], ['L1.2', 'U1.1A'], ['L1.2', 'U1.1B'],
+  ['-', 'U1.2A', 'U1.2B', 'U1.3A', 'U1.3B', 'U1.4A', 'U1.4B'],
+  ['U1.1Y', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', '-'],
+];
+for (let k = 2; k <= 6; k++) {
+  hubParts.push({ ref: `R${k}`, type: 'resistor', props: { ohms: 220 } });
+  hubParts.push({ ref: `D${k}`, type: 'led' });
+  hubConns.push(['U1.1Y', `R${k}.1`], [`R${k}.2`, `D${k}.A`], [`D${k}.K`, '-']);
+}
+const res19 = applyAiBuildPlan(app19, {
+  clearExisting: true, board: 'half', parts: hubParts, connections: hubConns,
+}, { strictHealth: true });
+assert.equal(res19.ok, true, '6-fanout tie-strip hub + inductor + auto-nudge must verify: ' + JSON.stringify(res19.errors));
+
+// Verify EVERY non-rail breadboard hole has at most 1 pin OR wire end (zero double-stacked holes!)
+for (const [, hl] of app19.index.holes) {
+  if (hl.rail) continue;
+  const k = `${hl.x},${hl.y}`;
+  const occ = (app19.index.pins.get(k)?.length || 0) + (app19.index.ends.get(k)?.length || 0);
+  assert.ok(occ <= 1, `Expected single-occupancy at ${hl.label} (${k}), found ${occ}`);
+}
+// Verify ZERO body intersections between placed passives / LEDs / ICs and NO trench pin at y=9 or y=10
+for (let i = 0; i < app19.circuit.parts.length; i++) {
+  const pa = app19.circuit.parts[i];
+  for (const q of pa.worldPins()) {
+    const insideHalf = q.x >= 2 && q.x <= 31 && q.y >= 4 && q.y <= 15;
+    if (insideHalf) assert.ok(q.y !== 9 && q.y !== 10, `Part ${pa.id} pin landed in center trench at y=${q.y}`);
+  }
+  const ba = pa.bounds();
+  for (let j = i + 1; j < app19.circuit.parts.length; j++) {
+    const bb = app19.circuit.parts[j].bounds();
+    const ov = ba.x0 < bb.x1 && ba.x1 > bb.x0 && ba.y0 < bb.y1 && ba.y1 > bb.y0;
+    assert.equal(ov, false, `Parts ${pa.id} and ${app19.circuit.parts[j].id} bodies overlap!`);
+  }
+}
+// Verify tie-strip hub bridge wire was generated & wire colors exclude invisible #ffffff
+assert.ok(res19.wireSpecs.some(ws => ws.bridge && ws.aRail === null), 'Expected automatic tie-strip hub bridge wire');
+assert.ok(app19.circuit.wires.every(w => w.color && w.color.toLowerCase() !== '#ffffff'), 'Wire colors must avoid white');
+assert.ok(app19.circuit.boards.length >= 1 && app19.allIssues().filter(i => i.level === 'error').length === 0);
+
+// 19c: Fresh dense build upgrades 'half' -> 'full', while follow-up edits overflowing a 'half' board auto-expand onto Board 2!
+const appDense = createHeadlessApp();
+const denseParts = [
+  { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+  { ref: 'CLK', type: 'clock', props: { hz: 2 } },
+  { ref: 'U1', type: 'ic7400' }, { ref: 'U2', type: 'ic7400' }, { ref: 'U3', type: 'ic7400' },
+];
+const denseConns = [
+  ['V1.1', '+'], ['G1.1', '-'],
+  ['CLK.OUT', 'U1.1A'], ['CLK.OUT', 'U1.1B'],
+  ['U1.1Y', 'U2.1A'], ['U1.1Y', 'U2.1B'],
+  ['U2.1Y', 'U3.1A'], ['U2.1Y', 'U3.1B'],
+  ['-', 'U1.2A', 'U1.2B', 'U1.3A', 'U1.3B', 'U1.4A', 'U1.4B'],
+  ['-', 'U2.2A', 'U2.2B', 'U2.3A', 'U2.3B', 'U2.4A', 'U2.4B'],
+  ['-', 'U3.2A', 'U3.2B', 'U3.3A', 'U3.3B', 'U3.4A', 'U3.4B'],
+];
+for (let k = 1; k <= 8; k++) {
+  denseParts.push({ ref: `R${k}`, type: 'resistor', props: { ohms: 220 } }, { ref: `D${k}`, type: 'led' });
+  denseConns.push([`U${((k - 1) % 3) + 1}.1Y`, `R${k}.1`], [`R${k}.2`, `D${k}.A`], [`D${k}.K`, '-']);
+}
+const resDense = applyAiBuildPlan(appDense, { clearExisting: true, board: 'half', parts: denseParts, connections: denseConns }, { strictHealth: true });
+assert.equal(resDense.ok, true);
+assert.equal(appDense.circuit.boards[0].size, 'full', 'Oversized fresh half build upgrades to full board');
+
+const appExp = createHeadlessApp();
+const expTurn1 = applyAiBuildPlan(appExp, {
+  clearExisting: true, board: 'half',
+  parts: [
+    { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+    { ref: 'CLK', type: 'clock', props: { hz: 2 } },
+    { ref: 'U1', type: 'ic7400' }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'D1', type: 'led' },
+  ],
+  connections: [
+    ['V1.1', '+'], ['G1.1', '-'], ['CLK.OUT', 'U1.1A'], ['CLK.OUT', 'U1.1B'],
+    ['U1.1Y', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', '-'],
+    ['-', 'U1.2A', 'U1.2B', 'U1.3A', 'U1.3B', 'U1.4A', 'U1.4B'],
+  ],
+}, { strictHealth: true });
+assert.equal(expTurn1.ok, true);
+const u1ExpId = expTurn1.placedParts.find(p => p.ref === 'U1').partId;
+const expTurn2 = applyAiBuildPlan(appExp, {
+  clearExisting: false,
+  parts: [
+    { ref: 'U2', type: 'ic7400' }, { ref: 'U3', type: 'ic7400' }, { ref: 'U4', type: 'ic7400' },
+    ...Array.from({ length: 6 }, (_, i) => ({ ref: `RX${i + 1}`, type: 'resistor', props: { ohms: 220 } })),
+    ...Array.from({ length: 6 }, (_, i) => ({ ref: `DX${i + 1}`, type: 'led' })),
+  ],
+  connections: [
+    [`${u1ExpId}.1Y`, 'U2.1A'], [`${u1ExpId}.1Y`, 'U2.1B'],
+    ['U2.1Y', 'U3.1A'], ['U2.1Y', 'U3.1B'],
+    ['U3.1Y', 'U4.1A'], ['U3.1Y', 'U4.1B'],
+    ['-', 'U2.2A', 'U2.2B', 'U2.3A', 'U2.3B', 'U2.4A', 'U2.4B'],
+    ['-', 'U3.2A', 'U3.2B', 'U3.3A', 'U3.3B', 'U3.4A', 'U3.4B'],
+    ['-', 'U4.2A', 'U4.2B', 'U4.3A', 'U4.3B', 'U4.4A', 'U4.4B'],
+    ...Array.from({ length: 6 }, (_, i) => [`U${(i % 3) + 2}.1Y`, `RX${i + 1}.1`]),
+    ...Array.from({ length: 6 }, (_, i) => [`RX${i + 1}.2`, `DX${i + 1}.A`]),
+    ...Array.from({ length: 6 }, (_, i) => [`DX${i + 1}.K`, '-']),
+  ],
+}, { strictHealth: true });
+assert.equal(expTurn2.ok, true, 'Follow-up overflow on half board must auto-expand to Board 2 and power all LEDs: ' + JSON.stringify(expTurn2.errors));
+assert.ok(appExp.circuit.boards.length >= 2, `Expected >=2 boards after follow-up half-board overflow, got ${appExp.circuit.boards.length}`);
+console.log(`   [PASS] Layout clearance, auto-nudge, tie-strip single-occupancy, multi-board overflow (${appExp.circuit.boards.length} boards) & wire colors passed.`);
+
+console.log('20. Testing Multi-Turn Smart Conflict Replacement, Crossed-Wire Re-Routing & Verifier Quickfixes...');
+// 20a: Start with broken/backwards LED D2 (R2.2 -> D2.K, D2.A -> -) and fanout U1.1A, then fix WITHOUT removeWires!
+const app20 = createHeadlessApp();
+const init20 = applyAiBuildPlan(app20, {
+  clearExisting: true, board: 'half',
+  parts: [
+    { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+    { ref: 'CLK', type: 'clock', props: { hz: 2 } },
+    { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'D1', type: 'led' },
+    { ref: 'R2', type: 'resistor', props: { ohms: 220 } }, { ref: 'D2', type: 'led' },
+  ],
+  connections: [
+    ['V1.1', '+'], ['G1.1', '-'],
+    ['CLK.OUT', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', '-'],
+    ['CLK.OUT', 'R2.1'], ['R2.2', 'D2.K'], ['D2.A', '-'],
+  ],
+}, { strictHealth: false, allowIncomplete: true });
+assert.equal(init20.ok, true);
+const d2Id = init20.placedParts.find(p => p.ref === 'D2').partId;
+const r2Id = init20.placedParts.find(p => p.ref === 'R2').partId;
+// Rewire D2 cleanly WITHOUT removeWires — Smart Conflict Replacement must strip stale reversed wires!
+const fix20 = applyAiBuildPlan(app20, {
+  clearExisting: false,
+  parts: [],
+  connections: [[`${r2Id}.2`, `${d2Id}.A`], [`${d2Id}.K`, '-']],
+}, { strictHealth: true, prompt: 'fix led D2' });
+assert.equal(fix20.ok, true, 'Follow-up rewire without removeWires must auto-prune conflicting wires and verify: ' + JSON.stringify(fix20.errors));
+assert.ok(fix20.wiresRemoved >= 2, `Expected >=2 conflicting old wires auto-pruned, got ${fix20.wiresRemoved}`);
+
+// Verify fan-out tap onto an empty single-driver input does NOT falsely prune existing input wire, and crossed wires re-route
+const appFan = createHeadlessApp();
+const fanInit = applyAiBuildPlan(appFan, {
+  clearExisting: true, board: 'half',
+  parts: [
+    { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+    { ref: 'CLK', type: 'clock', props: { hz: 2 } },
+    { ref: 'U1', type: 'ic7400' }, { ref: 'U2', type: 'ic7400' },
+    { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'D1', type: 'led' },
+  ],
+  connections: [
+    ['V1.1', '+'], ['G1.1', '-'],
+    ['CLK.OUT', 'U1.1A'], ['CLK.OUT', 'U1.1B'],
+    ['U1.1Y', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', '-'],
+    ['-', 'U1.2A', 'U1.2B', 'U1.3A', 'U1.3B', 'U1.4A', 'U1.4B'],
+    ['-', 'U2.1A', 'U2.1B', 'U2.3A', 'U2.3B', 'U2.4A', 'U2.4B'],
+  ],
+}, { strictHealth: true });
+assert.equal(fanInit.ok, true);
+const u1IdFan = fanInit.placedParts.find(p => p.ref === 'U1').partId;
+const u2IdFan = fanInit.placedParts.find(p => p.ref === 'U2').partId;
+const wiresBeforeFan = appFan.circuit.wires.length;
+const fanTap = applyAiBuildPlan(appFan, {
+  clearExisting: false,
+  parts: [{ ref: 'R2', type: 'resistor', props: { ohms: 220 } }, { ref: 'D2', type: 'led' }],
+  connections: [[`${u1IdFan}.1A`, `${u2IdFan}.2A`], ['+', `${u2IdFan}.2B`], [`${u2IdFan}.2Y`, 'R2.1'], ['R2.2', 'D2.A'], ['D2.K', '-']],
+}, { strictHealth: true });
+assert.equal(fanTap.ok, true, 'Fan-out tap from U1.1A to U2.2A must preserve U1.1A driver & pass strictHealth: ' + JSON.stringify(fanTap.errors));
+assert.ok(appFan.circuit.wires.length >= wiresBeforeFan + 3, 'U1.1A incoming wire must NOT be stripped when fanning out to U2.2A');
+
+// Attaching an oscilloscope probe or pull-down resistor on an already-driven pin must NEVER prune its driver wire
+const d1FanId = fanInit.placedParts.find(p => p.ref === 'D1').partId;
+const scopeAttach = applyAiBuildPlan(appFan, {
+  clearExisting: false,
+  parts: [{ ref: 'SC', type: 'oscilloscope' }],
+  connections: [[`${d1FanId}.A`, 'SC.CH1'], ['SC.CH1-', '-']],
+}, { strictHealth: true });
+assert.equal(scopeAttach.ok, true, 'Attaching oscilloscope probe to D1.A must keep R1->D1.A intact: ' + JSON.stringify(scopeAttach.errors));
+assert.equal(scopeAttach.wiresRemoved, 0, 'Oscilloscope attach must not prune existing LED wires');
+
+// 20b: Boolean 3-var prompt with ONLY 2 toggle switches must fail loudly instead of silently passing!
+const appBoolGap = createHeadlessApp();
+const bool2Res = applyAiBuildPlan(appBoolGap, {
+  clearExisting: true, board: 'half',
+  parts: [
+    { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+    { ref: 'A', type: 'toggle' }, { ref: 'B', type: 'toggle' },
+    { ref: 'U1', type: 'ic7400' },
+    { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'L1', type: 'led' },
+  ],
+  connections: [
+    ['V1.1', '+'], ['G1.1', '-'],
+    ['A.OUT', 'U1.1A'], ['B.OUT', 'U1.1B'], ['U1.1Y', 'R1.1'], ['R1.2', 'L1.A'], ['L1.K', '-'],
+    ['-', 'U1.2A', 'U1.2B', 'U1.3A', 'U1.3B', 'U1.4A', 'U1.4B'],
+  ],
+}, { strictHealth: true, prompt: "build F = A'B + AC' using NAND gates only" });
+assert.equal(bool2Res.ok, false, '3-var Boolean circuit with only 2 toggles must fail switch-count check');
+assert.match(bool2Res.errors.join(' '), /expected 3 wired toggle switches/);
+
+// 20c: MCU runtime invalid-pin note must be caught cleanly by verifyCircuitHealth
+const appMcuErr = createHeadlessApp();
+const badPinMcu = applyAiBuildPlan(appMcuErr, {
+  clearExisting: true, board: 'half',
+  parts: [
+    { ref: 'MCU', type: 'uno', props: { code: 'void setup(){ pinMode(99, OUTPUT); digitalWrite(99, HIGH); } void loop(){}' } },
+    { ref: 'R1', type: 'resistor', props: { ohms: 220 } },
+    { ref: 'D1', type: 'led' },
+  ],
+  connections: [['MCU.13', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', 'MCU.GND']],
+}, { strictHealth: true });
+assert.equal(badPinMcu.ok, false, 'Invalid GPIO 99 on Uno must trigger runtime note error');
+assert.match(badPinMcu.errors.join(' '), /doesn’t exist/);
+console.log('   [PASS] Smart conflict replacement, 3-var switch-count check & MCU GPIO note check passed.');
+
 console.log('\nALL AI COPILOT AUTOMATED TESTS PASSED 100%!');
