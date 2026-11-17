@@ -1003,9 +1003,10 @@ const baseInd = applyAiBuildPlan(app18, {
 }, { strictHealth: true });
 assert.equal(baseInd.ok, true, 'Working inductor+LED base circuit must pass: ' + JSON.stringify(baseInd.errors));
 
-// Follow-up edit adds a 2nd dead/reverse-biased LED — strictHealth must reject instead of claiming auto-verified!
+// Follow-up edit adds a 2nd dead/reverse-biased LED — when autoHeal is disabled, strictHealth must reject instead of claiming auto-verified!
 const brokenFollow = applyAiBuildPlan(app18, {
   clearExisting: false,
+  autoHeal: false,
   parts: [{ ref: 'R2', type: 'resistor', props: { ohms: 220 } }, { ref: 'D2', type: 'led', props: { color: 'red' } }],
   connections: [['CLK.OUT', 'R2.1'], ['R2.2', 'D2.K'], ['D2.A', '-']],
 }, { strictHealth: true, prompt: 'make two leds blink' });
@@ -1319,19 +1320,31 @@ const tactTest = applyAiBuildPlan(app21, {
 }, { strictHealth: true, prompt: 'test tactile pot npn lie detector' });
 assert.equal(tactTest.ok, true, 'Tactile + pot + 2N3904 + buzzer(en-dash) must wire & pass strictHealth: ' + JSON.stringify(tactTest.errors));
 
-// Still reject an actually broken LED even when tactile & pot exist
+// Still reject an actually broken LED with autoHeal: false (and auto-heal it cleanly with default autoHeal)
 const broken21 = applyAiBuildPlan(createHeadlessApp(), {
-  clearExisting: true, board: 'half',
+  clearExisting: true, board: 'half', autoHeal: false,
   parts: [
     { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
     { ref: 'B1', type: 'tactile' }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'D1', type: 'led' },
   ],
   connections: [['V1.1', '+'], ['G1.1', '-'], ['+', 'B1.1'], ['B1.2', 'R1.1'], ['R1.2', 'D1.K'], ['D1.A', '-']],
 }, { strictHealth: true });
-assert.equal(broken21.ok, false, 'Reverse-biased LED on tactile circuit must still fail');
+assert.equal(broken21.ok, false, 'Reverse-biased LED on tactile circuit must fail when autoHeal:false');
 
-// Reject tactile wired only to one internally-bridged side (1.l + 1.r)
+// Reject tactile wired only to one internally-bridged side when autoHeal: false, and heal cleanly by default
 const sameSideTactile = applyAiBuildPlan(createHeadlessApp(), {
+  clearExisting: true, board: 'half', autoHeal: false,
+  parts: [
+    { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+    { ref: 'B1', type: 'tactile' }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'D1', type: 'led' },
+  ],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['+', 'B1.1.l'], ['B1.1.r', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', '-']],
+}, { strictHealth: true });
+assert.equal(sameSideTactile.ok, false, 'Tactile wired on only 1.l+1.r bridged side must fail when autoHeal:false');
+assert.match(sameSideTactile.errors.join(' '), /bridged side/i);
+
+const healedTactApp = createHeadlessApp();
+const healedTact = applyAiBuildPlan(healedTactApp, {
   clearExisting: true, board: 'half',
   parts: [
     { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
@@ -1339,8 +1352,7 @@ const sameSideTactile = applyAiBuildPlan(createHeadlessApp(), {
   ],
   connections: [['V1.1', '+'], ['G1.1', '-'], ['+', 'B1.1.l'], ['B1.1.r', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', '-']],
 }, { strictHealth: true });
-assert.equal(sameSideTactile.ok, false, 'Tactile wired on only 1.l+1.r bridged side must fail');
-assert.match(sameSideTactile.errors.join(' '), /bridged side/i);
+assert.equal(healedTact.ok, true, 'Default autoHeal must move 1.r wire to 2.l and pass: ' + JSON.stringify(healedTact.errors));
 
 // MCU + tactile button must STILL reject shorted (A=K) or open LEDs & yield cleanly on brace-less polling loops
 const tLoop0 = Date.now();
@@ -1357,5 +1369,69 @@ assert.ok(Date.now() - tLoop0 < 2000, 'Brace-less while(digitalRead(2)==HIGH); m
 assert.equal(shortedMcuBtn.ok, false, 'MCU + tactile circuit must still reject shorted (A=K) LED');
 assert.match(shortedMcuBtn.errors.join(' '), /shorted onto the same/i);
 console.log('   [PASS] Synonyms/typos, en-dash buzzer, tactile pin/bridge checks, pot/tactile sweep & loop yield passed.');
+
+console.log('22. Testing 6 Universal Archetypes: 0ms LED Swap, Scope Auto-GND/TimeDiv, MCU Pin Cross-Check, 4017/595 & Recipes...');
+// 22a: 0ms Reverse-biased standalone LED auto-swap on clean strips -> heals & lights up
+const appRevHeal = createHeadlessApp();
+const revHealed = applyAiBuildPlan(appRevHeal, {
+  clearExisting: true, board: 'half',
+  parts: [
+    { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+    { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'D1', type: 'led' },
+  ],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['+', 'R1.1'], ['R1.2', 'D1.K'], ['D1.A', '-']],
+}, { strictHealth: true });
+assert.equal(revHealed.ok, true, '0ms LED polarity auto-swap must heal backwards LED cleanly: ' + JSON.stringify(revHealed.errors));
+assert.match(revHealed.warnings.join(' '), /Auto-healed/i);
+
+// 22b: Oscilloscope CH1 GND auto-tie + timeDiv auto-ranging on ~2Hz clock + reject unprobed scope
+const appScopeHeal = createHeadlessApp();
+const scopeHealed = applyAiBuildPlan(appScopeHeal, {
+  clearExisting: true, board: 'half',
+  parts: [
+    { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+    { ref: 'CLK', type: 'clock', props: { hz: 2 } },
+    { ref: 'SC', type: 'oscilloscope', props: { timeDiv: 0.0005 } }, // purposely way too fast (5ms total span vs 500ms period)
+  ],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['CLK.OUT', 'SC.CH1+']], // purposely omit SC.CH1 GND!
+}, { strictHealth: true });
+assert.equal(scopeHealed.ok, true, 'Oscilloscope auto-GND + auto timeDiv must capture 2Hz wave and pass: ' + JSON.stringify(scopeHealed.errors));
+const scPart22 = appScopeHeal.circuit.parts.find(p => p.type === 'oscilloscope');
+assert.ok(scPart22.props.timeDiv >= 0.05, 'Auto-ranger must expand tiny 500us/div timeDiv for 2Hz clock');
+
+const unprobedScope = applyAiBuildPlan(createHeadlessApp(), {
+  clearExisting: true, board: 'half',
+  parts: [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'SC', type: 'oscilloscope' }],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['SC.CH1 GND', '-']],
+}, { strictHealth: true });
+assert.equal(unprobedScope.ok, false, 'Scope with neither CH1+ nor CH2+ wired must fail strictHealth');
+
+// 22c: MCU Sketch <-> Physical Pin cross-check catches D9 used in code but unwired on Uno
+const mcuMismatch = applyAiBuildPlan(createHeadlessApp(), {
+  clearExisting: true, board: 'half',
+  parts: [
+    { ref: 'U1', type: 'uno', props: { code: 'void setup(){ pinMode(9, OUTPUT); digitalWrite(9, HIGH); } void loop(){}' } },
+    { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'D1', type: 'led' },
+  ],
+  connections: [['U1.D4', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', 'U1.GND']],
+}, { strictHealth: true });
+assert.equal(mcuMismatch.ok, false, 'MCU configuring unwired GPIO 9 must fail cross-check');
+assert.match(mcuMismatch.errors.join(' '), /D9.*unwired/i);
+
+// 22d: ic4017 RST tied HIGH fails
+const bad4017 = applyAiBuildPlan(createHeadlessApp(), {
+  clearExisting: true, board: 'half',
+  parts: [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'CLK', type: 'clock' }, { ref: 'U1', type: 'ic4017' }],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['CLK.OUT', 'U1.CLK'], ['U1.RST', '+'], ['U1.INH', '-']],
+}, { strictHealth: true });
+assert.equal(bad4017.ok, false, 'ic4017 with RST tied HIGH must fail');
+assert.match(bad4017.errors.join(' '), /ic4017.*RST/i);
+
+// 22e: Dynamic Topology Recipe triggers cleanly without bloating unrelated queries
+const bridgeCat = buildPartsCatalogPrompt('build a 4-diode full wave bridge rectifier with scope');
+assert.match(bridgeCat, /RECIPE bridge-rectifier/i);
+const plainCat = buildPartsCatalogPrompt('build a simple red led and resistor');
+assert.doesNotMatch(plainCat, /RECIPE /);
+console.log('   [PASS] Universal archetype healers, scope/MCU/4017 verifiers & dynamic topology recipes passed.');
 
 console.log('\nALL AI COPILOT AUTOMATED TESTS PASSED 100%!');

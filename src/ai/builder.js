@@ -17,6 +17,8 @@ import {
   verifyCombinationalSwitchLiveness,
   verifyStaticLedPattern,
   verifyActiveLedHealth,
+  verifyMcuSketchPinCrossCheck,
+  verifyInstrumentAndLoadLiveness,
 } from './logic_verify.js';
 
 const SIGNAL_COLORS = ['#0a84ff', '#30a46c', '#ff8a00', '#8e4ec6', '#06b6d4', '#f5c400', '#d946ef', '#65a30d'];
@@ -1258,6 +1260,8 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
     for (const sErr of verifySequentialClockLiveness(sim, app.circuit, refById)) errors.push(sErr);
     for (const pErr of verifyStaticLedPattern(prompt, sim, app.circuit)) errors.push(pErr);
     for (const lErr of verifyActiveLedHealth(prompt, sim, app.circuit, refById, { requireWiredAll: strictHealth })) errors.push(lErr);
+    for (const mErr of verifyMcuSketchPinCrossCheck(sim, app.circuit, refById)) errors.push(mErr);
+    for (const iErr of verifyInstrumentAndLoadLiveness(sim, app.circuit, refById)) errors.push(iErr);
   }
 
   return { ok: errors.length === 0, errors: [...new Set(errors)], warnings: [...new Set(warnings)] };
@@ -1307,6 +1311,190 @@ function wireEndMatchesToken(app, endPt, rawTok, refMap) {
     return (endPt.x === wp.x && endPt.y === wp.y) || Boolean(endHole && pinHole && endHole.strip === pinHole.strip);
   }
   return false;
+}
+
+const SCOPE_TIMEDIVS = [0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5];
+
+/**
+ * 0ms Universal Archetype Auto-Healers (no API retries wasted):
+ * 1) Internally-bridged switch pins (e.g. tactile 1.l+1.r -> 1.l+2.l)
+ * 2) Unwired oscilloscope GND ref & mismatched timeDiv scaling
+ * 3) Standalone reverse-biased LED strip swap (when Anode/Cathode wires sit in clean strips)
+ */
+function autoHealObviousWiring({ app, plan, refById, wirePair, addedWires, wireCtx, skippedNotes }) {
+  if (plan?.autoHeal === false) return;
+  app.reindex(true);
+
+  const stripOf = (x, y) => {
+    const h = app.index.holes.get(key(x, y));
+    return h && !h.rail ? h.strip : null;
+  };
+  const endMatchesPin = (end, wp, pStrip) =>
+    (end.x === wp.x && end.y === wp.y) || (pStrip && stripOf(end.x, end.y) === pStrip);
+
+  // Archetype 1: Non-static internally-linked pins (tactile switches wired across only one linked pair)
+  for (const p of app.circuit.parts) {
+    const def = getDef(p.type);
+    if (!def.links || def.staticLinks) continue;
+    const links = def.links(p);
+    if (!links?.length) continue;
+    const wPins = p.worldPins();
+    const nPins = wPins.length;
+    const parent = Array.from({ length: nPins }, (_, i) => i);
+    const find = (x) => (parent[x] === x ? x : (parent[x] = find(parent[x])));
+    for (const [a, b] of links) {
+      const ra = find(a), rb = find(b);
+      if (ra !== rb) parent[rb] = ra;
+    }
+    const groups = new Map();
+    for (let i = 0; i < nPins; i++) {
+      const r = find(i);
+      if (!groups.has(r)) groups.set(r, []);
+      groups.get(r).push(i);
+    }
+    if (groups.size < 2) continue;
+
+    const pinStrips = wPins.map(wp => stripOf(wp.x, wp.y));
+    const groupWires = new Map([...groups.keys()].map(g => [g, []]));
+    for (const w of app.circuit.wires) {
+      for (let i = 0; i < nPins; i++) {
+        if (endMatchesPin(w.a, wPins[i], pinStrips[i])) groupWires.get(find(i)).push({ w, endKey: 'a', pinIdx: i });
+        else if (endMatchesPin(w.b, wPins[i], pinStrips[i])) groupWires.get(find(i)).push({ w, endKey: 'b', pinIdx: i });
+      }
+    }
+    const activeGroups = [...groupWires.entries()].filter(([, list]) => list.length > 0);
+    const emptyGroups = [...groupWires.entries()].filter(([, list]) => list.length === 0).map(([g]) => g);
+    if (activeGroups.length === 1 && activeGroups[0][1].length >= 2 && emptyGroups.length >= 1) {
+      const hit = activeGroups[0][1][activeGroups[0][1].length - 1];
+      const targetIdx = groups.get(emptyGroups[0])[0];
+      const targetWp = wPins[targetIdx];
+      const otherEnd = hit.endKey === 'a' ? hit.w.b : hit.w.a;
+      const targetHole = app.index.holes.get(key(targetWp.x, targetWp.y));
+      const newEnd = (targetHole && !targetHole.rail ? allocateTieStripHole(app, targetHole, wireCtx) : null)
+        || { x: targetWp.x, y: targetWp.y, pin: { part: p.id, i: targetIdx } };
+      if (!app.shortReason(otherEnd, newEnd)) {
+        hit.w[hit.endKey] = newEnd;
+        hit.w.pts = route(app, hit.w.a, hit.w.b);
+        app.reindex(true);
+        const tag = refById?.get(p.id) || p.id;
+        skippedNotes.push(`Auto-healed ${tag}: moved ${wPins[hit.pinIdx].name} wire to switched pin ${targetWp.name}.`);
+      }
+    }
+  }
+
+  // Archetype 5: Auto-ground oscilloscope & auto-range timeDiv to signal frequency
+  const hasGndRail = app.circuit.parts.some(p => p.type === 'gnd' || p.type === 'battery' || p.type === 'power-supply' || getDef(p.type).mcu);
+  let estHz = 0;
+  for (const src of app.circuit.parts) {
+    if (src.type === 'funcgen' || src.type === 'clock') {
+      const f = +(src.props?.hz || src.props?.frequency || 0);
+      if (f > 0) estHz = estHz ? Math.min(estHz, f) : f;
+    } else if (src.type === 'ne555') {
+      const ent = app.engine.byPart.get(src.id);
+      const nDis = ent?.pinNets?.[6] ?? -1, nThr = ent?.pinNets?.[5] ?? -1, nGnd = ent?.pinNets?.[0] ?? -1;
+      let rSum = 0, cSum = 0;
+      for (const rp of app.circuit.parts) {
+        const re = app.engine.byPart.get(rp.id);
+        if (!re) continue;
+        if (rp.type === 'resistor') {
+          const on555 = re.pinNets.some(n => n >= 0 && (n === nDis || n === nThr));
+          if (on555) rSum += Math.max(100, +(rp.props?.ohms || 1000));
+        } else if (rp.type === 'capacitor') {
+          const onThr = re.pinNets.some(n => n >= 0 && n === nThr);
+          if (onThr) cSum += Math.max(1e-12, (+(rp.props?.uf || 1)) * 1e-6);
+        }
+      }
+      if (rSum > 0 && cSum > 0 && nThr >= 0 && nThr !== nGnd) {
+        const f555 = 1.44 / (rSum * cSum);
+        if (f555 > 0.05 && f555 < 100000) estHz = estHz ? Math.min(estHz, f555) : f555;
+      }
+    }
+  }
+  for (const sc of app.circuit.parts) {
+    if (sc.type !== 'oscilloscope') continue;
+    const ent = app.engine.byPart.get(sc.id);
+    if (!ent) continue;
+    const chWired = app.engine.isNetConnected(ent.pinNets[0]) || app.engine.isNetConnected(ent.pinNets[2]);
+    if (chWired && hasGndRail) {
+      const gndNet = ent.pinNets[1];
+      const hasSupplyGnd = (app.netKinds.get(gndNet) || []).some(k => String(k.kind).startsWith('G') || String(k.kind).startsWith('B-'));
+      const gndPins = new Set([1, 3, 5, 7].map(i => sc.worldPins()[i]).map(q => key(q.x, q.y)));
+      const anyGndWire = app.circuit.wires.some(w =>
+        app.engine.netAt(w.a.x, w.a.y) === gndNet && (!gndPins.has(key(w.a.x, w.a.y)) || !gndPins.has(key(w.b.x, w.b.y)))
+      );
+      if (!hasSupplyGnd && !anyGndWire) {
+        try {
+          wirePair(`${refById?.get(sc.id) || sc.id}.CH1 GND`, '-');
+          skippedNotes.push(`Auto-grounded ${refById?.get(sc.id) || sc.id}.CH1 GND to "-".`);
+        } catch { /* ignore if incompatible */ }
+      }
+    }
+    if (estHz > 0) {
+      const curSpan = (+(sc.props?.timeDiv || 0.05)) * 10;
+      if (curSpan < 1.2 / estHz || curSpan > 80 / estHz) {
+        const idealTD = 0.25 / estHz;
+        const bestTD = SCOPE_TIMEDIVS.reduce((b, x) => (Math.abs(x - idealTD) < Math.abs(b - idealTD) ? x : b), SCOPE_TIMEDIVS[6]);
+        sc.props.timeDiv = bestTD;
+      }
+    }
+  }
+
+  // Archetype 2: Reverse-biased standalone LED polarity swap in clean breadboard strips
+  const hasMcu = app.circuit.parts.some(p => getDef(p.type).mcu);
+  const leds = app.circuit.parts.filter(p => p.type === 'led');
+  if (!hasMcu && leds.length > 0 && leds.length < 4) {
+    const simCheck = new Engine();
+    simCheck.build(app.circuit);
+    for (let s = 0; s < 4; s++) simCheck.step(0.005);
+    for (const led of leds) {
+      const ent = simCheck.byPart.get(led.id);
+      if (!ent) continue;
+      const nA = ent.pinNets[0], nK = ent.pinNets[1];
+      if (nA < 0 || nK < 0 || nA === nK) continue;
+      const vA = simCheck.voltage(nA), vK = simCheck.voltage(nK);
+      const curA = Math.abs(ent.device?.cur?.[0] || 0);
+      if (curA < 1e-6 && Number.isFinite(vA) && Number.isFinite(vK) && vK > vA + 1.5) {
+        const wps = led.worldPins();
+        const sA = stripOf(wps[0].x, wps[0].y);
+        const sK = stripOf(wps[1].x, wps[1].y);
+        if (!sA || !sK || sA === sK) continue;
+        const pinInStrip = (s) => app.circuit.parts.some(op => op.id !== led.id && op.worldPins().some(q => stripOf(q.x, q.y) === s));
+        if (pinInStrip(sA) || pinInStrip(sK)) continue;
+
+        const moveEnd = (w, endKey, targetStrip, targetWp) => {
+          const hl = app.index.holes.get(key(targetWp.x, targetWp.y));
+          w[endKey] = (hl ? allocateTieStripHole(app, hl, wireCtx) : null) || { x: targetWp.x, y: targetWp.y };
+        };
+        const touched = [];
+        for (const w of app.circuit.wires) {
+          for (const ek of ['a', 'b']) {
+            const st = stripOf(w[ek].x, w[ek].y);
+            if (st === sA) touched.push({ w, ek, toStrip: sK, toWp: wps[1], orig: { ...w[ek] }, origPts: w.pts.map(pt => ({ ...pt })) });
+            else if (st === sK) touched.push({ w, ek, toStrip: sA, toWp: wps[0], orig: { ...w[ek] }, origPts: w.pts.map(pt => ({ ...pt })) });
+          }
+        }
+        if (touched.length < 2) continue;
+        for (const t of touched) { t.w[t.ek] = { x: -999, y: -999 }; }
+        app.reindex(true);
+        for (const t of touched) moveEnd(t.w, t.ek, t.toStrip, t.toWp);
+        for (const t of touched) t.w.pts = route(app, t.w.a, t.w.b);
+        app.reindex(true);
+
+        const ver = new Engine();
+        ver.build(app.circuit);
+        for (let s = 0; s < 4; s++) ver.step(0.005);
+        const ve = ver.byPart.get(led.id);
+        const nvA = ver.voltage(ve.pinNets[0]), nvK = ver.voltage(ve.pinNets[1]);
+        const nCur = Math.abs(ve.device?.cur?.[0] || 0);
+        if (nCur > 0.0001 || (Number.isFinite(nvA) && Number.isFinite(nvK) && nvA > nvK)) {
+          skippedNotes.push(`Auto-healed ${refById?.get(led.id) || led.id}: swapped reverse-biased Anode/Cathode wires.`);
+        } else {
+          for (const t of touched) { t.w[t.ek] = t.orig; t.w.pts = t.origPts; }
+          app.reindex(true);
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -1674,6 +1862,27 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
       return true;
     };
 
+    const bridgePerBoardRails = () => {
+      for (const brd of app.circuit.boards) {
+        if (!brd.rails) continue;
+        const t = railTapByBoard.get(brd.id);
+        if (t?.tp && t?.bp) {
+          bridgeRailEndpoints(
+            closestRailHole(app, '+', 't', brd.x + brd.cols, brd.y, brd),
+            closestRailHole(app, '+', 'b', brd.x + brd.cols, brd.y + brd.h, brd),
+            '+', '#e5484d', 'top+', 'bot+'
+          );
+        }
+        if (t?.tn && t?.bn) {
+          bridgeRailEndpoints(
+            closestRailHole(app, '−', 't', brd.x + brd.cols, brd.y, brd),
+            closestRailHole(app, '−', 'b', brd.x + brd.cols, brd.y + brd.h, brd),
+            '−', '#2b2d31', 'top-', 'bot-'
+          );
+        }
+      }
+    };
+
     if (bBridge && bBridge.rails && app.circuit.boards.length > 1) {
       for (let bi = 1; bi < app.circuit.boards.length; bi++) {
         const ob = app.circuit.boards[bi];
@@ -1697,23 +1906,11 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
       }
     }
 
-    for (const brd of app.circuit.boards) {
-      if (!brd.rails) continue;
-      const t = railTapByBoard.get(brd.id);
-      if (t?.tp && t?.bp) {
-        bridgeRailEndpoints(
-          closestRailHole(app, '+', 't', brd.x + brd.cols, brd.y, brd),
-          closestRailHole(app, '+', 'b', brd.x + brd.cols, brd.y + brd.h, brd),
-          '+', '#e5484d', 'top+', 'bot+'
-        );
-      }
-      if (t?.tn && t?.bn) {
-        bridgeRailEndpoints(
-          closestRailHole(app, '−', 't', brd.x + brd.cols, brd.y, brd),
-          closestRailHole(app, '−', 'b', brd.x + brd.cols, brd.y + brd.h, brd),
-          '−', '#2b2d31', 'top-', 'bot-'
-        );
-      }
+    bridgePerBoardRails();
+
+    if (!allowIncomplete && strictHealth && plan.autoHeal !== false) {
+      autoHealObviousWiring({ app, plan, refById, wirePair, addedWires, wireCtx, skippedNotes });
+      bridgePerBoardRails();
     }
 
     // Strip any dangling orphan wires left behind after conflict replacements or deletions

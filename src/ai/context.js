@@ -110,8 +110,20 @@ const PART_HINTS = {
   npn: ' // Low-side load: "+"->R->LED.A, LED.K->C, E->"-"; Base via R (never K to "+")',
   tactile: ' // 1.l==1.r & 2.l==2.r permanently bridged; press bridges 1<->2 (always wire 1.l & 2.l)',
   led: ' // Forward: Anode(+/R)->Cathode(-/NPN.C); never reverse A<K',
-  oscilloscope: ' // ~1Hz timeDiv=0.2; 1kHz timeDiv=0.0005',
+  oscilloscope: ' // ~1Hz timeDiv=0.2; 1kHz timeDiv=0.0005; connect CH1 GND->"-"',
 };
+
+const TOPOLOGY_RECIPES = [
+  [/\b(bridge\s*rectif|full[\s-]*wave|4[-\s]*diode)\b/i, 'RECIPE bridge-rectifier: 4 diodes + funcgen(100Hz sine): D1.A=D2.K=FG.+, D3.A=D4.K=FG.-, D1.K=D3.K=OUT+, D2.A=D4.A=GND(-); load R + filter C across OUT+<->GND.'],
+  [/\b(clip|overdrive|fuzz|distort)\b/i, 'RECIPE diode-clipper: funcgen.+->C->R->OUT; antiparallel diodes D1(A->OUT,K->-) & D2(K->OUT,A->-); scope CH1->FG.+, CH2->OUT, CH1 GND->-.'],
+  [/\b(atari|punk|apc|stepped\s*tone)\b/i, 'RECIPE atari-punk: U1 ne555 astable OUT->U2.TRIG; U2 ne555 monostable DIS->THR->C->-, pot2/R(+->DIS), OUT->buzzer.+->-.'],
+  [/\b(siren|police|wail|weee)/i, 'RECIPE dual-555-siren: U1 slow 555 astable OUT->R->U2.CTRL; U2 fast 555 astable OUT->buzzer.+->- (keep U2.CTRL off rails).'],
+  [/\b(darling|lie\s*detect|skin|touch\s*switch)\b/i, 'RECIPE darlington: pot(1->+,3->-,W->tactile.1.l); tactile.2.l->10k->Q1.B; Q1.C->+, Q1.E->Q2.B, Q2.E->-; +->220Ω->LED.A, LED.K->Q2.C, buzzer(+->+, - ->Q2.C).'],
+  [/\b(knight|kitt|4017|chaser|roulette)\b/i, 'RECIPE 555+4017: 555 OUT->U2.CLK, RST->"-", INH->"-"; Q0..Q7->220Ω->LED1..8.A->"-".'],
+  [/\b(sr\s*latch|flip[-\s]*flop|nand\s*latch)\b/i, 'RECIPE sr-nand-latch: R1(+->S), SW_S(S->-), R2(+->R), SW_R(R->-); 7400: 1A=S, 1B=2Y(Qbar), 1Y=Q, 2A=R, 2B=1Y(Q), 2Y=Qbar; Q/Qbar->220Ω->LED->-.'],
+  [/\b(7493|7490|modulo|decade|bcd.*7|7[-\s]*seg.*count)/i, 'RECIPE counter+7447: CLK->U1.CKA, U1.QA->U1.CKB, R0(1)=R0(2)="-"; QA..QD->7447 A..D; 7447 LT=RBI=BI/RBO="+"; a..g->220Ω->seg7(common:"anode",COM->"+").'],
+  [/\b(595|shift\s*reg|bargraph|serial.*bar)/i, 'RECIPE uno+74595+bargraph: SER->D11, SRCLK->D12, RCLK->D8, SRCLR="+", OE="-"; QA..QH->220Ω/bargraph.A1..A8, K1..K8->"-".'],
+];
 
 function formatPartSpec(d) {
   if (d.type === 'trainer-board') {
@@ -149,11 +161,13 @@ export function buildPartsCatalogPrompt(queryText = '', app = null) {
   const mcuNote = needsMcuRules
     ? '\nMCU SKETCH SUBSET: Put Arduino C++ in `"props":{"code":"..."}`. Pins e.g. `"U1.D13"`, `"U1.5V"`, `"U1.GND"` (never 3V3 to +5V). Only setup()/loop() (NO class/struct/pointers); APIs: pinMode, digitalWrite/Read, analogRead/Write, delay, millis, Serial, Servo, Adafruit_SSD1306, LiquidCrystal_I2C.'
     : '';
+  const recipes = TOPOLOGY_RECIPES.filter(([re]) => re.test(queryText)).slice(0, 2).map(([, txt]) => txt);
 
   return [
     `TYPES: ${indexList}`,
     'SCHEMAS (use EXACT type & pin names):',
     ...detailLines,
+    ...recipes,
     'BOARDS: mini(17c), half(30c,+/-), full(63c,+/-). RAILS: "+"(+5V), "-"(GND).',
     mcuNote,
   ].filter(Boolean).join('\n');

@@ -7,6 +7,7 @@
  *  - Clocked sequential flip-flop/counter liveness checks
  */
 import { getDef } from '../parts/registry.js';
+import { computeScopeWindow, measureChannelStats } from '../parts/library.js';
 import { Engine } from '../sim/engine.js';
 
 const NAND_TYPES = new Set(['ic7400', 'ic7410', 'ic7420', 'ic7430']);
@@ -372,6 +373,27 @@ export function verifyFloatingIcInputs(sim, circuit, refById = null) {
           errors.push(`${p.type} ("${tag}") active-HIGH reset pins R0(1) and R0(2) are BOTH HIGH — this freezes the counter at 0 forever! Wire R0(1) and R0(2) to "-" to count (or decode count bits).`);
         }
       }
+    } else if (p.type === 'ic4017') {
+      const nInh = ent.pinNets?.[12] ?? -1;
+      const nRst = ent.pinNets?.[14] ?? -1;
+      const vInh = nInh >= 0 ? sim.voltage(nInh) : NaN;
+      const vRst = nRst >= 0 ? sim.voltage(nRst) : NaN;
+      if (conn(13) && vRst >= 3.0) {
+        errors.push(`ic4017 ("${tag}") active-HIGH RST is tied HIGH — freezes outputs at Q0! Wire "${tag}.RST" to "-".`);
+      } else if (conn(13) && vInh >= 3.0) {
+        errors.push(`ic4017 ("${tag}") INH (clock inhibit) is tied HIGH — blocks counting! Wire "${tag}.INH" to "-".`);
+      }
+    } else if (p.type === 'ic74595') {
+      const usedShift = conn(10) || conn(11) || conn(13);
+      const nClr = ent.pinNets?.[9] ?? -1;
+      const nOe = ent.pinNets?.[12] ?? -1;
+      const vClr = nClr >= 0 ? sim.voltage(nClr) : NaN;
+      const vOe = nOe >= 0 ? sim.voltage(nOe) : NaN;
+      if (usedShift && conn(9) && vClr <= 0.8) {
+        errors.push(`ic74595 ("${tag}") active-LOW SRCLR is tied LOW — clears shift register continuously! Wire "${tag}.SRCLR" to "+".`);
+      } else if (usedShift && conn(12) && vOe >= 3.0) {
+        errors.push(`ic74595 ("${tag}") active-LOW OE is tied HIGH — outputs remain tri-stated! Wire "${tag}.OE" to "-".`);
+      }
     }
   }
   return errors;
@@ -692,7 +714,7 @@ export function probeCircuitLedBehavior(sim, circuit) {
 
 /** Verify un-gated clocked flip-flop / counter circuits actually transition (catch stuck PRE/CLR/Q feedback). */
 export function verifySequentialClockLiveness(sim, circuit, refById = null) {
-  const clocks = circuit.parts.filter(p => p.type === 'clock');
+  const clocks = circuit.parts.filter(p => p.type === 'clock' || p.type === 'ne555');
   if (!clocks.length) return [];
   const hasSwitches = circuit.parts.some(p => ['toggle', 'button', 'dip4', 'dip8', 'slide'].includes(p.type));
   if (hasSwitches) return [];
@@ -860,6 +882,156 @@ export function verifyActiveLedHealth(prompt, sim, circuit, refById = null, { re
         errors.push(`LED "${tag}" is reverse-biased and never lights (Anode=${vA} < Cathode=${vK}) — swap Anode/Cathode or tie Cathode to "-".`);
       } else {
         errors.push(`LED "${tag}" never turned ON (peak ${s.peakMa.toFixed(2)} mA; Anode=${vA}, Cathode=${vK}) — fix its resistor/driver wiring, check counter/gate inputs, and ensure series resistance is 220–470Ω.`);
+      }
+    }
+  }
+  return errors;
+}
+
+/**
+ * Archetype 3: Cross-check configured Arduino/MCU sketch GPIOs (rt.modes) against physically wired board pins.
+ */
+export function verifyMcuSketchPinCrossCheck(sim, circuit, refById = null) {
+  const errors = [];
+  for (const p of circuit.parts) {
+    const def = getDef(p.type);
+    if (!def.mcu || !def.board) continue;
+    const ent = sim.byPart.get(p.id);
+    const rt = ent?.device?.rt;
+    if (!rt?.modes?.size) continue;
+    // Only cross-check once at least one board pin is actually wired (0-pin MCUs are handled separately)
+    if (!ent.pinNets?.some(n => sim.isNetConnected(n))) continue;
+
+    const tag = refById?.get(p.id) || p.id;
+    const gpioToIdx = new Map();
+    def.board.pins.forEach((bp, idx) => {
+      if (bp.kind !== 'io') return;
+      if (!gpioToIdx.has(bp.gpio)) gpioToIdx.set(bp.gpio, []);
+      gpioToIdx.get(bp.gpio).push(idx);
+    });
+
+    const missing = [];
+    for (const gpio of rt.modes.keys()) {
+      if (gpio === def.board.ledPin || gpio === def.board.rgbPin) continue;
+      const idxs = gpioToIdx.get(gpio);
+      if (!idxs) continue; // invalid pin already reported via rt.notes
+      if (!idxs.some(i => sim.isNetConnected(ent.pinNets[i]))) {
+        const pinName = def.board.pins[idxs[0]]?.name || `GPIO${gpio}`;
+        missing.push(pinName);
+      }
+    }
+    if (missing.length) {
+      errors.push(
+        `MCU "${tag}" sketch configures pin(s) ${missing.slice(0, 6).join(', ')}, which are unwired on the board — wire "${tag}.${missing[0]}" to your peripheral or match the pin numbers in props.code.`,
+      );
+    }
+  }
+  return errors;
+}
+
+/**
+ * Archetype 5: Verify placed instruments & multi-segment loads (oscilloscope, seg7, bargraph, buzzer) actually receive signals.
+ */
+export function verifyInstrumentAndLoadLiveness(sim, circuit, refById = null) {
+  const errors = [];
+  const hasSwitches = circuit.parts.some(p => ['toggle', 'button', 'tactile', 'slide', 'pot', 'wokwi-slide-potentiometer', 'dip4', 'dip8', 'wokwi-analog-joystick', 'wokwi-mpu6050'].includes(p.type));
+  const hasDynamic = circuit.parts.some(p => getDef(p.type).mcu || ['clock', 'funcgen', 'ne555'].includes(p.type));
+  const scopes = circuit.parts.filter(p => p.type === 'oscilloscope');
+  const buzzers = circuit.parts.filter(p => p.type === 'buzzer');
+  const segs = circuit.parts.filter(p => p.type === 'seg7');
+  const bars = circuit.parts.filter(p => p.type === 'bargraph');
+
+  for (const sc of scopes) {
+    const ent = sim.byPart.get(sc.id);
+    if (!ent) continue;
+    const tag = refById?.get(sc.id) || sc.id;
+    const c1 = sim.isNetConnected(ent.pinNets[0]);
+    const c2 = sim.isNetConnected(ent.pinNets[2]);
+    if (!c1 && !c2) {
+      errors.push(`Oscilloscope "${tag}" CH1+ and CH2+ probes are both unconnected — connect "${tag}.CH1+" to the signal node and "${tag}.CH1 GND" to "-".`);
+    }
+  }
+
+  for (const bz of buzzers) {
+    const ent = sim.byPart.get(bz.id);
+    if (!ent) continue;
+    const tag = refById?.get(bz.id) || bz.id;
+    const n0 = ent.pinNets?.[0] ?? -1;
+    const n1 = ent.pinNets?.[1] ?? -1;
+    const c0 = sim.isNetConnected(n0);
+    const c1 = sim.isNetConnected(n1);
+    if (c0 !== c1) {
+      errors.push(`buzzer ("${tag}") has an unconnected pin — wire "${tag}.+" to driver/signal and "${tag}.-" to "-".`);
+    } else if (c0 && n0 >= 0 && n0 === n1) {
+      errors.push(`buzzer ("${tag}") "+" and "-" pins are shorted on the same net — separate them.`);
+    }
+  }
+
+  if (errors.length) return errors;
+
+  // Step dynamic simulator long enough to inspect waveforms/displays when signals exist
+  const needDynamicWindow = !hasSwitches && hasDynamic && (scopes.length || buzzers.length || segs.length || bars.length);
+  const maxSpan = scopes.length ? Math.min(1.5, Math.max(0.6, Math.max(...scopes.map(s => (s.props?.timeDiv || 0.05) * 10)))) : 0.6;
+  const buzMaxDv = new Map();
+  let segPeakMa = 0;
+  let barPeakMa = 0;
+
+  if (needDynamicWindow || segs.length || bars.length) {
+    const steps = needDynamicWindow ? Math.max(60, Math.ceil(maxSpan / 0.01)) : 6;
+    for (let s = 0; s < steps; s++) {
+      sim.step(0.01);
+      for (const bz of buzzers) {
+        const ent = sim.byPart.get(bz.id);
+        const v0 = ent?.pinNets?.[0] >= 0 ? sim.voltage(ent.pinNets[0]) : NaN;
+        const v1 = ent?.pinNets?.[1] >= 0 ? sim.voltage(ent.pinNets[1]) : NaN;
+        if (Number.isFinite(v0) && Number.isFinite(v1)) {
+          buzMaxDv.set(bz.id, Math.max(buzMaxDv.get(bz.id) || 0, Math.abs(v0 - v1)));
+        }
+      }
+      for (const sg of segs) {
+        const cur = sim.byPart.get(sg.id)?.device?.cur;
+        if (cur) for (const c of cur) segPeakMa = Math.max(segPeakMa, Math.abs(c) * 1000);
+      }
+      for (const bg of bars) {
+        const cur = sim.byPart.get(bg.id)?.device?.cur;
+        if (cur) for (const c of cur) barPeakMa = Math.max(barPeakMa, Math.abs(c) * 1000);
+      }
+    }
+  }
+
+  for (const sg of segs) {
+    const ent = sim.byPart.get(sg.id);
+    const notes = ent?.device?.notes;
+    if (notes?.length) {
+      errors.push(`7-segment "${refById?.get(sg.id) || sg.id}": ${notes[0]}`);
+    } else if (!hasSwitches && segPeakMa < 0.35 && ent?.pinNets?.some(n => sim.isNetConnected(n))) {
+      errors.push(`7-segment "${refById?.get(sg.id) || sg.id}" stayed unlit (peak ${segPeakMa.toFixed(1)} mA) — verify COM polarity (anode vs cathode), 7447/7448 wiring, and power.`);
+    }
+  }
+  for (const bg of bars) {
+    const ent = sim.byPart.get(bg.id);
+    if (!hasSwitches && barPeakMa < 0.35 && ent?.pinNets?.some(n => sim.isNetConnected(n))) {
+      errors.push(`bargraph "${refById?.get(bg.id) || bg.id}" stayed unlit (peak ${barPeakMa.toFixed(1)} mA) — verify A1..A8 anodes go to outputs and K1..K8 cathodes reach "-" through 220Ω resistors.`);
+    }
+  }
+  if (!hasSwitches && hasDynamic) {
+    for (const sc of scopes) {
+      const d = sim.byPart.get(sc.id)?.device;
+      if (!d) continue;
+      const win = computeScopeWindow(d, Math.max(0.0001, +sc.props?.timeDiv || 0.05));
+      const st1 = win ? measureChannelStats(d, d.buf1, win) : null;
+      const st2 = win ? measureChannelStats(d, d.buf2, win) : null;
+      const vpp = Math.max(st1?.valid ? st1.vpp : 0, st2?.valid ? st2.vpp : 0);
+      if (vpp <= 0.05) {
+        const tag = refById?.get(sc.id) || sc.id;
+        errors.push(`Oscilloscope "${tag}" CH1/CH2 captured 0.00 Vpp on dynamic circuit — probe an oscillating signal net (e.g. U1.OUT / filter node) with "${tag}.CH1+" and ensure "${tag}.CH1 GND" connects to "-".`);
+      }
+    }
+    for (const bz of buzzers) {
+      const peakDv = buzMaxDv.get(bz.id) || 0;
+      if (peakDv < 0.25) {
+        const tag = refById?.get(bz.id) || bz.id;
+        errors.push(`buzzer "${tag}" remained silent (peak |dV|=${peakDv.toFixed(2)} V) — verify "+" connects to active driver/timer output and "-" connects to GND.`);
       }
     }
   }

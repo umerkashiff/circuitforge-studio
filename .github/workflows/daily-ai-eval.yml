@@ -1,0 +1,131 @@
+name: Daily AI Copilot Eval
+
+on:
+  schedule:
+    # Runs daily at 21:00 UTC (02:00 PKT). Toggle repo variable AI_EVAL_PAUSED=true to pause.
+    - cron: '0 21 * * *'
+  workflow_dispatch:
+    inputs:
+      max_calls:
+        description: 'Max chat/completions HTTP calls for this run'
+        required: false
+        default: '300'
+      skip_scopes:
+        description: 'Comma-separated scopes to skip (clear to test OLED/ESP32 too)'
+        required: false
+        default: 'oled,esp32,i2c_display'
+      delay_ms:
+        description: 'Delay between test cases in ms (helps respect RPM limits)'
+        required: false
+        default: '1500'
+      dry_run:
+        description: 'Run offline without API calls (tests pipeline & cursors)'
+        required: false
+        type: boolean
+        default: false
+      reset_cursors:
+        description: 'Reset persistent mutation/wild cursors to 0'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  eval:
+    if: ${{ vars.AI_EVAL_PAUSED != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout main repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check API key secret
+        id: auth
+        env:
+          GEM_KEY: ${{ secrets.GEM_KEY }}
+          GROQ_KEY: ${{ secrets.GROQ_KEY }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Running in offline --dry-run mode."
+            exit 0
+          fi
+          if [ -z "${GEM_KEY}${GROQ_KEY}${AI_API_KEY}" ]; then
+            echo "::error::Missing API key. Add GEM_KEY (or GROQ_KEY / AI_API_KEY) under Settings -> Secrets and variables -> Actions -> Repository secrets."
+            exit 1
+          fi
+
+      - name: Attach persistent eval-logs worktree
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin eval-logs >/dev/null 2>&1; then
+            git fetch origin eval-logs:eval-logs
+            git worktree add eval-logs eval-logs
+          else
+            git worktree add --detach eval-logs HEAD
+            (
+              cd eval-logs
+              git checkout --orphan eval-logs
+              git rm -rf . >/dev/null 2>&1 || true
+            )
+          fi
+
+      - name: Run daily AI eval suite
+        env:
+          GEM_KEY: ${{ secrets.GEM_KEY }}
+          GROQ_KEY: ${{ secrets.GROQ_KEY }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_MODEL: ${{ vars.AI_EVAL_MODEL || 'gemini-3.5-flash-lite' }}
+          MAX_CALLS: ${{ inputs.max_calls || vars.AI_EVAL_MAX_CALLS || '300' }}
+          SKIP_SCOPES: ${{ inputs.skip_scopes || 'oled,esp32,i2c_display' }}
+          DELAY_MS: ${{ inputs.delay_ms || '1500' }}
+          MAX_MINUTES: '25'
+          OUT_DIR: 'eval-logs'
+        run: |
+          FLAGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then FLAGS="$FLAGS --dry-run"; fi
+          if [ "${{ inputs.reset_cursors }}" = "true" ]; then FLAGS="$FLAGS --reset-cursors"; fi
+          node tools/daily_ai_eval.mjs $FLAGS
+
+      - name: Publish digest to Job Summary
+        if: always()
+        run: |
+          if [ -f eval-logs/DAILY_DIGEST.md ]; then
+            cat eval-logs/DAILY_DIGEST.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No DAILY_DIGEST.md generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload eval logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-ai-eval-${{ github.run_id }}
+          path: eval-logs/
+          retention-days: 90
+
+      - name: Persist updated logs & cursors to eval-logs branch
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          cd eval-logs
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No new eval log changes to commit."
+            exit 0
+          fi
+          git commit -m "eval: daily AI report $(date -u +%Y-%m-%d)"
+          git push origin eval-logs
+
+      - name: Cleanup worktree
+        if: always()
+        run: git worktree remove --force eval-logs || true
