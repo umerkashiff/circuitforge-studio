@@ -480,8 +480,15 @@ async function run() {
   const origFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     const isInference = String(url).includes('chat/completions');
-    if (isInference) budget.httpCalls++;
-    else budget.modelListCalls++;
+    if (isInference) {
+      if (budget.httpCalls >= opts.maxCalls + 8) {
+        lastCallWasInfra = true;
+        throw new Error(`Hard daily call safety limit reached (${budget.httpCalls}/${opts.maxCalls})`);
+      }
+      budget.httpCalls++;
+    } else {
+      budget.modelListCalls++;
+    }
     try {
       const res = await origFetch(url, init);
       budget.lastStatus = res.status;
@@ -501,8 +508,8 @@ async function run() {
             }
           } catch {}
         }
-        if (res.status === 429 || res.status === 503) lastCallWasInfra = true;
-        else if (res.ok) lastCallWasInfra = false;
+        if (!res.ok) lastCallWasInfra = true;
+        else lastCallWasInfra = false;
       }
       return res;
     } catch (err) {
@@ -639,12 +646,12 @@ async function run() {
 
       if (thrown) {
         const msgStr = String(thrown?.message || thrown);
-        const infraErr = lastCallWasInfra || /429|503|rate limit|quota|timeout|high demand/i.test(msgStr);
+        const infraErr = lastCallWasInfra || (thrown?.status >= 400) || /401|402|403|429|500|502|503|504|rate limit|quota|limit|expired|revoked|timeout|high demand|hard daily call/i.test(msgStr);
         tier = infraErr ? 'T4_API_INFRA' : 'T1_BUILD_FAIL';
         errs = [msgStr];
       } else if (!lastMsg?.meta?.build?.ok) {
         const bErrs = lastMsg?.meta?.build?.errors?.length ? lastMsg.meta.build.errors : [rawReply || 'Build failed'];
-        const infraErr = lastCallWasInfra && /429|503|rate limit|quota|timeout|high demand/i.test(bErrs.join(' '));
+        const infraErr = lastCallWasInfra && /401|402|403|429|500|502|503|504|rate limit|quota|limit|timeout|high demand/i.test(bErrs.join(' '));
         tier = infraErr ? 'T4_API_INFRA' : 'T1_BUILD_FAIL';
         errs = bErrs;
       } else {
@@ -740,8 +747,16 @@ async function run() {
       state.signatures[sig] = prev;
     }
 
-    if (consecutiveInfra >= 5) {
-      stopReason = '5 consecutive API rate-limit/infra errors — stopping for today';
+    if (budget.lastStatus === 401 || budget.lastStatus === 402 || budget.lastStatus === 403) {
+      stopReason = `auth/billing error (HTTP ${budget.lastStatus}) — stopping immediately`;
+      break;
+    }
+    if (consecutiveInfra >= 2) {
+      stopReason = '2 consecutive cases exhausted all models (API quota/infra) — stopping for today';
+      break;
+    }
+    if (/Hard daily call safety limit reached/i.test(errs.join(' '))) {
+      stopReason = `reached hard daily call safety cap (${opts.maxCalls})`;
       break;
     }
 
