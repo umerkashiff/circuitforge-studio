@@ -527,45 +527,154 @@ export function verifyOutputContention(sim, circuit, refById = null) {
   return errors;
 }
 
+const COUNTER_SEQ_TYPES = new Set(['ic4017', 'ic7490', 'ic7493', 'ic74193', 'ic74194', 'ic74165', 'ic74595']);
+const ALL_SEQ_TYPES = new Set(['ic7474', 'ic7473', 'ic7476', 'ic74112', 'ic4013', ...COUNTER_SEQ_TYPES]);
+
+/** Probe peak/min currents and voltages across DC, switch states, and clock/counter/555 cycles. */
+export function probeCircuitLedBehavior(sim, circuit) {
+  const leds = circuit.parts.filter(p => p.type === 'led');
+  if (!leds.length) return [];
+
+  const stats = leds.map((p) => {
+    const ent = sim.byPart.get(p.id);
+    const nA = ent?.pinNets?.[0] ?? -1;
+    const nK = ent?.pinNets?.[1] ?? -1;
+    const open = !ent || !sim.isNetConnected(nA) || !sim.isNetConnected(nK);
+    const shorted = !open && nA >= 0 && nA === nK;
+    const blown = Boolean(ent?.device?.blown?.[0]);
+    const mA = Math.abs((ent?.device?.cur?.[0] || 0) * 1000);
+    return {
+      id: p.id,
+      part: p,
+      nA,
+      nK,
+      open,
+      shorted,
+      blown,
+      peakMa: mA,
+      minMa: mA,
+      vA: nA >= 0 ? sim.voltage(nA) : NaN,
+      vK: nK >= 0 ? sim.voltage(nK) : NaN,
+    };
+  });
+
+  const sampleLeds = () => {
+    for (const s of stats) {
+      const ent = sim.byPart.get(s.id);
+      if (ent?.device?.blown?.[0]) s.blown = true;
+      const mA = (ent?.device?.cur?.[0] || 0) * 1000;
+      if (mA > s.peakMa) s.peakMa = mA;
+      if (mA < s.minMa) s.minMa = mA;
+      if (s.nA >= 0) s.vA = sim.voltage(s.nA);
+      if (s.nK >= 0) s.vK = sim.voltage(s.nK);
+    }
+  };
+
+  const clocks = circuit.parts.filter(p => p.type === 'clock');
+  const hasMcu = circuit.parts.some(p => getDef(p.type).mcu);
+  const has555 = circuit.parts.some(p => p.type === 'ne555');
+  const hasCounter = circuit.parts.some(p => COUNTER_SEQ_TYPES.has(p.type));
+  const dips = circuit.parts.filter(p => p.type === 'dip4' || p.type === 'dip8');
+  const toggles = circuit.parts.filter(p => {
+    if (p.type !== 'toggle') return false;
+    const ent = sim.byPart.get(p.id);
+    return ent && sim.isNetConnected(ent.pinNets[0]);
+  });
+
+  const setters = [];
+  for (const dip of dips) {
+    const ent = sim.byPart.get(dip.id);
+    if (!ent) continue;
+    for (let i = 0; i < ent.pinNets.length; i++) {
+      if (sim.isNetConnected(ent.pinNets[i])) setters.push(v => { dip.props.bits[i] = v; });
+    }
+  }
+  for (const sw of toggles) setters.push(v => { sw.props.on = v; });
+
+  const savedDipBits = dips.map(d => d.props.bits.slice());
+  const savedToggles = toggles.map(t => Boolean(t.props.on));
+
+  const runClockWindow = (cycles) => {
+    const hzList = clocks.map(c => Math.max(0.25, Math.min(200, +(c.props.frequency || c.props.hz || 1))));
+    const minHz = hzList.length ? Math.min(...hzList) : 2;
+    const maxHz = hzList.length ? Math.max(...hzList) : 20;
+    const stepMax = Math.min(0.02, 1 / (Math.max(maxHz, 2) * 8));
+    const totalSpan = cycles / Math.max(minHz, 0.25);
+    const dt = Math.min(stepMax, Math.max(0.002, totalSpan / 360));
+    const steps = Math.min(420, Math.max(24, Math.ceil(totalSpan / dt)));
+    for (let i = 0; i < steps; i++) {
+      sim.step(dt);
+      sampleLeds();
+    }
+  };
+
+  try {
+    if (clocks.length || has555 || hasCounter) {
+      if (setters.length) {
+        // Test dynamic behavior with switches ON and OFF so gated clock/counter LEDs are exercised
+        setters.forEach(fn => fn(true));
+        runClockWindow(hasCounter ? 9 : 3);
+        setters.forEach(fn => fn(false));
+        runClockWindow(2);
+      } else {
+        runClockWindow(hasCounter ? 9 : 3);
+      }
+    } else if (setters.length) {
+      const pats = [];
+      if (setters.length <= 4) {
+        for (let m = 0; m < (1 << setters.length); m++) pats.push(setters.map((_, k) => Boolean((m >> k) & 1)));
+      } else {
+        pats.push(setters.map(() => false), setters.map(() => true));
+        for (let k = 0; k < Math.min(setters.length, 8); k++) pats.push(setters.map((_, j) => j === k));
+      }
+      for (const pat of pats) {
+        pat.forEach((v, k) => setters[k](v));
+        for (let i = 0; i < 4; i++) sim.step(0.005);
+        sampleLeds();
+      }
+    } else if (hasMcu) {
+      for (let i = 0; i < 180; i++) {
+        sim.step(0.025);
+        sampleLeds();
+      }
+    } else {
+      for (let i = 0; i < 8; i++) sim.step(0.005);
+      sampleLeds();
+    }
+  } finally {
+    dips.forEach((d, idx) => { d.props.bits = savedDipBits[idx]; });
+    toggles.forEach((t, idx) => { t.props.on = savedToggles[idx]; });
+    if (setters.length) for (let i = 0; i < 3; i++) sim.step(0.005);
+  }
+
+  return stats.map(s => ({
+    ...s,
+    litOnce: s.peakMa >= 0.35 && !s.blown,
+    toggles: s.peakMa >= 0.35 && s.minMa < 0.2,
+  }));
+}
+
 /** Verify un-gated clocked flip-flop / counter circuits actually transition (catch stuck PRE/CLR/Q feedback). */
 export function verifySequentialClockLiveness(sim, circuit, refById = null) {
   const clocks = circuit.parts.filter(p => p.type === 'clock');
-  if (clocks.length !== 1) return [];
+  if (!clocks.length) return [];
   const hasSwitches = circuit.parts.some(p => ['toggle', 'button', 'dip4', 'dip8', 'slide'].includes(p.type));
   if (hasSwitches) return [];
 
-  const seqTypes = new Set(['ic7474', 'ic7473', 'ic7476', 'ic74112', 'ic4013', 'ic4017', 'ic7490', 'ic7493', 'ic74193']);
-  const seqParts = circuit.parts.filter(p => seqTypes.has(p.type));
+  const seqParts = circuit.parts.filter(p => ALL_SEQ_TYPES.has(p.type));
   if (!seqParts.length) return [];
 
-  const leds = circuit.parts.filter(p => {
-    if (p.type !== 'led') return false;
-    const ent = sim.byPart.get(p.id);
-    return ent && sim.isNetConnected(ent.pinNets[0]) && sim.isNetConnected(ent.pinNets[1]);
-  });
-  if (!leds.length) return [];
+  const probed = probeCircuitLedBehavior(sim, circuit).filter(s => !s.open);
+  if (!probed.length) return [];
 
-  const hz = Math.max(0.25, Math.min(200, +(clocks[0].props.frequency || clocks[0].props.hz || 1)));
-  const dt = Math.min(0.01, 1 / (hz * 20));
-  const totalSteps = Math.min(350, Math.ceil((2.6 / hz) / dt));
-  const ledSeen = leds.map(() => ({ hi: false, lo: false }));
-
-  for (let i = 0; i < totalSteps; i++) {
-    sim.step(dt);
-    for (let k = 0; k < leds.length; k++) {
-      const mA = (sim.byPart.get(leds[k].id)?.device?.cur?.[0] || 0) * 1000;
-      if (mA > 0.5) ledSeen[k].hi = true; else ledSeen[k].lo = true;
-    }
-  }
-
-  const allStuck = ledSeen.every(s => !(s.hi && s.lo));
+  const allStuck = probed.every(s => !s.toggles);
   if (!allStuck) return [];
 
   const stuckDesc = seqParts.map(p => `${p.type} ("${refById?.get(p.id) || p.id}")`).join(', ');
   const isFf = seqParts.some(p => ['ic7474', 'ic7473', 'ic7476', 'ic74112', 'ic4013'].includes(p.type));
   return [
     isFf
-      ? `Clocked flip-flop ${stuckDesc} output LED stayed stuck (${ledSeen[0].hi ? 'always ON' : 'always OFF'}) over 2.5+ clock cycles! Check: for 7474 divide-by-2, tie 1Q̅ (inverted output) -> 1D, and tie active-low 1PRE and 1CLR to "+".`
+      ? `Clocked flip-flop ${stuckDesc} output LED stayed stuck (${probed[0].litOnce ? 'always ON' : 'always OFF'}) over 2.5+ clock cycles! Check: for 7474 divide-by-2, tie 1Q̅ (inverted output) -> 1D, and tie active-low 1PRE and 1CLR to "+".`
       : `Clocked counter ${stuckDesc} LED output(s) never toggled over 2.5+ clock cycles! Check clock pin, active-high/low resets (tie 7490/7493 R0(1)/R0(2) or 4017 RST to "-"), and power pins.`,
   ];
 }
@@ -670,4 +779,45 @@ export function verifyStaticLedPattern(prompt, sim, circuit) {
     return [`Visual LED pattern check failed: all ${allLeds.length}/${allLeds.length} LEDs are lit! Wire ONLY active pattern pixels to + (via 220Ω resistors) and tie unlit background LEDs to "-" so the shape actually appears.`];
   }
   return [];
+}
+
+/** Verify EVERY active output LED actually illuminates (>=0.35 mA) across DC, switch, clock, and MCU cycles. */
+export function verifyActiveLedHealth(prompt, sim, circuit, refById = null, { requireWiredAll = false } = {}) {
+  const hasMcu = circuit.parts.some(p => getDef(p.type).mcu);
+  const hasInputSwitch = circuit.parts.some(p => ['button', 'tactile', 'pot', 'wokwi-analog-joystick', 'wokwi-mpu6050'].includes(p.type));
+  if (hasMcu && hasInputSwitch) return [];
+  const txt = String(prompt || '');
+  const leds = circuit.parts.filter(p => p.type === 'led');
+  if (!leds.length) return [];
+
+  // Static visual shape/matrix patterns deliberately tie unlit pixels both pins to GND ("-")
+  const isVisualMatrix = leds.length >= 4 && !hasMcu && !circuit.parts.some(p => ['clock', 'ne555', 'ic7493', 'ic7490', 'ic4017'].includes(p.type)) &&
+    (leds.some(p => p.props?.row !== undefined) || /\b(\d+\s*[x×]\s*\d+|square|matrix|grid|smiley|smile|face|heart|arrow|cross|letter)\b/i.test(txt));
+  if (isVisualMatrix) return [];
+
+  const probed = probeCircuitLedBehavior(sim, circuit);
+  const errors = [];
+  for (const s of probed) {
+    const tag = refById?.get(s.id) || s.id;
+    if (s.open) {
+      if (requireWiredAll) {
+        errors.push(`LED "${tag}" has an unconnected pin — wire Anode (via 220–470Ω resistor) to its driver/signal and Cathode to "-".`);
+      }
+      continue;
+    }
+    if (s.shorted) {
+      errors.push(`LED "${tag}" Anode and Cathode are shorted onto the same breadboard strip/net — separate Anode and Cathode onto different strips and connect Cathode to "-".`);
+    } else if (s.blown) {
+      errors.push(`LED "${tag}" is damaged by excess current — place a 220–470Ω current-limiting resistor in series.`);
+    } else if (!s.litOnce) {
+      const vA = Number.isFinite(s.vA) ? `${s.vA.toFixed(2)}V` : 'NC';
+      const vK = Number.isFinite(s.vK) ? `${s.vK.toFixed(2)}V` : 'NC';
+      if (Number.isFinite(s.vA) && Number.isFinite(s.vK) && s.vK > s.vA + 0.5) {
+        errors.push(`LED "${tag}" is reverse-biased and never lights (Anode=${vA} < Cathode=${vK}) — swap Anode/Cathode or tie Cathode to "-".`);
+      } else {
+        errors.push(`LED "${tag}" never turned ON (peak ${s.peakMa.toFixed(2)} mA; Anode=${vA}, Cathode=${vK}) — fix its resistor/driver wiring, check counter/gate inputs, and ensure series resistance is 220–470Ω.`);
+      }
+    }
+  }
+  return errors;
 }

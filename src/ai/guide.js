@@ -129,12 +129,12 @@ export class AiGuide {
   }
 
   /** Validate a plan offscreen and start an interactive step-by-step guide session. */
-  start(plan, title = 'Guided Circuit Build', { prompt = '' } = {}) {
+  start(plan, title = 'Guided Circuit Build', { prompt = '', strictHealth = false } = {}) {
     const sbx = createSandbox(this.app);
     if (plan.clearExisting === false) {
       sbx.load(JSON.stringify(this.app.circuit));
     }
-    const res = applyAiBuildPlan(sbx, plan, { commit: false, startSim: false, prompt });
+    const res = applyAiBuildPlan(sbx, plan, { commit: false, startSim: false, prompt, strictHealth });
     if (!res.ok) return res;
     return this.startFromVerified(res, title, {
       clearExisting: plan.clearExisting !== false,

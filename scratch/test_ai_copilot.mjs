@@ -986,4 +986,68 @@ assert.equal(gemFb.parsed.reply, 'Served via 2.5 Flash Lite');
 assert.equal(gemCalls.length, 3, '2 tries on 3.5-flash-lite (initial + 503 retry), then fallback to 2.5-flash-lite');
 console.log('   [PASS] Multi-provider Gemini + Groq routing, 503 recovery & key isolation passed.');
 
+console.log('18. Testing Strict Follow-Up LED Health Verification, Counter 9-Cycle Liveness & LED Telemetry...');
+const app18 = createHeadlessApp();
+// Start with working inductor + blinking LED circuit
+const baseInd = applyAiBuildPlan(app18, {
+  clearExisting: true,
+  board: 'half',
+  parts: [
+    { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+    { ref: 'CLK', type: 'clock', props: { hz: 2 } },
+    { ref: 'L1', type: 'inductor', props: { mh: 10 } },
+    { ref: 'R1', type: 'resistor', props: { ohms: 220 } },
+    { ref: 'D1', type: 'led', props: { color: 'green' } },
+  ],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['CLK.OUT', 'L1.1'], ['L1.2', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', '-']],
+}, { strictHealth: true });
+assert.equal(baseInd.ok, true, 'Working inductor+LED base circuit must pass: ' + JSON.stringify(baseInd.errors));
+
+// Follow-up edit adds a 2nd dead/reverse-biased LED — strictHealth must reject instead of claiming auto-verified!
+const brokenFollow = applyAiBuildPlan(app18, {
+  clearExisting: false,
+  parts: [{ ref: 'R2', type: 'resistor', props: { ohms: 220 } }, { ref: 'D2', type: 'led', props: { color: 'red' } }],
+  connections: [['CLK.OUT', 'R2.1'], ['R2.2', 'D2.K'], ['D2.A', '-']],
+}, { strictHealth: true, prompt: 'make two leds blink' });
+assert.equal(brokenFollow.ok, false, 'Follow-up edit with 1 dead/reverse LED must FAIL strictHealth');
+assert.match(brokenFollow.errors.join(' '), /LED "D2".*reverse-biased/);
+
+// Non-strict manual follow-up (like canvas state before user says "one of the leds isnt working") serializes dead LED clearly with wires intact
+const deadManual = applyAiBuildPlan(app18, {
+  clearExisting: false,
+  parts: [{ ref: 'R2', type: 'resistor', props: { ohms: 220 } }, { ref: 'D2', type: 'led', props: { color: 'red' } }],
+  connections: [['CLK.OUT', 'R2.1'], ['R2.2', 'D2.K'], ['D2.A', '-']],
+}, { strictHealth: false });
+assert.equal(deadManual.ok, true);
+const snap18 = serializeCircuitState(app18);
+assert.ok(Array.isArray(snap18.wires) && snap18.wires.length > 0, 'Follow-up snapshot must retain wires array');
+const d1Snap = snap18.parts.find(p => p.type === 'led' && p.led?.st === 'BLINKING');
+const d2Snap = snap18.parts.find(p => p.type === 'led' && /DEAD/.test(p.led?.st || ''));
+assert.ok(d1Snap && d1Snap.led.peak_mA > 1, 'Working LED must report BLINKING with peak_mA > 1');
+assert.ok(d2Snap, 'Broken LED must report DEAD_* state in CIRCUITS_STATE');
+assert.ok(snap18.issues.some(i => i.includes(d2Snap.id) && /REVERSE_BIASED|DEAD/.test(i)), 'issues must flag broken LED ID');
+
+// Multi-clock 7493 counter driving QD (÷16, takes 8+ clock cycles!) must pass 9-cycle liveness check cleanly
+const appCtr = createHeadlessApp();
+const ctrRes = applyAiBuildPlan(appCtr, {
+  clearExisting: true,
+  board: 'half',
+  parts: [
+    { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+    { ref: 'CLK1', type: 'clock', props: { hz: 4 } },
+    { ref: 'CLK2', type: 'clock', props: { hz: 2 } },
+    { ref: 'U1', type: 'ic7493' },
+    { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'D1', type: 'led' },
+    { ref: 'R2', type: 'resistor', props: { ohms: 220 } }, { ref: 'D2', type: 'led' },
+  ],
+  connections: [
+    ['V1.1', '+'], ['G1.1', '-'],
+    ['CLK1.OUT', 'U1.CKA'], ['U1.QA', 'U1.CKB'], ['-', 'U1.R0(1)', 'U1.R0(2)'],
+    ['U1.QA', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', '-'],
+    ['U1.QD', 'R2.1'], ['R2.2', 'D2.A'], ['D2.K', '-'],
+  ],
+}, { strictHealth: true, prompt: 'make leds blink in an interesting counter pattern' });
+assert.equal(ctrRes.ok, true, '7493 multi-clock QD LED must pass 9-cycle liveness check: ' + JSON.stringify(ctrRes.errors));
+console.log('   [PASS] Strict follow-up LED health, broken-LED telemetry & 9-cycle counter check passed.');
+
 console.log('\nALL AI COPILOT AUTOMATED TESTS PASSED 100%!');

@@ -4,9 +4,10 @@
  * providing exact pinouts & prop schemas for all relevant components on-demand.
  */
 import { allDefs, getDef } from '../parts/registry.js';
-import { BOARD_SIZES } from '../model.js';
-import { key } from '../sim/engine.js';
+import { BOARD_SIZES, Circuit } from '../model.js';
+import { Engine, key } from '../sim/engine.js';
 import { computeScopeWindow, measureChannelStats } from '../parts/library.js';
+import { probeCircuitLedBehavior } from './logic_verify.js';
 
 function fmtV(v) {
   if (v === undefined || v === null || Number.isNaN(v)) return null;
@@ -92,6 +93,7 @@ const PART_HINTS = {
   dip4: ' // active 5V/0V drivers S1..S4 (do NOT wire +5V/GND to S1..S4)',
   dip8: ' // active 5V/0V drivers S1..S8 (do NOT wire +5V/GND to S1..S8)',
   ne555: ' // Astable: R1(+->DIS), R2(DIS->THR), THR-TRIG, C(THR->-), RESET->+',
+  inductor: ' // 2-pin DC wire passive: connect in SERIES with resistor+LED, never directly across +5V/GND or gate OUT->GND',
   ic4013: ' // CMOS power: VDD->"+", VSS->"-"',
   ic4017: ' // CMOS power: VDD->"+", VSS->"-"',
   ic7483: ' // Tie C0->"-" for A+B',
@@ -173,6 +175,17 @@ function pointLabel(app, x, y, stripPins = null) {
 export function serializeCircuitState(app, { maxChars = 4800 } = {}) {
   const c = app.circuit;
   const eng = app.engine;
+
+  let ledDiagById = null;
+  const ledCount = c.parts.filter(p => p.type === 'led').length;
+  if (ledCount >= 1 && ledCount <= 12) {
+    try {
+      const probeCircuit = Circuit.fromJSON(c.toJSON());
+      const probeSim = new Engine();
+      probeSim.build(probeCircuit);
+      ledDiagById = new Map(probeCircuitLedBehavior(probeSim, probeCircuit).map(s => [s.id, s]));
+    } catch { ledDiagById = null; }
+  }
 
   const wiredNets = new Set();
   for (const w of c.wires) {
@@ -263,8 +276,14 @@ export function serializeCircuitState(app, { maxChars = 4800 } = {}) {
       out.readings = { on: Boolean(p.props.power), wave: p.props.wave, hz: +(dev.instHz || p.props.hz || 10).toFixed(2), vpp: +p.props.vpp };
     } else if (def.mcu && dev?.rt) {
       out.mcu = { err: dev.rt.error || null, serial: dev.rt.serial.slice(-8).map(l => l.text).join('') };
-    } else if (p.type === 'led' && dev) {
-      out.mA = +((dev.cur?.[0] || 0) * 1000).toFixed(1);
+    } else if (p.type === 'led') {
+      const ld = ledDiagById?.get(p.id);
+      if (ld) {
+        const st = ld.open ? 'OPEN_PIN' : ld.shorted ? 'DEAD_SHORTED(A=K)' : ld.blown ? 'DEAD_BLOWN' : ld.toggles ? 'BLINKING' : ld.litOnce ? 'LIT' : (Number.isFinite(ld.vA) && Number.isFinite(ld.vK) && ld.vK > ld.vA + 0.5 ? 'DEAD_REVERSE' : 'DEAD(0mA)');
+        out.led = { st, peak_mA: +ld.peakMa.toFixed(1) };
+      } else if (dev) {
+        out.mA = +((dev.cur?.[0] || 0) * 1000).toFixed(1);
+      }
     }
     return out;
   });
@@ -300,24 +319,35 @@ export function serializeCircuitState(app, { maxChars = 4800 } = {}) {
       .map(n => ({ id: n.net, v: app.mode === 'sim' ? n.v : undefined, st: app.mode === 'sim' ? n.state : undefined, rails: [...n.rails], ends: n.ends }));
   }
   const issues = app.allIssues().map(w => `${w.level}:${w.part?.id || ''} ${w.text}`);
+  if (ledDiagById) {
+    for (const [id, ld] of ledDiagById) {
+      if (ld.open || !ld.litOnce) {
+        const st = ld.open ? 'OPEN_PIN' : ld.shorted ? 'SHORTED(A=K)' : ld.blown ? 'BLOWN' : (Number.isFinite(ld.vA) && Number.isFinite(ld.vK) && ld.vK > ld.vA + 0.5 ? 'REVERSE_BIASED' : 'DEAD(0mA)');
+        issues.push(`error:${id} LED is ${st} (A=${Number.isFinite(ld.vA) ? ld.vA.toFixed(2) : 'NC'}V, K=${Number.isFinite(ld.vK) ? ld.vK.toFixed(2) : 'NC'}V)`);
+      }
+    }
+  }
   if (issues.length) summary.issues = issues;
 
-  // Enforce strict character ceiling so large boards (e.g. 50+ parts) never overflow Groq's 8000 TPM limit
+  // Compact verbose fields first so exact wire IDs & LED diagnostics stay preserved within maxChars
   if (JSON.stringify(summary).length > maxChars) {
-    delete summary.wires;
     if (summary.nets && summary.nets.length > 15) summary.nets = summary.nets.slice(0, 15);
-  }
-  if (JSON.stringify(summary).length > maxChars) {
-    delete summary.nets;
     summary.parts = summary.parts.map(pt => {
       const mini = { id: pt.id, type: pt.type };
       if (pt.props && Object.keys(pt.props).length) mini.props = pt.props;
       if (pt.unwired?.length) mini.unwired = pt.unwired;
-      if (pt.mA !== undefined) mini.mA = pt.mA;
+      if (pt.led) mini.led = pt.led;
+      else if (pt.mA !== undefined) mini.mA = pt.mA;
       if (pt.readings) mini.readings = pt.readings;
       if (pt.mcu) mini.mcu = pt.mcu;
       return mini;
     });
+  }
+  if (JSON.stringify(summary).length > maxChars) {
+    delete summary.nets;
+  }
+  if (JSON.stringify(summary).length > maxChars) {
+    delete summary.wires;
   }
   if (JSON.stringify(summary).length > maxChars && summary.parts.length > 30) {
     summary.omittedParts = summary.parts.length - 30;
@@ -341,7 +371,7 @@ export function buildSystemPrompt({ mode = 'auto', query = '', app = null } = {}
     '1. Output MINIFIED SINGLE-LINE STRICT JSON ONLY. Never invent (x,y) coords; use unique `["A.pin","B.pin"]`, `"+"`/`"-"`, or chains `["-","U1.3A","U1.3B",...]`. Omit empty props/updates/remove/steps and keep "reply" <=2 sentences in build mode. LARGE BUILDS (>20 wires or multi-phase): include ALL requested parts/chips/LEDs in Stage 1 (NEVER reduce requested counts!), wire <=18 connections with "more":true, and auto-continuation finishes remaining wires until "more":false.',
     '2. POWER: Rails "+"/"-" require BOTH `"vcc"` wired `["V1.1","+"]` AND `"gnd"` wired `["G1.1","-"]` (or power-supply/MCU). Note: IC VCC/VDD->"+" and GND/VSS->"-" auto-wire when rails are powered (you can omit IC power pins to save tokens!). Tie unused IC gate inputs to "-" or "+"; tie ne555 RESET->"+", 7483/74283 C0->"-", 7493/7490 resets R0(1)&R0(2)->"-" and QA->CKB; NEVER short two outputs or a switch/clock OUT to +5V/GND.',
     '3. DISPLAYS & PATTERNS: Use 220-470Ω series resistors on LEDs (7447 is active-LOW -> seg7 common:"anode"). For >25 LEDs or text/names (e.g. "Umer" 9x9) use `uno` + `board-ssd1306` OLED (or lcd16x2). For <=25 discrete LED patterns (e.g. 3x3/5x5 smiley), use `led` with 0-indexed `row`,`col`, wire lit LEDs via 220Ω to `"+"`/`"-"`, and tie unlit LEDs both pins to `"-"`. For NAND-only logic use ONLY ic7400/7410/7420.',
-    '4. WORKSPACE: Inspect CIRCUIT_STATE! For existing-circuit edits/fixes/removals use `"clearExisting":false` and exact existing `id`s (deleting an LED also removes its resistor & orphan wires). For new/overridden circuits use `"clearExisting":true`. For incomplete circuits in "analyze", briefly assess what works, bugs/unwired pins, and next steps.',
+    '4. WORKSPACE: Inspect CIRCUIT_STATE! For existing-circuit edits/fixes/sketch-updates/removals ALWAYS set `"clearExisting":false` using exact existing `id`s and `updates` (NEVER overwrite with `clearExisting:true` + just an MCU!). Deleting an LED also removes its resistor & orphan wires. For incomplete circuits in "analyze", briefly assess what works, bugs/unwired pins, and next steps.',
     'SCHEMA: {"intent":"analyze"|"build"|"guide","plan":"brief plan","reply":"markdown","more":false,"clearExisting":true,"board":"half","parts":[{"ref":"U1","type":"ic7400","props":{}}],"connections":[["V1.1","+"],["G1.1","-"]],"removeWires":[],"updates":[],"remove":[],"probes":[{"at":"U1.OUT","name":"OUT"}],"steps":[{"kind":"part","ref":"U1","desc":"..."}]}',
     buildPartsCatalogPrompt(query, app),
   ].join('\n');

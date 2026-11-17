@@ -16,6 +16,7 @@ import {
   verifySequentialClockLiveness,
   verifyCombinationalSwitchLiveness,
   verifyStaticLedPattern,
+  verifyActiveLedHealth,
 } from './logic_verify.js';
 
 const SIGNAL_COLORS = ['#0a84ff', '#30a46c', '#ff8a00', '#8e4ec6', '#f5c400', '#ffffff'];
@@ -641,7 +642,8 @@ export function pickWireColor(aTok, bTok, aRail, bRail, sigIdx) {
 }
 
 /** Run headless DRC, logic/constraint verification & 50 ms simulation check on current app.circuit without touching history. */
-export function verifyCircuitHealth(app, refById = null, { prompt = '', incremental = false, allowIncomplete = false } = {}) {
+export function verifyCircuitHealth(app, refById = null, { prompt = '', incremental = false, allowIncomplete = false, strictHealth = false } = {}) {
+  const skipCompleteChecks = allowIncomplete || (incremental && !strictHealth);
   app.reindex(false);
   const errors = [];
   const warnings = [];
@@ -674,7 +676,7 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
   const hasVccPart = app.circuit.parts.some(p => p.type === 'vcc' || p.type === 'battery' || p.type === 'power-supply' || getDef(p.type).mcu || p.type === 'trainer-board');
   const hasGndPart = app.circuit.parts.some(p => p.type === 'gnd' || p.type === 'battery' || p.type === 'power-supply' || getDef(p.type).mcu || p.type === 'trainer-board');
   const needsSupply = app.circuit.parts.some(p => ['led', 'buzzer', 'seg7', 'bargraph', 'ne555', 'board-ssd1306', 'wokwi-lcd1602'].includes(p.type) || getDef(p.type).ic);
-  if (!incremental && !allowIncomplete && needsSupply && (!hasVccPart || !hasGndPart)) {
+  if (!skipCompleteChecks && needsSupply && (!hasVccPart || !hasGndPart)) {
     const missingBoth = !hasVccPart && !hasGndPart ? 'BOTH "vcc" (wired to "+") AND "gnd" (wired to "-")' : (!hasVccPart ? '"vcc" wired to "+"' : '"gnd" wired to "-"');
     errors.push(`Breadboard has NO power supply! Add ${missingBoth} so the LEDs/components have power.`);
   }
@@ -754,18 +756,30 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
   for (const d of sim.devices) {
     if (d.rt?.error) errors.push(`${getDef(d.part.type).name} runtime error: ${d.rt.error}`);
   }
+  if (!skipCompleteChecks) {
+    for (const p of app.circuit.parts) {
+      if (!getDef(p.type).mcu) continue;
+      const ent = sim.byPart.get(p.id);
+      const anyConnected = Boolean(ent?.pinNets?.some(n => sim.isNetConnected(n)));
+      if (!anyConnected) {
+        const tag = refById?.get(p.id) || p.id;
+        errors.push(`MCU "${tag}" (${p.type}) has 0 wired pins! If modifying code on an existing board, set "clearExisting":false and use "updates":[{"id":"${tag}","props":{"code":"..."}}] instead of replacing the circuit.`);
+      }
+    }
+  }
 
   if (!errors.length) {
     for (const cErr of verifyOutputContention(sim, app.circuit, refById)) errors.push(cErr);
-    if (!incremental && !allowIncomplete) {
+    if (!skipCompleteChecks) {
       for (const fErr of verifyFloatingIcInputs(sim, app.circuit, refById)) errors.push(fErr);
     }
   }
-  if (!errors.length && !incremental && !allowIncomplete) {
+  if (!errors.length && !skipCompleteChecks) {
     for (const bErr of verifyBooleanBehavior(prompt, sim, app.circuit, refById)) errors.push(bErr);
     for (const cErr of verifyCombinationalSwitchLiveness(sim, app.circuit)) errors.push(cErr);
     for (const sErr of verifySequentialClockLiveness(sim, app.circuit, refById)) errors.push(sErr);
     for (const pErr of verifyStaticLedPattern(prompt, sim, app.circuit)) errors.push(pErr);
+    for (const lErr of verifyActiveLedHealth(prompt, sim, app.circuit, refById, { requireWiredAll: strictHealth })) errors.push(lErr);
   }
 
   return { ok: errors.length === 0, errors: [...new Set(errors)], warnings: [...new Set(warnings)] };
@@ -822,7 +836,7 @@ function wireEndMatchesToken(app, endPt, rawTok, refMap) {
  * Allocates components deterministically, routes clean wires, configures MCUs/probes,
  * verifies circuit health headlessly, and rolls back safely on unrecoverable errors.
  */
-export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, prompt = '', allowIncomplete = false, initialRefMap = null } = {}) {
+export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, prompt = '', allowIncomplete = false, initialRefMap = null, strictHealth = false } = {}) {
   const backup = JSON.stringify(app.circuit);
   const prevMode = app.mode;
   const refMap = new Map();
@@ -1187,7 +1201,7 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
       }
     }
 
-    const health = verifyCircuitHealth(app, refById, { prompt, incremental: !clear || allowIncomplete, allowIncomplete });
+    const health = verifyCircuitHealth(app, refById, { prompt, incremental: !clear || allowIncomplete, allowIncomplete, strictHealth });
     if (!health.ok) {
       app.load(backup, true);
       app.setMode(prevMode);

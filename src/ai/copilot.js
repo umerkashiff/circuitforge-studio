@@ -243,7 +243,7 @@ export class AiCopilot {
           else guideSummary = staged.summary;
         } else if (effectiveIntent === 'build') {
           this._setStatus('Verifying & simulating circuit…');
-          buildSummary = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true, prompt: verifyPrompt });
+          buildSummary = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true, prompt: verifyPrompt, strictHealth: true });
           for (let attempt = 0; attempt < MAX_REPAIRS && !buildSummary.ok && buildSummary.errors?.length; attempt++) {
             this._setStatus(`Auto-fixing circuit (${attempt + 1}/${MAX_REPAIRS})…`);
             const powerHint = buildSummary.errors.some(e => /no power|vcc|gnd/i.test(e))
@@ -264,13 +264,13 @@ export class AiCopilot {
               selfFixed = true;
               break;
             }
-            buildSummary = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true, prompt: verifyPrompt });
+            buildSummary = applyAiBuildPlan(this.app, parsed, { commit: true, startSim: true, prompt: verifyPrompt, strictHealth: true });
             if (buildSummary.ok) selfFixed = true;
           }
         } else {
           this._setStatus('Verifying guided steps…');
           const title = parsed.title || prompt.slice(0, 48);
-          guideSummary = this.app.aiGuide.start(parsed, title, { prompt: verifyPrompt });
+          guideSummary = this.app.aiGuide.start(parsed, title, { prompt: verifyPrompt, strictHealth: true });
           for (let attempt = 0; attempt < MAX_REPAIRS && !guideSummary.ok && guideSummary.errors?.length; attempt++) {
             this._setStatus(`Auto-fixing guided steps (${attempt + 1}/${MAX_REPAIRS})…`);
             const fixPrompt = `Your previous guided circuit JSON failed verification:\nErrors:\n- ${guideSummary.errors.join('\n- ')}\n\nFix ONLY these problems using EXACT pin names from the schemas and output MINIFIED STRICT JSON.`;
@@ -279,7 +279,7 @@ export class AiCopilot {
             res = retry;
             if (!retry.parsed) continue;
             parsed = retry.parsed;
-            guideSummary = this.app.aiGuide.start(parsed, title, { prompt: verifyPrompt });
+            guideSummary = this.app.aiGuide.start(parsed, title, { prompt: verifyPrompt, strictHealth: true });
             if (guideSummary.ok) selfFixed = true;
           }
         }
@@ -411,6 +411,7 @@ export class AiCopilot {
         startSim: false,
         prompt: verifyPrompt,
         allowIncomplete: stageMore,
+        strictHealth: !stageMore,
         initialRefMap: stageRefMap,
       });
 
@@ -446,6 +447,7 @@ export class AiCopilot {
           startSim: false,
           prompt: verifyPrompt,
           allowIncomplete: stageMore,
+          strictHealth: !stageMore,
           initialRefMap: stageRefMap,
         });
         if (stageRes.ok) selfFixed = true;
@@ -462,7 +464,7 @@ export class AiCopilot {
       }
       if (madeNoChanges && stage >= 3) {
         curPlan = { ...curPlan, more: false };
-        stageRes = applyAiBuildPlan(sbx, { clearExisting: false, parts: [], connections: [], more: false }, { commit: false, startSim: false, prompt: verifyPrompt, allowIncomplete: false, initialRefMap: stageRefMap });
+        stageRes = applyAiBuildPlan(sbx, { clearExisting: false, parts: [], connections: [], more: false }, { commit: false, startSim: false, prompt: verifyPrompt, allowIncomplete: false, strictHealth: true, initialRefMap: stageRefMap });
         if (stageRes.ok) break;
       }
 
