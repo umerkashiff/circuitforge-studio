@@ -104,6 +104,7 @@ export function transpile(src) {
   const closers = [];
   let paren = 0, brace = 0;
   const parenKw = [];          // keyword that opened each '('
+  const loopHeaders = [];      // active while/for headers needing cooperative yield guards
   let lastClosedKw = null;
   let fnDepth = -1;            // brace depth of current function body
   let statementStart = true;
@@ -295,27 +296,59 @@ export function transpile(src) {
       continue;
     }
     switch (v) {
-      case '(':
+      case '(': {
+        const kw = T(k - 2).v;
         paren++;
-        parenKw.push(T(k - 2).v);
+        parenKw.push(kw);
         emit('(');
-        if (forInit && parenKw[parenKw.length - 1] === 'for') { statementStart = true; forInit = false; }
+        if (forInit && kw === 'for') { statementStart = true; forInit = false; }
+        if (fnDepth >= 0 && (kw === 'while' || kw === 'for')) {
+          if (kw === 'while') {
+            emit('((++__api.__n<=4000||(__api.__n=0,(yield 0),true))&&(');
+            loopHeaders.push({ kw: 'while', paren });
+          } else {
+            loopHeaders.push({ kw: 'for', paren, semis: 0, wrapped: false });
+          }
+        }
         break;
-      case ')':
+      }
+      case ')': {
         flushClosers(')');
+        if (loopHeaders.length && loopHeaders[loopHeaders.length - 1].paren === paren) {
+          const lh = loopHeaders.pop();
+          if (lh.kw === 'while' || lh.wrapped) emit('))');
+        }
         paren--;
         lastClosedKw = parenKw.pop();
         emit(')');
         if (closers.length && closers[closers.length - 1].paren === paren + 1 && closers[closers.length - 1].call) emit(closers.pop().text);
         break;
-      case ';': flushClosers(';'); emit(';'); statementStart = true; if (sink !== out) sink = out; break;
+      }
+      case ';': {
+        flushClosers(';');
+        const lh = loopHeaders[loopHeaders.length - 1];
+        if (lh && lh.kw === 'for' && lh.paren === paren) {
+          lh.semis++;
+          if (lh.semis === 2 && lh.wrapped) { emit('))'); lh.wrapped = false; }
+          emit(';');
+          if (lh.semis === 1) {
+            if (peek().v === ';') emit('(++__api.__n<=4000||(__api.__n=0,(yield 0),true))');
+            else { emit('((++__api.__n<=4000||(__api.__n=0,(yield 0),true))&&('); lh.wrapped = true; }
+          }
+        } else {
+          emit(';');
+        }
+        statementStart = true;
+        if (sink !== out) sink = out;
+        break;
+      }
       case ',': flushClosers(','); emit(','); break;
       case '{': {
         brace++;
         emit('{');
         if (pendingFnBody) { fnDepth = brace; pendingFnBody = false; }
         const prev = T(k - 2).v;
-        if ((prev === ')' && (lastClosedKw === 'for' || lastClosedKw === 'while')) || prev === 'do') emit('if(++__api.__n>4000){__api.__n=0;yield 0;}');
+        if (prev === 'do') emit('if(++__api.__n>4000){__api.__n=0;yield 0;}');
         statementStart = true;
         break;
       }

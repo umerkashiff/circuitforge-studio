@@ -1270,4 +1270,92 @@ assert.equal(badPinMcu.ok, false, 'Invalid GPIO 99 on Uno must trigger runtime n
 assert.match(badPinMcu.errors.join(' '), /doesn’t exist/);
 console.log('   [PASS] Smart conflict replacement, 3-var switch-count check & MCU GPIO note check passed.');
 
+console.log('21. Testing Typos/Synonyms, Tactile "1:1.l" Colon-Hint Roundtrip & Pot/Tactile Analog Verification...');
+// 21a: Typo & colloquial synonym normalization
+for (const [alias, expectedType] of [
+  ['board-arduino-uno', 'uno'],
+  ['atmega328p', 'uno'],
+  ['resiters', 'resistor'],
+  ['capcitors', 'capacitor'],
+  ['condensator', 'capacitor'],
+  ['trimpot', 'pot'],
+  ['potnetiometer', 'pot'],
+  ['peizo sounder', 'buzzer'],
+  ['horn', 'buzzer'],
+  ['8 segment bar led array', 'bargraph'],
+  ['tact button', 'tactile'],
+  ['ne-555', 'ne555'],
+  ['cro', 'oscilloscope'],
+  ['func gen', 'funcgen'],
+]) {
+  const r = resolvePartType(alias);
+  assert.equal(r?.type, expectedType, `Expected "${alias}" -> "${expectedType}", got ${r?.type}`);
+}
+const bjtRes = resolvePartType('2n3904');
+assert.equal(bjtRes?.type, 'npn');
+assert.equal(bjtRes?.props?.model, '2N3904');
+
+// 21b: Tactile pin resolution ("1:1.l" copied from error hint, "1"/"2" switched terminals without internal short)
+const app21 = createHeadlessApp();
+const tactTest = applyAiBuildPlan(app21, {
+  clearExisting: true, board: 'half',
+  parts: [
+    { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+    { ref: 'B1', type: 'tact button' },
+    { ref: 'Q1', type: '2n3904' },
+    { ref: 'P1', type: 'trimpot' },
+    { ref: 'R1', type: 'resiter', props: { ohms: 220 } },
+    { ref: 'Rb', type: 'resistor', props: { ohms: 10000 } },
+    { ref: 'D1', type: 'led' },
+    { ref: 'BZ1', type: 'peizo sounder' },
+  ],
+  connections: [
+    ['V1.1', '+'], ['G1.1', '-'],
+    ['+', 'P1.1'], ['-', 'P1.3'], ['P1.W', 'B1.1:1.l'],
+    ['B1.2', 'Rb.1'], ['Rb.2', 'Q1.B'],
+    ['Q1.E', '-'], ['+', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', 'Q1.C'],
+    ['+', 'BZ1.+'], ['BZ1.\u2013', 'Q1.C'],
+  ],
+}, { strictHealth: true, prompt: 'test tactile pot npn lie detector' });
+assert.equal(tactTest.ok, true, 'Tactile + pot + 2N3904 + buzzer(en-dash) must wire & pass strictHealth: ' + JSON.stringify(tactTest.errors));
+
+// Still reject an actually broken LED even when tactile & pot exist
+const broken21 = applyAiBuildPlan(createHeadlessApp(), {
+  clearExisting: true, board: 'half',
+  parts: [
+    { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+    { ref: 'B1', type: 'tactile' }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'D1', type: 'led' },
+  ],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['+', 'B1.1'], ['B1.2', 'R1.1'], ['R1.2', 'D1.K'], ['D1.A', '-']],
+}, { strictHealth: true });
+assert.equal(broken21.ok, false, 'Reverse-biased LED on tactile circuit must still fail');
+
+// Reject tactile wired only to one internally-bridged side (1.l + 1.r)
+const sameSideTactile = applyAiBuildPlan(createHeadlessApp(), {
+  clearExisting: true, board: 'half',
+  parts: [
+    { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' },
+    { ref: 'B1', type: 'tactile' }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'D1', type: 'led' },
+  ],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['+', 'B1.1.l'], ['B1.1.r', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', '-']],
+}, { strictHealth: true });
+assert.equal(sameSideTactile.ok, false, 'Tactile wired on only 1.l+1.r bridged side must fail');
+assert.match(sameSideTactile.errors.join(' '), /bridged side/i);
+
+// MCU + tactile button must STILL reject shorted (A=K) or open LEDs & yield cleanly on brace-less polling loops
+const tLoop0 = Date.now();
+const shortedMcuBtn = applyAiBuildPlan(createHeadlessApp(), {
+  clearExisting: true, board: 'half',
+  parts: [
+    { ref: 'MCU', type: 'uno', props: { code: 'void setup(){pinMode(13,OUTPUT);pinMode(2,INPUT_PULLUP);} void loop(){ while(digitalRead(2)==HIGH); }' } },
+    { ref: 'B1', type: 'tactile' },
+    { ref: 'D1', type: 'led' },
+  ],
+  connections: [['MCU.2', 'B1.1.l'], ['B1.2.l', 'MCU.GND'], ['MCU.GND', 'D1.A'], ['MCU.GND', 'D1.K']],
+}, { strictHealth: true });
+assert.ok(Date.now() - tLoop0 < 2000, 'Brace-less while(digitalRead(2)==HIGH); must yield instead of hanging');
+assert.equal(shortedMcuBtn.ok, false, 'MCU + tactile circuit must still reject shorted (A=K) LED');
+assert.match(shortedMcuBtn.errors.join(' '), /shorted onto the same/i);
+console.log('   [PASS] Synonyms/typos, en-dash buzzer, tactile pin/bridge checks, pot/tactile sweep & loop yield passed.');
+
 console.log('\nALL AI COPILOT AUTOMATED TESTS PASSED 100%!');

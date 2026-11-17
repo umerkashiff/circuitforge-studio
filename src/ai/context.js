@@ -26,8 +26,8 @@ const CORE_TYPES = new Set([
 ]);
 
 const KEYWORD_MATCHERS = [
-  [/\b(555|ne555|astable|monostable|blink|flash|timer|pulse|oscillat)/i, ['ne555']],
-  [/\b(scope|oscilloscope|waveform|trace|probe|measure|frequency|khz)\b/i, ['oscilloscope']],
+  [/\b(555|ne-?555|lm-?555|astable|monostable|blink|flash|timm?er|pulse|oscil+\w*|siren|apc|atari\s*punk)/i, ['ne555']],
+  [/\b(scope|cro|oscilloscope|waveform|trace|probe|measure|frequency|khz|ut2062\w*)\b/i, ['oscilloscope']],
   [/\b(and\s+gate|7408|74\s?ls\s?08|ic7408)\b/i, ['ic7408']],
   [/\b(not\s+gate|inverter|invert|complement|7404|ic7404)\b/i, ['ic7404']],
   [/\b(nand|7400|ic7400)\b/i, ['ic7400']],
@@ -43,22 +43,22 @@ const KEYWORD_MATCHERS = [
   [/\b(7[-\s]?seg|seven[-\s]?seg|7447|7448|bcd)\b/i, ['seg7', 'ic7447', 'ic7448']],
   [/\b(mux|multiplexer|74151|74153|74157|74158)\b/i, ['ic74151', 'ic74153', 'ic74157']],
   [/\b(demux|demultiplexer|decoder|encoder|priority|74138|74238|74139|74148)\b/i, ['ic74138', 'ic74139', 'ic74148']],
-  [/\b(counter|decade|mod[-\s]?\d+|divider|divide[-\s]?by|7490|7493|74193|4017)\b/i, ['ic7493', 'ic7490', 'ic74193', 'ic4017', 'ic7474']],
-  [/\b(shift|register|74595|74165|74194)\b/i, ['ic74595', 'ic74165', 'ic74194']],
+  [/\b(counter|dec[ae]?de|cnt?r|mod[-\s]?\d+|divider|divide[-\s]?by|7490|7493|74193|4017|chaser|scan+er|knight\s*rider|roulette)\b/i, ['ic7493', 'ic7490', 'ic74193', 'ic4017', 'ic7474']],
+  [/\b(shift|regist[eo]r|sipo|74595|74\s?hc\s?595|74165|74194)\b/i, ['ic74595', 'ic74165', 'ic74194']],
   [/\b(flip[-\s]?flop|latch|d[-\s]?ff|jk|sr|7474|7473|7476|74279|4013)\b/i, ['ic7474', 'ic7473', 'ic7476', 'ic4013', 'ic74279']],
   [/\b(sop|pos|boolean|k[-\s]?map|karnaugh|minterm|truth\s*table|demorgan|logic\s+gate|gates)\b/i, ['ic7400', 'ic7410', 'ic7420']],
   [/\b(buffer|tristate|tri-state|74125|74244|74245|74541)\b/i, ['ic74125', 'ic74244', 'ic74245']],
-  [/\b(funcgen|signal\s*gen|function\s*gen|sine|square|triangle|filter|sweep)\b/i, ['funcgen', 'oscilloscope', 'inductor']],
+  [/\b(func\s*gen|signal\s*gen|function\s*gen|sine\w*|square|triangle|filter|sweep|overdrive|fuzz|clip+\w*|distort\w*)\b/i, ['funcgen', 'oscilloscope', 'inductor', 'diode']],
   [/\b(power\s*sup|psu|bench\s*supply|battery|mps)\b/i, ['power-supply', 'battery']],
-  [/\b(arduino|uno)\b/i, ['uno']],
+  [/\b(arduino|arudino|atmega328\w*|uno)\b/i, ['uno']],
   [/\bnano\b/i, ['nano']],
-  [/\besp32[-\s]?s3\b/i, ['esp32s3']],
-  [/\besp32\b/i, ['esp32']],
+  [/\besp[-\s]?32[-\s]?s3\b/i, ['esp32s3']],
+  [/\besp[-\s]?32\b/i, ['esp32']],
   [/\b(stm32|blue\s*pill)\b/i, ['bluepill']],
   [/\b(sketch|serial\.begin|digitalwrite|analogread)\b/i, ['uno']],
-  [/\b(oled|lcd|display|screen|matrix|grid|name|text|scroll|message|pixel|draw|letter|word|bar\s*graph|buzzer|tone|relay|rgb)\b/i, ['uno', 'board-ssd1306', 'lcd16x2', 'wokwi-lcd1602', 'bargraph', 'buzzer', 'wokwi-relay-module', 'wokwi-rgb-led']],
-  [/\b(transistor|npn|jfet|diode|pot|potentiometer|slide|dip|tactile|trainer|logic\s*an)\b/i, ['npn', 'jfet', 'diode', 'pot', 'slide', 'dip4', 'dip8', 'tactile', 'trainer-board', 'wokwi-logic-analyzer']],
-  [/\b(mpu6050|bmp180|ds1307|joystick|rtc)\b/i, ['wokwi-mpu6050', 'wokwi-bmp180', 'wokwi-ds1307', 'wokwi-analog-joystick']],
+  [/\b(oled|lcd|display|screen|matrix|grid|name|text|scroll|message|pixel|draw|letter|word|bar\s*graph|led\s*bar|segment\s*bar|buzzers?|p[ie]+zo|beeper|sounder|horn|siren|relay|rgb)\b/i, ['uno', 'board-ssd1306', 'lcd16x2', 'wokwi-lcd1602', 'bargraph', 'buzzer', 'wokwi-relay-module', 'wokwi-rgb-led']],
+  [/\b(transistor|npn|bjt|darling\w*|2n3904|2n2222|bc547|jfet|diode|1n4148|1n400[17]|rectifier|pot|trimpot|pot[a-z]*met[a-z]*|vr|slide|dip|tact\w*|push\s*button\w*|momenta\w*|trainer|logic\s*an)\b/i, ['npn', 'jfet', 'diode', 'pot', 'slide', 'dip4', 'dip8', 'tactile', 'trainer-board', 'wokwi-logic-analyzer']],
+  [/\b(mpu[-\s]?6050|bmp[-\s]?180|ds1307|joystick|thumbstick|gamep[a]?d|rtc|baro)\b/i, ['wokwi-mpu6050', 'wokwi-bmp180', 'wokwi-ds1307', 'wokwi-analog-joystick']],
 ];
 
 function selectDetailedTypes(queryText = '', app = null) {
@@ -92,7 +92,7 @@ const PART_HINTS = {
   clock: ' // active 5V/0V source (do NOT wire +5V/GND to OUT)',
   dip4: ' // active 5V/0V drivers S1..S4 (do NOT wire +5V/GND to S1..S4)',
   dip8: ' // active 5V/0V drivers S1..S8 (do NOT wire +5V/GND to S1..S8)',
-  ne555: ' // Astable: R1(+->DIS), R2(DIS->THR), THR-TRIG, C(THR->-), RESET->+',
+  ne555: ' // Astable: R1(+->DIS), R2(DIS->THR), THR-TRIG, C(THR->-), RESET->+. Monostable: R(+->DIS), DIS-THR, C(THR->-), input->TRIG',
   inductor: ' // 2-pin DC wire passive: connect in SERIES with resistor+LED, never directly across +5V/GND or gate OUT->GND',
   ic4013: ' // CMOS power: VDD->"+", VSS->"-"',
   ic4017: ' // CMOS power: VDD->"+", VSS->"-"',
@@ -107,6 +107,9 @@ const PART_HINTS = {
   ic7448: ' // Active-HIGH -> seg7 common:"cathode"; LT,RBI,BI/RBO->"+"',
   'board-ssd1306': ' // I2C OLED: VCC->"+", GND->"-", SDA->U1.A4, SCL->U1.A5',
   'wokwi-lcd1602': ' // I2C LCD: VCC->"+", GND->"-", SDA->U1.A4, SCL->U1.A5',
+  npn: ' // Low-side load: "+"->R->LED.A, LED.K->C, E->"-"; Base via R (never K to "+")',
+  tactile: ' // 1.l==1.r & 2.l==2.r permanently bridged; press bridges 1<->2 (always wire 1.l & 2.l)',
+  led: ' // Forward: Anode(+/R)->Cathode(-/NPN.C); never reverse A<K',
   oscilloscope: ' // ~1Hz timeDiv=0.2; 1kHz timeDiv=0.0005',
 };
 

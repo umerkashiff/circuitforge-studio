@@ -315,15 +315,24 @@ function parseOtpBudgetRemaining(errPayload) {
   return Math.max(0, limit - used - 40);
 }
 
-async function sendCompletion({ cleanKey, baseUrl = GROQ_BASE, body, fetchFn }) {
+async function sendCompletion({ cleanKey, baseUrl = GROQ_BASE, body, fetchFn, timeoutMs = 45000 }) {
   const url = cleanKey ? `${baseUrl}/chat/completions` : '/api/ai';
   const headers = { 'Content-Type': 'application/json' };
   if (cleanKey) headers.Authorization = `Bearer ${cleanKey}`;
-  const res = await fetchFn(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  });
+  const opts = { method: 'POST', headers, body: JSON.stringify(body) };
+  if (timeoutMs > 0 && typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    opts.signal = AbortSignal.timeout(timeoutMs);
+  }
+  let res;
+  try {
+    res = await fetchFn(url, opts);
+  } catch (err) {
+    return {
+      ok: false,
+      status: err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 504 : 503,
+      payload: { error: { message: err?.message || 'Network request failed' } },
+    };
+  }
   let payload = null;
   try { payload = await res.json(); } catch { payload = null; }
   return { ok: res.ok, status: res.status, payload };

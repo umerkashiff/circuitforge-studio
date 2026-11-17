@@ -64,26 +64,39 @@ export function resolvePartType(rawType, rawProps = {}) {
   if (getDef(s, true)) return { type: s, props };
 
   const low = s.toLowerCase().replace(/\s+/g, ' ');
-  if (low === '555' || low === 'ne-555' || low === 'lm555' || low === 'ic555' || low === '555 timer') return { type: 'ne555', props: { ...props } };
-  if (low === 'dip8' || low === 'dip-8' || low === 'dip 8' || low === '8 dip switch' || low === '8-dip switch' || low === 'dip switch 8' || low === 'dip switch') return { type: 'dip8', props: { ...props } };
-  if (low === 'dip4' || low === 'dip-4' || low === 'dip 4' || low === '4 dip switch' || low === 'dip switch 4') return { type: 'dip4', props: { ...props } };
-  if (low === 'resistor' || low === 'r') return { type: 'resistor', props: { ...props } };
-  if (low === 'capacitor' || low === 'cap' || low === 'c') return { type: 'capacitor', props: { ...props } };
-  if (low === 'inductor' || low === 'l') return { type: 'inductor', props: { ...props } };
-  if (low === 'diode' || low === '1n4148' || low === '1n4001' || low === '1n4007') {
+  if (/^(?:555|ne-?555|lm-?555|ic-?555|timer\s*555|555\s*timer|555\s*oscil+\w*)$/.test(low)) return { type: 'ne555', props: { ...props } };
+  if (/^(?:dip-?8|8[-\s]*dip\s*switch|dip\s*switch\s*8|dip\s*switch)$/.test(low)) return { type: 'dip8', props: { ...props } };
+  if (/^(?:dip-?4|4[-\s]*dip\s*switch|dip\s*switch\s*4)$/.test(low)) return { type: 'dip4', props: { ...props } };
+  if (/^(?:r|resis?t[eo]rs?)$/.test(low)) return { type: 'resistor', props: { ...props } };
+  if (/^(?:c|caps?|capacitors?|capcitors?|condensators?|condensers?)$/.test(low)) return { type: 'capacitor', props: { ...props } };
+  if (/^(?:l|inductors?|coils?|chokes?)$/.test(low)) return { type: 'inductor', props: { ...props } };
+  if (/^(?:potentiometers?|potnetiometers?|potentiomters?|trimpots?|variable\s*resistors?|rheostats?|vr|pot)$/.test(low)) return { type: 'pot', props: { ...props } };
+  if (/^(?:buzzers?|piezos?|peizos?|piezo\s*buzzers?|peizo\s*buzzers?|peizo\s*sounders?|piezo\s*sounders?|sounders?|beepers?|peizo\s*beepers?|piezo\s*beepers?|speakers?|horns?)$/.test(low)) return { type: 'buzzer', props: { ...props } };
+  if (/^(?:tactile|tact|tact\s*buttons?|tactile\s*buttons?|tactile\s*switch|momentary\s*switch|push\s*buttons?|pushbuttons?|wokwi-pushbutton)$/.test(low)) return { type: 'tactile', props: { ...props } };
+  if (/^(?:npn|bjt|npn\s*bjt|transistors?|npn\s*transistors?|2n3904|2n2222|bc547)(?:\s+(?:npn|bjt|transistor))?$/.test(low)) {
+    const out = { ...props };
+    if (/2n3904/.test(low)) out.model = '2N3904';
+    else if (/2n2222/.test(low)) out.model = '2N2222';
+    else if (/bc547/.test(low)) out.model = 'BC547';
+    return { type: 'npn', props: out };
+  }
+  if (/^(?:bargraph|bar\s*graph|led\s*bar|led\s*array|8[-\s]*led\s*bar|8[-\s]*segment\s*bar(?:\s*led)?(?:\s*array)?)$/.test(low)) return { type: 'bargraph', props: { ...props } };
+  if (low === 'diode' || low === 'diodes' || low === '1n4148' || low === '1n4001' || low === '1n4007' || low === 'rectifier') {
     const out = { ...props };
     if (low.startsWith('1n')) out.model = low.toUpperCase();
     return { type: 'diode', props: out };
   }
-  if (/^(red|green|yellow|blue|white)\s*led$/.test(low)) {
+  if (/^(red|green|yellow|blue|white)\s*leds?$/.test(low)) {
     const col = low.split(' ')[0];
     return { type: 'led', props: { color: col, ...props } };
   }
-  if (low === 'scope' || low === 'ut2062b') return { type: 'oscilloscope', props: { ...props } };
-  if (low === 'signal generator' || low === 'function generator' || low === 'egc-3235a' || low === 'egc3235a') return { type: 'funcgen', props: { ...props } };
+  if (low === 'scope' || low === 'cro' || low === 'ut2062b') return { type: 'oscilloscope', props: { ...props } };
+  if (low === 'signal generator' || low === 'function generator' || low === 'func gen' || low === 'egc-3235a' || low === 'egc3235a') return { type: 'funcgen', props: { ...props } };
   if (low === 'psu' || low === 'power supply' || low === 'mps-3005l-3') return { type: 'power-supply', props: { ...props } };
-  if (low === 'arduino' || low === 'arduino uno' || low === 'uno r3') return { type: 'uno', props: { ...props } };
+  if (low === 'arduino' || low === 'arduino uno' || low === 'uno r3' || low === 'board-arduino-uno' || low === 'atmega328' || low === 'atmega328p') return { type: 'uno', props: { ...props } };
   if (low === 'arduino nano') return { type: 'nano', props: { ...props } };
+  if (low === 'esp-32' || low === 'esp32 devkit' || low === 'esp32 devkit v1') return { type: 'esp32', props: { ...props } };
+  if (low === 'esp-32-s3' || low === 'esp32 s3') return { type: 'esp32s3', props: { ...props } };
   if (low === 'stm32' || low === 'stm32 blue pill') return { type: 'bluepill', props: { ...props } };
   if (low === '5v' || low === '+5v' || low === '+5 v supply') return { type: 'vcc', props: { ...props } };
   if (low === 'ground' || low === '0v') return { type: 'gnd', props: { ...props } };
@@ -102,7 +115,7 @@ export function resolvePartType(rawType, rawProps = {}) {
   return null;
 }
 
-const normRawPin = (s) => String(s || '').trim().replace(/−/g, '-').toUpperCase();
+const normRawPin = (s) => String(s || '').trim().replace(/[−–—]/g, '-').toUpperCase();
 const normPin = (s) => normRawPin(s).replace(/\u0305/g, '');
 const squashPin = (s) => normPin(s).replace(/[^A-Z0-9]/g, '');
 
@@ -119,7 +132,16 @@ function extractInvertedStem(targetRaw) {
 /** Resolve a symbolic pin identifier (name, inverted bar, CMOS VDD/VSS, alias, or 1-based number) on a Part. */
 export function resolvePinIndex(part, rawPin) {
   const pins = part.worldPins();
-  const targetRaw = normRawPin(rawPin);
+  const targetRawPre = normRawPin(rawPin);
+  // Tolerate "1:1.l" or "3:OUT" copied from 1-based Valid pins hints
+  const colonPrefix = /^(\d+):(.+)$/.exec(targetRawPre);
+  if (colonPrefix) {
+    const bySuffix = resolvePinIndex(part, colonPrefix[2]);
+    if (bySuffix >= 0) return bySuffix;
+    const nIdx = parseInt(colonPrefix[1], 10) - 1;
+    if (nIdx >= 0 && nIdx < pins.length) return nIdx;
+  }
+  const targetRaw = targetRawPre;
   const target = normPin(rawPin);
   if (!target) return -1;
 
@@ -190,6 +212,7 @@ export function resolvePinIndex(part, rawPin) {
     gnd: { GND: 0, '-': 0, '0V': 0 },
     toggle: { OUT: 0, '1': 0 },
     button: { OUT: 0, '1': 0 },
+    tactile: { '1L': 0, '1.L': 0, L1: 0, '1R': 1, '1.R': 1, R1: 1, '2L': 2, '2.L': 2, L2: 2, '2R': 3, '2.R': 3, R2: 3, A: 0, IN: 0, '1': 0, B: 2, OUT: 2, '2': 2 },
     clock: { CLK: 0, OUT: 0, '1': 0 },
     seg7: { CC: 2, CA: 2, COM1: 2, COM2: 7, GND: 2, VCC: 2 },
     ic7447: { BI: 3, RBO: 3, '/LT': 2, '/RBI': 4, '/RBO': 3 },
@@ -824,11 +847,12 @@ export function resolveEndpoint(app, token, refMap, otherHint = null, wireCtx = 
       const seen = new Map();
       for (const [k, pt] of refMap) if (pt?.id && k !== pt.id && !seen.has(pt.id)) seen.set(pt.id, `${k}(${pt.type})`);
       const known = [...seen.values()].slice(0, 12).join(', ');
-      throw new Error(`Unknown part reference "${ref}" in connection "${raw}"${known ? `. Declared parts: [${known}]` : ''}`);
+      const vccHint = /^(?:V\d*|VCC\d*|G\d*|GND\d*)$/i.test(ref) ? ' — include {"ref":"V1","type":"vcc"} and {"ref":"G1","type":"gnd"} in "parts"!' : '';
+      throw new Error(`Unknown part reference "${ref}" in connection "${raw}"${vccHint}${known ? `. Declared parts: [${known}]` : ''}`);
     }
     const pi = resolvePinIndex(part, pinName);
     if (pi < 0) {
-      const validPins = part.worldPins().map((p, i) => `${i + 1}:${p.name}`).join(', ');
+      const validPins = part.worldPins().map((p, i) => `${p.name}(#${i + 1})`).join(', ');
       throw new Error(`Unknown pin "${pinName}" on part "${ref}" (${part.type}). Valid pins: [${validPins}]`);
     }
     const wp = part.worldPins()[pi];
@@ -1157,8 +1181,16 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
         for (const [idx, nm] of [[1, 'TRIG'], [5, 'THR']]) {
           const pn = ent.pinNets?.[idx] ?? -1;
           if (pn >= 0 && !sim.isNetConnected(pn)) {
-            errors.push(`ne555 ("${tag}") ${nm} pin is unconnected — for astable, tie THR to TRIG, R1(+->DIS), R2(DIS->THR), C(THR->-), RESET->+.`);
+            errors.push(`ne555 ("${tag}") ${nm} pin is unconnected — for astable tie THR->TRIG, R1(+->DIS), R2(DIS->THR), C(THR->-), RESET->+; for monostable tie DIS->THR->C->-, R(+->DIS), input->TRIG, RESET->+.`);
           }
+        }
+      }
+    } else if (p.type === 'tactile') {
+      if (!allowIncomplete && ent.pinNets.length === 4) {
+        const side1 = sim.isNetConnected(ent.pinNets[0]) || sim.isNetConnected(ent.pinNets[1]);
+        const side2 = sim.isNetConnected(ent.pinNets[2]) || sim.isNetConnected(ent.pinNets[3]);
+        if ((side1 && !side2) || (side2 && !side1)) {
+          errors.push(`tactile button ("${tag}") only connects to one internally-bridged side (1.l/1.r OR 2.l/2.r) so pressing it cannot switch — wire one terminal to "${tag}.1.l" and the switched terminal to "${tag}.2.l".`);
         }
       }
     } else if (p.type === 'resistor' || p.type === 'led' || p.type === 'diode' || p.type === 'capacitor' || p.type === 'inductor') {
@@ -1596,16 +1628,18 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
     }
     for (const sp of placedSpecs) refById.set(sp.partId, sp.ref);
 
-    // Auto-wire omitted IC VCC/VDD -> "+" and GND/VSS -> "-" only when rails already carry active power & ground
+    // Auto-wire omitted/unchained IC VCC/VDD -> "+" and GND/VSS -> "-" only when rails already carry active power & ground
     const bBridge = app.circuit.boards[0];
     if (plan.autoPower !== false && bBridge && bBridge.rails) {
+      const netHasSupply = (n, tags) => {
+        if (n < 0) return false;
+        const ks = app.netKinds.get(n) || [];
+        return ks.some(k => tags.includes(String(k.kind || '').split(':')[0]));
+      };
       const railHasSupply = (railChar, tags) => {
         for (const [, hl] of app.index.holes) {
           if (hl.rail !== railChar) continue;
-          const n = app.engine.netAt(hl.x, hl.y);
-          if (n < 0) continue;
-          const ks = app.netKinds.get(n) || [];
-          if (ks.some(k => tags.includes(String(k.kind || '').split(':')[0]))) return true;
+          if (netHasSupply(app.engine.netAt(hl.x, hl.y), tags)) return true;
         }
         return false;
       };
@@ -1618,7 +1652,7 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
             const isG = /^(GND|VSS)$/i.test(wp.name);
             if (!isV && !isG) continue;
             const n = app.engine.netAt(wp.x, wp.y);
-            if (n >= 0 && !app.engine.isNetConnected(n)) {
+            if (n >= 0 && !(app.netKinds.get(n)?.length)) {
               wirePair(`${tag}.${wp.name}`, isG ? '-' : '+');
             }
           }

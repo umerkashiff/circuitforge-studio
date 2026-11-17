@@ -7,6 +7,7 @@
  *  - Clocked sequential flip-flop/counter liveness checks
  */
 import { getDef } from '../parts/registry.js';
+import { Engine } from '../sim/engine.js';
 
 const NAND_TYPES = new Set(['ic7400', 'ic7410', 'ic7420', 'ic7430']);
 const NOR_TYPES = new Set(['ic7402', 'ic7427']);
@@ -567,15 +568,17 @@ export function probeCircuitLedBehavior(sim, circuit) {
     };
   });
 
-  const sampleLeds = () => {
+  const sampleLeds = (eng = sim) => {
     for (const s of stats) {
-      const ent = sim.byPart.get(s.id);
+      const ent = eng.byPart.get(s.id);
       if (ent?.device?.blown?.[0]) s.blown = true;
       const mA = (ent?.device?.cur?.[0] || 0) * 1000;
       if (mA > s.peakMa) s.peakMa = mA;
       if (mA < s.minMa) s.minMa = mA;
-      if (s.nA >= 0) s.vA = sim.voltage(s.nA);
-      if (s.nK >= 0) s.vK = sim.voltage(s.nK);
+      const nA = ent?.pinNets?.[0] ?? -1;
+      const nK = ent?.pinNets?.[1] ?? -1;
+      if (nA >= 0) s.vA = eng.voltage(nA);
+      if (nK >= 0) s.vK = eng.voltage(nK);
     }
   };
 
@@ -589,6 +592,8 @@ export function probeCircuitLedBehavior(sim, circuit) {
     const ent = sim.byPart.get(p.id);
     return ent && sim.isNetConnected(ent.pinNets[0]);
   });
+  const pots = circuit.parts.filter(p => p.type === 'pot' || p.type === 'wokwi-slide-potentiometer');
+  const tactiles = circuit.parts.filter(p => p.type === 'tactile');
 
   const setters = [];
   for (const dip of dips) {
@@ -602,6 +607,17 @@ export function probeCircuitLedBehavior(sim, circuit) {
 
   const savedDipBits = dips.map(d => d.props.bits.slice());
   const savedToggles = toggles.map(t => Boolean(t.props.on));
+  const savedPots = pots.map(p => p.props.pos);
+  const savedTactiles = tactiles.map(t => Boolean(t.ui?.pressed));
+
+  const sweepPots = (eng) => {
+    if (!pots.length) return;
+    for (const pos of [0.05, 0.95]) {
+      pots.forEach(p => { p.props.pos = pos; });
+      for (let i = 0; i < 6; i++) eng.step(0.005);
+      sampleLeds(eng);
+    }
+  };
 
   const runClockWindow = (cycles) => {
     const hzList = clocks.map(c => Math.max(0.25, Math.min(200, +(c.props.frequency || c.props.hz || 1))));
@@ -649,11 +665,22 @@ export function probeCircuitLedBehavior(sim, circuit) {
     } else {
       for (let i = 0; i < 8; i++) sim.step(0.005);
       sampleLeds();
+      sweepPots(sim);
+      if (tactiles.length) {
+        tactiles.forEach(t => { t.ui = { ...(t.ui || {}), pressed: true }; });
+        const pressSim = new Engine();
+        pressSim.build(circuit);
+        for (let i = 0; i < 6; i++) pressSim.step(0.005);
+        sampleLeds(pressSim);
+        sweepPots(pressSim);
+      }
     }
   } finally {
     dips.forEach((d, idx) => { d.props.bits = savedDipBits[idx]; });
     toggles.forEach((t, idx) => { t.props.on = savedToggles[idx]; });
-    if (setters.length) for (let i = 0; i < 3; i++) sim.step(0.005);
+    pots.forEach((p, idx) => { p.props.pos = savedPots[idx]; });
+    tactiles.forEach((t, idx) => { t.ui = { ...(t.ui || {}), pressed: savedTactiles[idx] }; });
+    if (setters.length || pots.length) for (let i = 0; i < 3; i++) sim.step(0.005);
   }
 
   return stats.map(s => ({
@@ -766,7 +793,7 @@ export function verifyCombinationalSwitchLiveness(sim, circuit) {
 /** Verify static LED circuits actually light up and pattern/shape prompts don't light 100% identically. */
 export function verifyStaticLedPattern(prompt, sim, circuit) {
   const txt = String(prompt || '');
-  const hasDynamic = circuit.parts.some(p => ['toggle', 'button', 'dip4', 'dip8', 'clock', 'ne555', 'uno', 'nano', 'esp32', 'esp32s3', 'bluepill'].includes(p.type));
+  const hasDynamic = circuit.parts.some(p => ['toggle', 'button', 'tactile', 'slide', 'pot', 'wokwi-slide-potentiometer', 'dip4', 'dip8', 'clock', 'ne555', 'uno', 'nano', 'esp32', 'esp32s3', 'bluepill'].includes(p.type));
   if (hasDynamic) return [];
   const wiredLeds = circuit.parts.filter(p => {
     if (p.type !== 'led') return false;
@@ -794,7 +821,6 @@ export function verifyStaticLedPattern(prompt, sim, circuit) {
 export function verifyActiveLedHealth(prompt, sim, circuit, refById = null, { requireWiredAll = false } = {}) {
   const hasMcu = circuit.parts.some(p => getDef(p.type).mcu);
   const hasInputSwitch = circuit.parts.some(p => ['button', 'tactile', 'pot', 'wokwi-analog-joystick', 'wokwi-mpu6050'].includes(p.type));
-  if (hasMcu && hasInputSwitch) return [];
   const txt = String(prompt || '');
   const leds = circuit.parts.filter(p => p.type === 'led');
   if (!leds.length) return [];
@@ -804,7 +830,16 @@ export function verifyActiveLedHealth(prompt, sim, circuit, refById = null, { re
     (leds.some(p => p.props?.row !== undefined) || /\b(\d+\s*[x×]\s*\d+|square|matrix|grid|smiley|smile|face|heart|arrow|cross|letter)\b/i.test(txt));
   if (isVisualMatrix) return [];
 
-  const probed = probeCircuitLedBehavior(sim, circuit);
+  const skipLiveness = hasMcu && hasInputSwitch;
+  const probed = skipLiveness
+    ? leds.map((p) => {
+        const ent = sim.byPart.get(p.id);
+        const nA = ent?.pinNets?.[0] ?? -1;
+        const nK = ent?.pinNets?.[1] ?? -1;
+        const open = !ent || !sim.isNetConnected(nA) || !sim.isNetConnected(nK);
+        return { id: p.id, open, shorted: !open && nA >= 0 && nA === nK, blown: Boolean(ent?.device?.blown?.[0]), litOnce: true };
+      })
+    : probeCircuitLedBehavior(sim, circuit);
   const errors = [];
   for (const s of probed) {
     const tag = refById?.get(s.id) || s.id;
@@ -818,7 +853,7 @@ export function verifyActiveLedHealth(prompt, sim, circuit, refById = null, { re
       errors.push(`LED "${tag}" Anode and Cathode are shorted onto the same breadboard strip/net — separate Anode and Cathode onto different strips and connect Cathode to "-".`);
     } else if (s.blown) {
       errors.push(`LED "${tag}" is damaged by excess current — place a 220–470Ω current-limiting resistor in series.`);
-    } else if (!s.litOnce) {
+    } else if (!skipLiveness && !s.litOnce) {
       const vA = Number.isFinite(s.vA) ? `${s.vA.toFixed(2)}V` : 'NC';
       const vK = Number.isFinite(s.vK) ? `${s.vK.toFixed(2)}V` : 'NC';
       if (Number.isFinite(s.vA) && Number.isFinite(s.vK) && s.vK > s.vA + 0.5) {
