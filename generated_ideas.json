@@ -1,0 +1,307 @@
+[
+  {
+    "id": "idea_mwl354p0_0",
+    "bucket": "curriculum",
+    "name": "LED Flasher",
+    "prompt": "I want to build a simple circuit that makes an LED blink. Can you suggest a design using a 555 timer?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ne555"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-17"
+  },
+  {
+    "id": "idea_mwl354p0_1",
+    "bucket": "curriculum",
+    "name": "Basic Logic Gate Tester",
+    "prompt": "How can I test basic logic gates like AND, OR, and NOT? I'd like to use some 74xx series ICs and LEDs to see the output.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7408"
+        ],
+        [
+          "ic7432"
+        ],
+        [
+          "ic7404"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "led_multi"
+    },
+    "createdAt": "2026-11-17"
+  },
+  {
+    "id": "idea_mwl354p0_2",
+    "bucket": "curriculum",
+    "name": "Adjustable Blinking LED",
+    "prompt": "I need a circuit with a potentiometer to control the blinking speed of an LED. A 555 timer would be great for this.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ne555"
+        ],
+        [
+          "led"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-17"
+  },
+  {
+    "id": "idea_mwl354p0_3",
+    "bucket": "curriculum",
+    "name": "Simple Audio Amplifier",
+    "prompt": "Can you design a basic audio amplifier circuit using a transistor? I want to drive a small speaker.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "npn"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "vcc"
+        ]
+      ],
+      "check": "buzzer_active"
+    },
+    "createdAt": "2026-11-17"
+  },
+  {
+    "id": "idea_mwl354p0_4",
+    "bucket": "curriculum",
+    "name": "Voltage Doubler",
+    "prompt": "I want to create a circuit that doubles the input DC voltage using diodes.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "diode"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "vcc"
+        ],
+        [
+          "gnd"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-17"
+  },
+  {
+    "id": "idea_mwl354p0_5",
+    "bucket": "curriculum",
+    "name": "SR Latch",
+    "prompt": "I'd like to build an SR latch using basic logic gates. Show me how to do it with NAND gates.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7400"
+        ],
+        [
+          "led"
+        ],
+        [
+          "vcc"
+        ],
+        [
+          "gnd"
+        ]
+      ],
+      "check": "led_multi"
+    },
+    "createdAt": "2026-11-17"
+  },
+  {
+    "id": "idea_mwl354p0_6",
+    "bucket": "curriculum",
+    "name": "Monostable Multivibrator",
+    "prompt": "I need a circuit that produces a single output pulse of a specific duration when triggered. A 555 timer in monostable mode would be perfect.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ne555"
+        ],
+        [
+          "led"
+        ],
+        [
+          "button"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-17"
+  },
+  {
+    "id": "idea_mwl354p0_7",
+    "bucket": "curriculum",
+    "name": "Decade Counter to 7-Segment Display",
+    "prompt": "How can I use a 7490 decade counter to drive a 7-segment display? I want to count from 0 to 9.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7490"
+        ],
+        [
+          "ic7447"
+        ],
+        [
+          "seg7"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "seg7_active"
+    },
+    "createdAt": "2026-11-17"
+  },
+  {
+    "id": "idea_mwl354p0_8",
+    "bucket": "curriculum",
+    "name": "Basic RC Circuit Analysis",
+    "prompt": "I want to see how a resistor and capacitor interact with a voltage source. Can you set up a simple RC circuit for analysis?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "vcc"
+        ],
+        [
+          "gnd"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-17"
+  },
+  {
+    "id": "idea_mwl354p0_9",
+    "bucket": "curriculum",
+    "name": "Toggle Flip-Flop",
+    "prompt": "I want to build a toggle flip-flop using a 7474 IC. Show me how to make an LED toggle its state with each clock pulse.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7474"
+        ],
+        [
+          "led"
+        ],
+        [
+          "clock"
+        ],
+        [
+          "vcc"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-17"
+  },
+  {
+    "id": "idea_mwl354p0_10",
+    "bucket": "curriculum",
+    "name": "Arduino LED Fade",
+    "prompt": "I want to make an LED fade in and out using an Arduino Uno. Can you provide the circuit diagram and code?",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "led"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-17"
+  },
+  {
+    "id": "idea_mwl354p0_11",
+    "bucket": "curriculum",
+    "name": "Simple Logic Probe",
+    "prompt": "I need a simple tool to check logic levels (high/low) on a digital circuit. Can you design a basic logic probe using LEDs?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7400"
+        ],
+        [
+          "led"
+        ],
+        [
+          "vcc"
+        ],
+        [
+          "gnd"
+        ]
+      ],
+      "check": "led_multi"
+    },
+    "createdAt": "2026-11-17"
+  }
+]

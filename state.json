@@ -1,0 +1,175 @@
+{
+  "cursors": {
+    "wild": 14,
+    "mutation": 29,
+    "combinatorial": 30
+  },
+  "history": [
+    {
+      "date": "2026-11-17",
+      "dryRun": false,
+      "cases": 111,
+      "pass": 74,
+      "httpCalls": 300,
+      "totalTokens": 615154,
+      "graduated": 0,
+      "stopReason": "reached daily call cap (300)"
+    }
+  ],
+  "signatures": {
+    "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC*.CH": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 8,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "reg_guitar_fuzz"
+    },
+    "+ → -: Short <val> supply to ground.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "reg_multiturn_555_mod"
+    },
+    "missing expected type (vcc)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 2,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "idea_mwl354p0_3"
+    },
+    "oscilloscope captured flat/no AC waveform (vpp <= <val>)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 2,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "idea_mwl354p0_4_typo"
+    },
+    "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"B*.OUT\" directly to its destinat": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 2,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "idea_mwl354p0_6"
+    },
+    "missing expected type (led)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 2,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "idea_mwl354p0_7"
+    },
+    "missing expected type (gnd)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 1,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "idea_mwl354p0_8"
+    },
+    "Unknown pin \"GND(##)\" on part \"GND\" (gnd). Valid pins: [GND(##)]": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "idea_mwl354p0_8_typo"
+    },
+    "missing expected type (ic7400)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 2,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "idea_mwl354p0_11"
+    },
+    "Oscilloscope \"OSC\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC.CH*+\"": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "wild_rc_lowpass_scope"
+    },
+    "Output pins #, # are shorted to another output or a supply.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "wild_traffic_light_4017"
+    },
+    "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=<val>) — fix its resistor/driver wiring, check counter/gate inputs, and ensure": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 2,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "wild_decade_dice"
+    },
+    "LED \"<ref>\" has an unconnected pin — wire Anode (via #–#Ω resistor) to its driver/signal and Cathode to \"-\".": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "mut_chaser_v001"
+    },
+    "Boolean logic verification failed for Y = A' + B' * C: when (A=#, B=#, C=#): expected #, got LED OFF (#); when (A=#, B=#, C=#): expected #, ": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "comb_bool_006"
+    },
+    "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"BT*.OUT\" directly to its destina": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "mut_bjt_driver_v001"
+    },
+    "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"O*.CH*+": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "mut_rc_scope_v001"
+    },
+    "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=NC) — fix its resistor/driver wiring, check counter/gate inputs, and ensure se": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 2,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "comb_chain_013"
+    },
+    "Short circuit on the supply — it is wired straight to another supply or ground.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "comb_chain_016"
+    },
+    "diode (\"<ref>\") has one open/unconnected pin (\"Cathode\") — connect \"D*.Cathode\" to complete the circuit.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "comb_chain_019"
+    },
+    "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"SCOPO1.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "mut_rc_scope_v002"
+    },
+    "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"SCOPE1.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "comb_chain_026"
+    },
+    "capacitor (\"<ref>\") has one open/unconnected pin (\"−\") — connect \"C*.−\" to complete the circuit.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-17",
+      "lastSeen": "2026-11-17",
+      "sampleId": "comb_chain_029"
+    }
+  }
+}

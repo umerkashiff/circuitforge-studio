@@ -1,0 +1,650 @@
+{
+  "active": [
+    {
+      "id": "autoreg_reg_guitar_fuzz",
+      "name": "Guitar Overdrive Diode Clipper (typos)",
+      "prompt": "bild an elektric guitar overdrive diode clipper fx circuit using func gen sinewav, coupling capcitor, resistor, 2 inverse 1n4148 rectifiers to clip peaks, and UT2062B cro scope",
+      "scopes": [],
+      "oracle": {
+        "minParts": 5,
+        "requireTypes": [
+          [
+            "funcgen"
+          ],
+          [
+            "oscilloscope"
+          ],
+          [
+            "diode"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC*.CH",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_reg_half_wave_rect",
+      "name": "Half-Wave Diode Rectifier + Filter + Scope",
+      "prompt": "build a half wave rectifier with a 1n4007 diode, function generator 100Hz sine input, load resistor and smoothing cap, plus oscilloscope across input and output",
+      "scopes": [],
+      "oracle": {
+        "minParts": 5,
+        "requireTypes": [
+          [
+            "funcgen"
+          ],
+          [
+            "diode"
+          ],
+          [
+            "oscilloscope"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC*.CH",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_idea_mwl354p0_3",
+      "name": "Simple Audio Amplifier",
+      "prompt": "Can you design a basic audio amplifier circuit using a transistor? I want to drive a small speaker.",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "npn"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "capacitor"
+          ],
+          [
+            "vcc"
+          ]
+        ],
+        "check": "buzzer_active"
+      },
+      "signature": "missing expected type (vcc)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_idea_mwl354p0_4",
+      "name": "Voltage Doubler",
+      "prompt": "I want to create a circuit that doubles the input DC voltage using diodes.",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "diode"
+          ],
+          [
+            "capacitor"
+          ],
+          [
+            "vcc"
+          ],
+          [
+            "gnd"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "missing expected type (vcc)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_idea_mwl354p0_6",
+      "name": "Monostable Multivibrator",
+      "prompt": "I need a circuit that produces a single output pulse of a specific duration when triggered. A 555 timer in monostable mode would be perfect.",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "ne555"
+          ],
+          [
+            "led"
+          ],
+          [
+            "button"
+          ],
+          [
+            "resistor"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"B*.OUT\" directly to its destinat",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_idea_mwl354p0_7",
+      "name": "Decade Counter to 7-Segment Display",
+      "prompt": "How can I use a 7490 decade counter to drive a 7-segment display? I want to count from 0 to 9.",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "ic7490"
+          ],
+          [
+            "ic7447"
+          ],
+          [
+            "seg7"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "seg7_active"
+      },
+      "signature": "missing expected type (led)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_idea_mwl354p0_8",
+      "name": "Basic RC Circuit Analysis",
+      "prompt": "I want to see how a resistor and capacitor interact with a voltage source. Can you set up a simple RC circuit for analysis?",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "resistor"
+          ],
+          [
+            "capacitor"
+          ],
+          [
+            "vcc"
+          ],
+          [
+            "gnd"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "missing expected type (gnd)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_idea_mwl354p0_11",
+      "name": "Simple Logic Probe",
+      "prompt": "I need a simple tool to check logic levels (high/low) on a digital circuit. Can you design a basic logic probe using LEDs?",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "ic7400"
+          ],
+          [
+            "led"
+          ],
+          [
+            "vcc"
+          ],
+          [
+            "gnd"
+          ]
+        ],
+        "check": "led_multi"
+      },
+      "signature": "missing expected type (ic7400)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_wild_rc_lowpass_scope",
+      "name": "1kHz RC Low-Pass Filter + Dual-Ch Scope",
+      "prompt": "set up a 1kHz RC low-pass filter using funcgen 1kHz sinewave, 1k ohm resistor and 100nF capacitor with oscilloscope ch1 on input and ch2 on filtered output",
+      "scopes": [],
+      "oracle": {
+        "minParts": 4,
+        "requireTypes": [
+          [
+            "funcgen"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "capacitor"
+          ],
+          [
+            "oscilloscope"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "Oscilloscope \"OSC\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC.CH*+\"",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_wild_traffic_light_4017",
+      "name": "Hardware 555+4017 Traffic Light",
+      "prompt": "build a hardware traffic light sequencer (no arduino) with a 555 timer clocking a cd4017 decade counter driving red yellow and green LEDs through diodes/resistors",
+      "scopes": [],
+      "oracle": {
+        "minParts": 8,
+        "requireTypes": [
+          [
+            "ne555"
+          ],
+          [
+            "ic4017"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_multi",
+        "minActiveLeds": 2
+      },
+      "signature": "Output pins #, # are shorted to another output or a supply.",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_wild_decade_dice",
+      "name": "Electronic 6-LED Roulette / Dice",
+      "prompt": "make an electronic 6-LED roulette wheel with a fast 555 astable clocked thru a pushbutton into cd4017 Q0..Q5 outputs each lighting one LED via 220ohm resistor",
+      "scopes": [],
+      "oracle": {
+        "minParts": 14,
+        "requireTypes": [
+          [
+            "ne555"
+          ],
+          [
+            "ic4017"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_multi",
+        "minActiveLeds": 2
+      },
+      "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=<val>) — fix its resistor/driver wiring, check counter/gate inputs, and ensure",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_wild_7402_nor_sr",
+      "name": "Active-HIGH NOR SR Latch (7402)",
+      "prompt": "make an active-HIGH SR flip-flop latch using 7402 quad NOR chip, two pushbutton switches with pulldown resistors, and two LEDs for Q and Qbar",
+      "scopes": [],
+      "oracle": {
+        "minParts": 7,
+        "requireTypes": [
+          [
+            "ic7402"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=<val>) — fix its resistor/driver wiring, check counter/gate inputs, and ensure",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_mut_chaser_v001",
+      "name": "Mutated chaser #1",
+      "prompt": "wrire a knight rider 8 led chaser using ne-555 clock chip, 4017 chip, and 8 glowing leds with 220ohm resiter",
+      "scopes": [],
+      "oracle": {
+        "minParts": 18,
+        "requireTypes": [
+          [
+            "ne555"
+          ],
+          [
+            "ic4017"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_multi",
+        "minActiveLeds": 4
+      },
+      "signature": "LED \"<ref>\" has an unconnected pin — wire Anode (via #–#Ω resistor) to its driver/signal and Cathode to \"-\".",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_comb_chain_005",
+      "name": "Combinatorial chain #5",
+      "prompt": "setup an arduino arduino uno sketch scanning 3 LEDs with resiter controlled by a momentary switch button or potnetiometer",
+      "scopes": [
+        "uno"
+      ],
+      "oracle": {
+        "minParts": 6,
+        "requireTypes": [
+          [
+            "uno"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "mcu_run"
+      },
+      "signature": "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"B*.OUT\" directly to its destinat",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_comb_bool_006",
+      "name": "Boolean Y = A' + B' * C (nand)",
+      "prompt": "bild Y = A' + B' * C using ONLY NAND gates (ic7400) with a DIP4 switch and an output LED + 220ohm resister",
+      "scopes": [],
+      "oracle": {
+        "minParts": 4,
+        "requireTypes": [
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "Boolean logic verification failed for Y = A' + B' * C: when (A=#, B=#, C=#): expected #, got LED OFF (#); when (A=#, B=#, C=#): expected #, ",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_mut_bjt_driver_v001",
+      "name": "Mutated bjt_driver #1",
+      "prompt": "build an npn common-emitter switch activated by poshbutton button through 10k resitsors powering a led and sounder",
+      "scopes": [],
+      "oracle": {
+        "minParts": 6,
+        "requireTypes": [
+          [
+            "npn"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"BT*.OUT\" directly to its destina",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_mut_rc_scope_v001",
+      "name": "Mutated rc_scope #1",
+      "prompt": "build a 1khz rc filter from function generator through 1k resistor and 100nF condensator measured on ut2062b cro scope",
+      "scopes": [],
+      "oracle": {
+        "minParts": 4,
+        "requireTypes": [
+          [
+            "funcgen"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "capacitor"
+          ],
+          [
+            "oscilloscope"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"O*.CH*+",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_comb_chain_013",
+      "name": "Combinatorial chain #13",
+      "prompt": "setup an bc547 transistor two-LED inverse switch: pushbutton button with trimpot knob driving led blub and piezo sounder",
+      "scopes": [],
+      "oracle": {
+        "minParts": 6,
+        "requireTypes": [
+          [
+            "npn"
+          ],
+          [
+            "led"
+          ],
+          [
+            "buzzer"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=NC) — fix its resistor/driver wiring, check counter/gate inputs, and ensure se",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_comb_chain_014",
+      "name": "Combinatorial chain #14",
+      "prompt": "wire 50Hz funcgen sine wave through a rectifier diode bridge rectifier and filter electrolytic cap into 1k resistor measured on cro",
+      "scopes": [],
+      "oracle": {
+        "minParts": 7,
+        "requireTypes": [
+          [
+            "funcgen"
+          ],
+          [
+            "diode"
+          ],
+          [
+            "oscilloscope"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "oscilloscope captured flat/no AC waveform (vpp <= <val>)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_comb_chain_016",
+      "name": "Combinatorial chain #16",
+      "prompt": "setup a 200Hz RC filter using signal generator, 1k resister, 100nF condensator and view phase/amplitude on oscilloscope",
+      "scopes": [],
+      "oracle": {
+        "minParts": 4,
+        "requireTypes": [
+          [
+            "funcgen"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "capacitor"
+          ],
+          [
+            "oscilloscope"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "Short circuit on the supply — it is wired straight to another supply or ground.",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_comb_chain_019",
+      "name": "Combinatorial chain #19",
+      "prompt": "build 100Hz funcgen sine wave thruugh a 1n4148 bridge rectifier and filter electrolytic cap into 1k 220ohm resiter measured on scope",
+      "scopes": [],
+      "oracle": {
+        "minParts": 7,
+        "requireTypes": [
+          [
+            "funcgen"
+          ],
+          [
+            "diode"
+          ],
+          [
+            "oscilloscope"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "diode (\"<ref>\") has one open/unconnected pin (\"Cathode\") — connect \"D*.Cathode\" to complete the circuit.",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_mut_bjt_driver_v002",
+      "name": "Mutated bjt_driver #2",
+      "prompt": "setup an 2n2222 common-emitter switch activated by tact button button through 10k resiter powering a led and piezo sounder",
+      "scopes": [],
+      "oracle": {
+        "minParts": 6,
+        "requireTypes": [
+          [
+            "npn"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=NC) — fix its resistor/driver wiring, check counter/gate inputs, and ensure se",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_mut_rc_scope_v002",
+      "name": "Mutated rc_scope #2",
+      "prompt": "design a 1khz rc filter from sig gen through 1k resistors and 100nF capcitor measured on ut2062b cro scope",
+      "scopes": [],
+      "oracle": {
+        "minParts": 4,
+        "requireTypes": [
+          [
+            "funcgen"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "capacitor"
+          ],
+          [
+            "oscilloscope"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"SCOPO1.",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_comb_chain_026",
+      "name": "Combinatorial chain #26",
+      "prompt": "build a 1kHz RC filter using funcgen, 1k resister, 100nF electrolytic cap and view phase/amplitude on ut2062b cro scope",
+      "scopes": [],
+      "oracle": {
+        "minParts": 4,
+        "requireTypes": [
+          [
+            "funcgen"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "capacitor"
+          ],
+          [
+            "oscilloscope"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"SCOPE1.",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_comb_chain_029",
+      "name": "Combinatorial chain #29",
+      "prompt": "make 50Hz funcgen sine wave through a rectifier diode bridge rectifier and filter electrolytic cap into 1k resistor measured on cro",
+      "scopes": [],
+      "oracle": {
+        "minParts": 7,
+        "requireTypes": [
+          [
+            "funcgen"
+          ],
+          [
+            "diode"
+          ],
+          [
+            "oscilloscope"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "capacitor (\"<ref>\") has one open/unconnected pin (\"−\") — connect \"C*.−\" to complete the circuit.",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-17",
+      "lastFailed": "2026-11-17"
+    }
+  ],
+  "resolved": []
+}
