@@ -4,8 +4,8 @@ import '../src/mcu/boards.js';
 import { Circuit, Board, Part, Wire } from '../src/model.js';
 import { Engine, key } from '../src/sim/engine.js';
 import { findProblems } from '../src/editor.js';
-import { filterAndSortModels, extractJsonObject, callGroq, splitKeys } from '../src/ai/client.js';
-import { buildPartsCatalogPrompt, serializeCircuitState } from '../src/ai/context.js';
+import { filterAndSortModels, extractJsonObject, salvageTruncatedBuildJson, callGroq, splitKeys, fetchModels, detectKeyProvider, isGeminiModel } from '../src/ai/client.js';
+import { buildPartsCatalogPrompt, buildSystemPrompt, serializeCircuitState } from '../src/ai/context.js';
 import { applyAiBuildPlan, resolvePartType, resolvePinIndex } from '../src/ai/builder.js';
 import { parseBooleanExpr, evalBooleanAst, extractGateConstraints, extractBooleanSpec } from '../src/ai/logic_verify.js';
 import { AiCopilot } from '../src/ai/copilot.js';
@@ -828,5 +828,162 @@ assert.equal(new Set(leds5.map(p => p.y)).size, 5, '5x5 must auto-arrange across
 const hugeSnap = JSON.stringify(serializeCircuitState(app));
 assert.ok(hugeSnap.length <= 4850, `Large board snapshot too large (${hugeSnap.length} chars) — risks Groq 8k TPM overflow`);
 console.log(`   [PASS] Unpowered rejection, 5x5 auto-grid & large-board serialization cap (${hugeSnap.length} chars) passed.`);
+
+console.log('16. Testing Compact System Prompt, Truncated JSON Salvage, Per-Model TPM Recovery, autoPower & 7-IC Auto Multi-Stage Execution...');
+// 16a. Compact system prompt size (< 4000 chars for 7-NAND prompt vs ~6757 previously)
+const sys7 = buildSystemPrompt({ mode: 'build', query: 'build the most complex circuit you can build with 7 nand chips and 10 leds' });
+assert.ok(sys7.length < 4000, `System prompt should stay compact (<4000 chars), got ${sys7.length}`);
+assert.match(sys7, /- ic7400\(IC\):/);
+assert.doesNotMatch(sys7, /- ic74266\(IC\):/);
+
+// 16b. salvageTruncatedBuildJson recovers complete objects/connections while skipping incomplete Test 13 snippet
+assert.equal(salvageTruncatedBuildJson('{"intent":"build","parts":[{"ref":"V1","type":"vcc"'), null);
+const salvaged7 = salvageTruncatedBuildJson('{"intent":"build","board":"full","parts":[{"ref":"V1","type":"vcc"},{"ref":"G1","type":"gnd"},{"ref":"U1","type":"ic7400"}],"connections":[["V1.1","+"],["G1.1","-"],["U1.1A"');
+assert.ok(salvaged7 && salvaged7._salvaged === true && salvaged7.more === true);
+assert.equal(salvaged7.parts.length, 3);
+assert.equal(salvaged7.connections.length, 2);
+
+// 16c. Per-model transient TPM wait retries 120b instead of demoting to qwen/20b
+let tpmTries = 0;
+const tpmHoldFetch = async (_url, opts) => {
+  tpmTries++;
+  const b = JSON.parse(opts.body);
+  assert.equal(b.model, 'openai/gpt-oss-120b', 'Transient TPM must wait & retry 120b instead of dropping to weaker model');
+  if (tpmTries === 1) {
+    return {
+      ok: false,
+      status: 429,
+      json: async () => ({ error: { message: 'Rate limit reached on tokens per minute (TPM): Limit 8000, Used 7000, Requested 3000. Please try again in 200ms.' } }),
+    };
+  }
+  return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"intent":"analyze","reply":"Held 120b"}' } }] }) };
+};
+const heldRes = await callGroq({
+  apiKey: 'gsk_tpmtest',
+  model: 'openai/gpt-oss-120b',
+  messages: [{ role: 'user', content: 'hi' }],
+  availableModels: [{ id: 'openai/gpt-oss-120b' }, { id: 'qwen/qwen3.8-27b' }, { id: 'openai/gpt-oss-20b' }],
+  fetchFn: tpmHoldFetch,
+});
+assert.equal(heldRes.modelUsed, 'openai/gpt-oss-120b');
+assert.equal(heldRes.parsed.reply, 'Held 120b');
+
+// 16d + 16e. End-to-end 7 NAND chips (U1..U7) + 10 LEDs built cleanly via automatic 2-stage flow & autoPower (NO manual phase 2!)
+const stage1Parts = [
+  { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'CLK', type: 'clock', props: { freq: 2 } },
+  ...Array.from({ length: 7 }, (_, i) => ({ ref: `U${i + 1}`, type: 'ic7400' })),
+];
+const stage1Conns = [['V1.1', '+'], ['G1.1', '-'], ['CLK.OUT', 'U1.1A'], ['CLK.OUT', 'U1.1B']];
+for (let i = 1; i <= 7; i++) {
+  if (i > 1) stage1Conns.push([`U${i - 1}.1Y`, `U${i}.1A`], [`U${i - 1}.1Y`, `U${i}.1B`]);
+  stage1Conns.push(['-', `U${i}.2A`, `U${i}.2B`, `U${i}.3A`, `U${i}.3B`, `U${i}.4A`, `U${i}.4B`]);
+}
+const stage2Parts = [];
+const stage2Conns = [];
+for (let j = 1; j <= 10; j++) {
+  stage2Parts.push({ ref: `R${j}`, type: 'resistor', props: { ohms: 220 } });
+  stage2Parts.push({ ref: `D${j}`, type: 'led' });
+  const drvIc = ((j - 1) % 7) + 1;
+  stage2Conns.push([`U${drvIc}.1Y`, `R${j}.1`], [`R${j}.2`, `D${j}.A`], [`D${j}.K`, '-']);
+}
+const origFetch16 = globalThis.fetch;
+let multiCalls = 0;
+globalThis.fetch = async () => {
+  multiCalls++;
+  if (multiCalls === 1) {
+    return { ok: true, status: 200, json: async () => ({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ intent: 'build', plan: 'Stage 1: 7-chip NAND chain', reply: 'Placed 7 NAND chips.', more: true, clearExisting: true, board: 'full', parts: stage1Parts, connections: stage1Conns }) } }] }) };
+  }
+  return { ok: true, status: 200, json: async () => ({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ intent: 'build', reply: 'Finished wiring 10 LEDs across the 7 NAND stages.', more: false, clearExisting: false, parts: stage2Parts, connections: stage2Conns }) } }] }) };
+};
+try {
+  const app16 = createHeadlessApp();
+  app16.settings = { get: (k) => (k === 'groqKey' ? 'gsk_mock' : k === 'aiModel' ? 'openai/gpt-oss-120b' : 'auto'), set: () => {} };
+  const cop16 = new AiCopilot(app16);
+  cop16.hasServerKey = true;
+  const r16 = await cop16.ask('build the most complex circuit you can build with 7 nand chips and 10 leds', 'build');
+  assert.equal(multiCalls, 2, 'Auto multi-stage loop must fetch Stage 2 automatically without asking user');
+  assert.equal(r16.meta?.build?.ok, true, '7 NAND chips + 10 LEDs must verify cleanly: ' + JSON.stringify(r16.meta?.build?.errors));
+  assert.equal(app16.circuit.parts.filter(p => p.type === 'ic7400').length, 7);
+  assert.equal(app16.circuit.parts.filter(p => p.type === 'led').length, 10);
+  // Check autoPower + 7 ICs cleanly powered (0 simulation errors)
+  assert.equal(app16.allIssues().filter(i => i.level === 'error').length, 0);
+} finally {
+  globalThis.fetch = origFetch16;
+}
+// 16f. Verify undersized NAND/LED count is caught by verifyPromptConstraints
+const underRes = applyAiBuildPlan(app, {
+  clearExisting: true,
+  parts: [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'CLK', type: 'clock' }, { ref: 'U1', type: 'ic7400' }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'D1', type: 'led' }],
+  connections: [['V1.1', '+'], ['G1.1', '-'], ['CLK.OUT', 'U1.1A'], ['CLK.OUT', 'U1.1B'], ['U1.1Y', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', '-'], ['-', 'U1.2A', 'U1.2B', 'U1.3A', 'U1.3B', 'U1.4A', 'U1.4B']],
+}, { prompt: 'build with 7 nand chips and 10 leds' });
+assert.equal(underRes.ok, false, 'Must reject circuit missing requested 7 NAND chips and 10 LEDs');
+assert.match(underRes.errors.join(' '), /7 NAND chips/);
+
+// 16g. Singleton power/clock/DIP ref typo fallback (VCC1 -> unique V1 vcc)
+const aliasRes = applyAiBuildPlan(app, {
+  clearExisting: true,
+  parts: [{ ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'R1', type: 'resistor', props: { ohms: 220 } }, { ref: 'D1', type: 'led' }],
+  connections: [['VCC1.+5V', '+'], ['GND1.GND', '-'], ['+', 'R1.1'], ['R1.2', 'D1.A'], ['D1.K', '-']],
+});
+assert.equal(aliasRes.ok, true, 'Singleton power ref typo VCC1/GND1 must resolve cleanly: ' + JSON.stringify(aliasRes.errors));
+console.log('   [PASS] Compact prompt, JSON salvage, TPM wait hold, autoPower & 7-NAND+10-LED multi-stage tests passed.');
+
+console.log('17. Testing Multi-Provider Gemini + Groq Routing, 503 Recovery, Mixed Key Isolation & Proxy Check...');
+assert.equal(detectKeyProvider('AQ.Ab8TestToken'), 'gemini');
+assert.equal(detectKeyProvider('AIzaSyTestKey123'), 'gemini');
+assert.equal(detectKeyProvider('gsk_TestGroqKey123'), 'groq');
+assert.equal(isGeminiModel('models/gemini-3.5-flash-lite'), true);
+assert.equal(isGeminiModel('openai/gpt-oss-120b'), false);
+
+// 17a. Gemini models/ prefix stripped, TTS/image/robotics filtered, 3.5-flash-lite prioritized
+const sortedGem = filterAndSortModels([
+  { id: 'models/gemini-2.5-flash-preview-tts' },
+  { id: 'models/gemini-3.1-flash-image' },
+  { id: 'models/gemini-2.5-flash-lite' },
+  { id: 'models/gemini-3.5-flash-lite' },
+  { id: 'models/gemini-robotics-er-2-preview' },
+]);
+assert.deepEqual(sortedGem.map(m => m.id), ['gemini-3.5-flash-lite', 'gemini-2.5-flash-lite']);
+
+// 17b. fetchModels merges mixed Gemini + Groq keys against exact provider endpoints
+const mixedFetches = [];
+const mixedFetchFn = async (url, opts) => {
+  mixedFetches.push({ url, auth: opts?.headers?.Authorization });
+  if (String(url).includes('generativelanguage.googleapis.com')) {
+    assert.equal(opts.headers.Authorization, 'Bearer AQ.gemTest');
+    return { ok: true, status: 200, json: async () => ({ data: [{ id: 'models/gemini-3.5-flash-lite' }, { id: 'models/gemini-2.5-flash-lite' }] }) };
+  }
+  assert.equal(opts.headers.Authorization, 'Bearer gsk_groqTest');
+  return { ok: true, status: 200, json: async () => ({ data: [{ id: 'openai/gpt-oss-120b' }] }) };
+};
+const mfRes = await fetchModels('AQ.gemTest, gsk_groqTest', mixedFetchFn);
+assert.equal(mixedFetches.length, 2);
+assert.deepEqual(mfRes.models.map(m => m.id), ['gemini-3.5-flash-lite', 'gemini-2.5-flash-lite', 'openai/gpt-oss-120b']);
+
+// 17c. Gemini 503 high-demand pauses & falls back cleanly to gemini-2.5-flash-lite using 8192 max tokens and matching Gemini key
+const gemCalls = [];
+const gemFallbackFetch = async (url, opts) => {
+  const b = JSON.parse(opts.body);
+  gemCalls.push({ url, auth: opts.headers.Authorization, model: b.model, max: b.max_completion_tokens });
+  assert.ok(String(url).startsWith('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'));
+  assert.equal(opts.headers.Authorization, 'Bearer AQ.gemKeyOnly');
+  assert.equal(b.max_completion_tokens, 8192, 'Gemini must use 8192 budget instead of Groq 8k cap');
+  if (b.model === 'gemini-3.5-flash-lite') {
+    return { ok: false, status: 503, json: async () => ([{ error: { code: 503, message: 'high demand' } }]) };
+  }
+  return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"intent":"analyze","reply":"Served via 2.5 Flash Lite"}' } }] }) };
+};
+const gemFb = await callGroq({
+  apiKey: 'AQ.gemKeyOnly, gsk_unusedGroq',
+  model: 'gemini-3.5-flash-lite',
+  messages: [{ role: 'user', content: 'hi' }],
+  availableModels: [{ id: 'gemini-3.5-flash-lite' }, { id: 'gemini-2.5-flash-lite' }],
+  fetchFn: gemFallbackFetch,
+});
+assert.equal(gemFb.modelUsed, 'gemini-2.5-flash-lite');
+assert.equal(gemFb.switchedFrom, 'gemini-3.5-flash-lite');
+assert.equal(gemFb.parsed.reply, 'Served via 2.5 Flash Lite');
+assert.equal(gemCalls.length, 3, '2 tries on 3.5-flash-lite (initial + 503 retry), then fallback to 2.5-flash-lite');
+console.log('   [PASS] Multi-provider Gemini + Groq routing, 503 recovery & key isolation passed.');
 
 console.log('\nALL AI COPILOT AUTOMATED TESTS PASSED 100%!');

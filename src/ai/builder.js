@@ -400,8 +400,10 @@ export function placePartSmart(app, spec, state) {
     else if (b && minY === -7) targetY = by + b.rowY(7); // seg7 (row c + row h)
     else if (b && minY <= -5) targetY = by + b.rowY(6); // nano/bluepill (row c + row g)
 
+    const startBase = state.icStart ?? 3;
+    const icGap = state.icGap ?? 3;
     for (let pass = 0; pass < 2; pass++) {
-      const startCol = pass === 0 ? state.icCol : 1;
+      const startCol = pass === 0 ? state.icCol : 0;
       const endCol = pass === 0 ? cols - span : Math.min(state.icCol - 1, cols - span);
       for (let col = startCol; col <= endCol; col++) {
         const placed = tryAt(bx + 2 + col, targetY, 0);
@@ -410,38 +412,40 @@ export function placePartSmart(app, spec, state) {
             state.usedColsTop.add(k);
             state.usedColsBot.add(k);
           }
-          if (pass === 0) state.icCol = col + span + 3;
+          if (pass === 0) state.icCol = Math.max(startBase, col + span + icGap);
           return placed;
         }
       }
     }
   }
 
-  // 6. Horizontal 4-unit 2-pin passives (resistor, diode, inductor): keep strips clean
+  // 6. Horizontal 4-unit 2-pin passives (resistor, diode, inductor): keep strips isolated from IC/other pins
   if (resolved.type === 'resistor' || resolved.type === 'diode' || resolved.type === 'inductor') {
-    // Try horizontal on bottom half rows g/h/i or top half rows b/c across unused columns first, then any valid free holes
     const rowOrder = b ? [b.rowY(6), b.rowY(7), b.rowY(1), b.rowY(2), b.rowY(8), b.rowY(3), b.rowY(5), b.rowY(4)] : [12, 13, 5, 6, 14, 7];
-    for (let pass = 0; pass < 2; pass++) {
-      for (let col = 0; col <= cols - 5; col++) {
-        for (const ry of rowOrder) {
-          const isTop = b ? ry < b.rowY(5) : ry < 9;
-          const used = isTop ? state.usedColsTop : state.usedColsBot;
-          if (pass === 0 && (used.has(col) || used.has(col + 4))) continue;
-          const placed = tryAt(bx + 2 + col, by + ry, 0);
-          if (placed) {
-            used.add(col);
-            used.add(col + 4);
-            return placed;
-          }
+    for (let col = 0; col <= cols - 5; col++) {
+      for (const ry of rowOrder) {
+        const isTop = b ? ry < b.rowY(5) : ry < 9;
+        const used = isTop ? state.usedColsTop : state.usedColsBot;
+        if (used.has(col) || used.has(col + 4)) continue;
+        const placed = tryAt(bx + 2 + col, by + ry, 0);
+        if (placed) {
+          used.add(col);
+          used.add(col + 4);
+          return placed;
         }
       }
     }
-    // Vertical bridge across the trench (e -> i / c -> g = 4 units)
+    // Vertical bridge across empty trench columns only (e -> i / c -> g = 4 units)
     if (b) {
       for (const ry of [b.rowY(4), b.rowY(2)]) {
         for (let col = 0; col < cols; col++) {
+          if (state.usedColsTop.has(col) || state.usedColsBot.has(col)) continue;
           const placed = tryAt(bx + 2 + col, by + ry, 1);
-          if (placed) return placed;
+          if (placed) {
+            state.usedColsTop.add(col);
+            state.usedColsBot.add(col);
+            return placed;
+          }
         }
       }
     }
@@ -454,35 +458,39 @@ export function placePartSmart(app, spec, state) {
   const localXs = sample.localPins().map(q => q.x);
   const pinSpan = (localXs.length ? Math.max(...localXs) : 1) + 1;
 
-  // Very tall display modules (7seg, lcd16x2, oled) fit cleanly on row a pointing above board or row j
   const preferredRows = bodyHeight > 3.5 && b
     ? [b.rowY(0), b.rowY(9)]
     : b
       ? [b.rowY(7), b.rowY(6), b.rowY(2), b.rowY(1), b.rowY(8), b.rowY(9)]
       : [13, 12, 6, 5, 14, 15];
 
-  for (let pass = 0; pass < 2; pass++) {
-    for (let col = 0; col + pinSpan <= cols; col++) {
-      for (const ry of preferredRows) {
-        const isTop = b ? ry < b.rowY(5) : ry < 9;
-        const used = isTop ? state.usedColsTop : state.usedColsBot;
-        if (pass === 0) {
-          let conflict = false;
-          for (let k = col; k < col + pinSpan; k++) if (used.has(k)) { conflict = true; break; }
-          if (conflict) continue;
-        }
-        const placed = tryAt(bx + 2 + col, by + ry, 0);
-        if (placed) {
-          for (let k = col; k < col + pinSpan; k++) used.add(k);
-          return placed;
-        }
+  for (let col = 0; col + pinSpan <= cols; col++) {
+    for (const ry of preferredRows) {
+      const isTop = b ? ry < b.rowY(5) : ry < 9;
+      const used = isTop ? state.usedColsTop : state.usedColsBot;
+      let conflict = false;
+      for (let k = col; k < col + pinSpan; k++) if (used.has(k)) { conflict = true; break; }
+      if (conflict) continue;
+      const placed = tryAt(bx + 2 + col, by + ry, 0);
+      if (placed) {
+        for (let k = col; k < col + pinSpan; k++) used.add(k);
+        return placed;
       }
     }
   }
 
-  // 8. Off-board fallback below/above breadboard
-  for (let x = bx + 2; x < bx + 80; x += 3) {
-    const placed = tryAt(x, by + (b ? b.h : 20) + 5, 0) || tryAt(x, by - 5, 0);
+  // 8. Organized multi-row off-board overflow shelf below/above breadboard (zero strip shorts)
+  const stepX = Math.max(3, pinSpan + 1);
+  const bh = b ? b.h : 20;
+  for (let rowIdx = 0; rowIdx < 5; rowIdx++) {
+    const oy = by + bh + 5 + rowIdx * 4;
+    for (let ox = bx + 2; ox <= bx + cols - pinSpan + 4; ox += stepX) {
+      const placed = tryAt(ox, oy, 0);
+      if (placed) return placed;
+    }
+  }
+  for (let ox = bx + 2; ox <= bx + cols - pinSpan + 4; ox += stepX) {
+    const placed = tryAt(ox, by - 5, 0);
     if (placed) return placed;
   }
 
@@ -549,6 +557,20 @@ export function closestRailHole(app, railChar, half, preferX, preferY) {
   return { x: Math.round(Math.max(b.x + 2, Math.min(b.x + 1 + b.cols, preferX))), y: primaryY, usedTop: chooseTop, usedBot: !chooseTop };
 }
 
+function lookupRefPart(app, refMap, ref) {
+  const exact = refMap.get(ref) || refMap.get(ref.toUpperCase()) || app.circuit.partById(ref);
+  if (exact) return exact;
+  const singleton = (pred) => {
+    const matches = app.circuit.parts.filter(pred);
+    return matches.length === 1 ? matches[0] : null;
+  };
+  if (/^(?:V\d*|VCC\d*|5V|PLUS)$/i.test(ref)) return singleton(p => p.type === 'vcc');
+  if (/^(?:G\d*|GND\d*|MINUS)$/i.test(ref)) return singleton(p => p.type === 'gnd');
+  if (/^(?:CLK\d*|CLOCK\d*)$/i.test(ref)) return singleton(p => p.type === 'clock');
+  if (/^(?:DIP\d*|SW\d*)$/i.test(ref)) return singleton(p => p.type === 'dip8' || p.type === 'dip4');
+  return null;
+}
+
 /** Resolve an endpoint string (`"U1.VCC"`, `"p3.OUT"`, `"+"`, `"-"`, `"d10"`) to wire end coordinates. */
 export function resolveEndpoint(app, token, refMap, otherHint = null) {
   const raw = String(token || '').trim();
@@ -570,8 +592,13 @@ export function resolveEndpoint(app, token, refMap, otherHint = null) {
   if (dot > 0) {
     const ref = raw.slice(0, dot).trim();
     const pinName = raw.slice(dot + 1).replace(/@.+$/, '').trim();
-    const part = refMap.get(ref) || refMap.get(ref.toUpperCase()) || app.circuit.partById(ref);
-    if (!part) throw new Error(`Unknown part reference "${ref}" in connection "${raw}"`);
+    const part = lookupRefPart(app, refMap, ref);
+    if (!part) {
+      const seen = new Map();
+      for (const [k, pt] of refMap) if (pt?.id && k !== pt.id && !seen.has(pt.id)) seen.set(pt.id, `${k}(${pt.type})`);
+      const known = [...seen.values()].slice(0, 12).join(', ');
+      throw new Error(`Unknown part reference "${ref}" in connection "${raw}"${known ? `. Declared parts: [${known}]` : ''}`);
+    }
     const pi = resolvePinIndex(part, pinName);
     if (pi < 0) {
       const validPins = part.worldPins().map((p, i) => `${i + 1}:${p.name}`).join(', ');
@@ -587,7 +614,7 @@ export function resolveEndpoint(app, token, refMap, otherHint = null) {
   }
 
   // Bare 1-pin part ref (e.g. "VCC" -> VCC's pin 0)
-  const part = refMap.get(raw) || refMap.get(raw.toUpperCase()) || app.circuit.partById(raw);
+  const part = lookupRefPart(app, refMap, raw);
   if (part && part.worldPins().length === 1) {
     const wp = part.worldPins()[0];
     return { end: { x: wp.x, y: wp.y, pin: { part: part.id, i: 0 } }, rail: null };
@@ -614,7 +641,7 @@ export function pickWireColor(aTok, bTok, aRail, bRail, sigIdx) {
 }
 
 /** Run headless DRC, logic/constraint verification & 50 ms simulation check on current app.circuit without touching history. */
-export function verifyCircuitHealth(app, refById = null, { prompt = '', incremental = false } = {}) {
+export function verifyCircuitHealth(app, refById = null, { prompt = '', incremental = false, allowIncomplete = false } = {}) {
   app.reindex(false);
   const errors = [];
   const warnings = [];
@@ -627,7 +654,9 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
     else if (iss.level === 'warn') warnings.push(iss.text);
   }
 
-  for (const cErr of verifyPromptConstraints(prompt, app.circuit, refById)) errors.push(cErr);
+  if (!allowIncomplete) {
+    for (const cErr of verifyPromptConstraints(prompt, app.circuit, refById)) errors.push(cErr);
+  }
 
   // Short headless simulation pass (also compiles any MCU sketches via runtime)
   const sim = new Engine();
@@ -645,7 +674,7 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
   const hasVccPart = app.circuit.parts.some(p => p.type === 'vcc' || p.type === 'battery' || p.type === 'power-supply' || getDef(p.type).mcu || p.type === 'trainer-board');
   const hasGndPart = app.circuit.parts.some(p => p.type === 'gnd' || p.type === 'battery' || p.type === 'power-supply' || getDef(p.type).mcu || p.type === 'trainer-board');
   const needsSupply = app.circuit.parts.some(p => ['led', 'buzzer', 'seg7', 'bargraph', 'ne555', 'board-ssd1306', 'wokwi-lcd1602'].includes(p.type) || getDef(p.type).ic);
-  if (!incremental && needsSupply && (!hasVccPart || !hasGndPart)) {
+  if (!incremental && !allowIncomplete && needsSupply && (!hasVccPart || !hasGndPart)) {
     const missingBoth = !hasVccPart && !hasGndPart ? 'BOTH "vcc" (wired to "+") AND "gnd" (wired to "-")' : (!hasVccPart ? '"vcc" wired to "+"' : '"gnd" wired to "-"');
     errors.push(`Breadboard has NO power supply! Add ${missingBoth} so the LEDs/components have power.`);
   }
@@ -666,10 +695,12 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
         }
       }
     } else if (p.type === 'vcc' || p.type === 'gnd') {
-      const n = ent.pinNets?.[0] ?? -1;
-      if (n >= 0 && !sim.isNetConnected(n)) {
-        const rail = p.type === 'vcc' ? '+' : '-';
-        errors.push(`${p.type} ("${tag}") is placed but unconnected — wire "${tag}.1" to "${rail}" so the breadboard rail has power.`);
+      if (!allowIncomplete) {
+        const n = ent.pinNets?.[0] ?? -1;
+        if (n >= 0 && !sim.isNetConnected(n)) {
+          const rail = p.type === 'vcc' ? '+' : '-';
+          errors.push(`${p.type} ("${tag}") is placed but unconnected — wire "${tag}.1" to "${rail}" so the breadboard rail has power.`);
+        }
       }
     } else if (p.type === 'ne555') {
       const nCtrl = ent.pinNets?.[4] ?? -1;
@@ -680,20 +711,24 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
       if (nDis >= 0 && supplyNets.has(nDis)) {
         errors.push(`ne555 ("${tag}") DIS (pin 7) must NOT be wired directly to +5V or GND (connect R1 from + to DIS and R2 from DIS to THR).`);
       }
-      for (const [idx, nm] of [[1, 'TRIG'], [5, 'THR']]) {
-        const pn = ent.pinNets?.[idx] ?? -1;
-        if (pn >= 0 && !sim.isNetConnected(pn)) {
-          errors.push(`ne555 ("${tag}") ${nm} pin is unconnected — for astable, tie THR to TRIG, R1(+->DIS), R2(DIS->THR), C(THR->-), RESET->+.`);
+      if (!allowIncomplete) {
+        for (const [idx, nm] of [[1, 'TRIG'], [5, 'THR']]) {
+          const pn = ent.pinNets?.[idx] ?? -1;
+          if (pn >= 0 && !sim.isNetConnected(pn)) {
+            errors.push(`ne555 ("${tag}") ${nm} pin is unconnected — for astable, tie THR to TRIG, R1(+->DIS), R2(DIS->THR), C(THR->-), RESET->+.`);
+          }
         }
       }
     } else if (p.type === 'resistor' || p.type === 'led' || p.type === 'diode' || p.type === 'capacitor' || p.type === 'inductor') {
-      const wPins = p.worldPins();
-      if (ent.pinNets.length === 2 && wPins.length === 2) {
-        const c0 = sim.isNetConnected(ent.pinNets[0]);
-        const c1 = sim.isNetConnected(ent.pinNets[1]);
-        if (c0 !== c1) {
-          const openName = c0 ? wPins[1].name : wPins[0].name;
-          errors.push(`${getDef(p.type).short || p.type} ("${tag}") has one open/unconnected pin ("${openName}") — connect "${tag}.${openName}" to complete the circuit.`);
+      if (!allowIncomplete) {
+        const wPins = p.worldPins();
+        if (ent.pinNets.length === 2 && wPins.length === 2) {
+          const c0 = sim.isNetConnected(ent.pinNets[0]);
+          const c1 = sim.isNetConnected(ent.pinNets[1]);
+          if (c0 !== c1) {
+            const openName = c0 ? wPins[1].name : wPins[0].name;
+            errors.push(`${getDef(p.type).short || p.type} ("${tag}") has one open/unconnected pin ("${openName}") — connect "${tag}.${openName}" to complete the circuit.`);
+          }
         }
       }
     }
@@ -706,9 +741,11 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
   for (const w of sim.collectWarnings()) {
     if (w.level === 'error') {
       if (/no power/i.test(w.text) && w.part) {
-        const tag = refById?.get(w.part.id) || w.part.id;
-        const missing = `${!hasVccPart ? ' Missing "vcc" part wired to "+".' : ''}${!hasGndPart ? ' Missing "gnd" part wired to "-".' : ''}`;
-        errors.push(`IC "${tag}" (${w.part.type}): ${w.text}.${missing} Ensure "V1.1"->"+", "G1.1"->"-", "${tag}.VCC"->"+", "${tag}.GND"->"-"`);
+        if (!allowIncomplete) {
+          const tag = refById?.get(w.part.id) || w.part.id;
+          const missing = `${!hasVccPart ? ' Missing "vcc" part wired to "+".' : ''}${!hasGndPart ? ' Missing "gnd" part wired to "-".' : ''}`;
+          errors.push(`IC "${tag}" (${w.part.type}): ${w.text}.${missing} Ensure "V1.1"->"+", "G1.1"->"-", "${tag}.VCC"->"+", "${tag}.GND"->"-"`);
+        }
       } else {
         errors.push(w.text);
       }
@@ -720,11 +757,11 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
 
   if (!errors.length) {
     for (const cErr of verifyOutputContention(sim, app.circuit, refById)) errors.push(cErr);
-    if (!incremental) {
+    if (!incremental && !allowIncomplete) {
       for (const fErr of verifyFloatingIcInputs(sim, app.circuit, refById)) errors.push(fErr);
     }
   }
-  if (!errors.length && !incremental) {
+  if (!errors.length && !incremental && !allowIncomplete) {
     for (const bErr of verifyBooleanBehavior(prompt, sim, app.circuit, refById)) errors.push(bErr);
     for (const cErr of verifyCombinationalSwitchLiveness(sim, app.circuit)) errors.push(cErr);
     for (const sErr of verifySequentialClockLiveness(sim, app.circuit, refById)) errors.push(sErr);
@@ -785,18 +822,29 @@ function wireEndMatchesToken(app, endPt, rawTok, refMap) {
  * Allocates components deterministically, routes clean wires, configures MCUs/probes,
  * verifies circuit health headlessly, and rolls back safely on unrecoverable errors.
  */
-export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, prompt = '' } = {}) {
+export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, prompt = '', allowIncomplete = false, initialRefMap = null } = {}) {
   const backup = JSON.stringify(app.circuit);
   const prevMode = app.mode;
   const refMap = new Map();
+  if (initialRefMap) {
+    for (const [k, v] of initialRefMap) {
+      const livePart = v?.id ? (app.circuit.partById(v.id) || v) : null;
+      if (livePart) refMap.set(k, livePart);
+    }
+  }
 
   try {
     const rawParts = Array.isArray(plan.parts) ? plan.parts.map(normalizePartSpec) : [];
     const clear = plan.clearExisting !== false && rawParts.length > 0;
+    let estIcCount = 0;
+    let estIcSpanCols = 0;
+    for (const sp of rawParts) {
+      const r = resolvePartType(sp.type, sp.props);
+      if (r && getDef(r.type).ic) { estIcCount++; estIcSpanCols += Math.ceil(getDef(r.type).ic.n / 2); }
+    }
     if (clear) {
-      const wantParts = rawParts;
       let estCols = 0;
-      for (const sp of wantParts) {
+      for (const sp of rawParts) {
         const res = resolvePartType(sp.type, sp.props);
         if (!res) continue;
         const d = getDef(res.type);
@@ -808,7 +856,7 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
       const needsRails = (plan.connections || []).some(([a, b]) => parseRailToken(a) || parseRailToken(b));
       let boardSize = plan.board || 'half';
       if (boardSize === 'mini' && needsRails) boardSize = 'half';
-      if (boardSize === 'half' && estCols > 26) boardSize = 'full';
+      if (boardSize === 'half' && (estCols > 26 || estIcCount >= 4)) boardSize = 'full';
 
       app.circuit.boards = [new Board(boardSize, 0, 0)];
       app.circuit.parts = [];
@@ -902,9 +950,14 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
         });
       }
     }
+    const totalIcs = clear ? estIcCount : (estIcCount + app.circuit.parts.filter(p => getDef(p.type).ic).length);
+    const icGap = totalIcs >= 8 || estIcSpanCols > 48 ? 1 : (totalIcs >= 6 || estIcSpanCols > 32 ? 2 : 3);
+    const icStart = icGap < 3 ? 1 : 3;
     const gridRows = rawParts.filter(s => Number.isInteger(s.row) && Number.isInteger(s.col));
     const layoutState = {
-      icCol: 3,
+      icCol: icStart,
+      icStart,
+      icGap,
       instX: b0 ? b0.x : 0,
       usedColsTop: new Set(),
       usedColsBot: new Set(),
@@ -923,7 +976,7 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
           if (hl && !hl.rail) {
             if (hl.row < 5) layoutState.usedColsTop.add(hl.col);
             else layoutState.usedColsBot.add(hl.col);
-            if (def.ic || def.mcu) layoutState.icCol = Math.max(layoutState.icCol, hl.col + 3);
+            if (def.ic || def.mcu) layoutState.icCol = Math.max(layoutState.icCol, hl.col + icGap);
           }
         }
       }
@@ -948,8 +1001,8 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
       if (!sp || sp._invalid || !String(sp.type || '').trim()) {
         throw new Error('Invalid entry in "parts" array — each part must be { "ref": "U1", "type": "<valid_type>", "props": {} }');
       }
-      // Skip accidentally echoed existing part IDs during incremental builds
-      if (!clear && sp.ref && app.circuit.partById(sp.ref)) continue;
+      // Skip already-placed refs/IDs during incremental or multi-stage builds
+      if (!clear && sp.ref && (app.circuit.partById(sp.ref) || refMap.has(sp.ref) || refMap.has(String(sp.ref).toUpperCase()))) continue;
       const placed = placePartSmart(app, sp, layoutState);
       if (sp.ref) {
         refMap.set(sp.ref, placed);
@@ -986,7 +1039,7 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
     const wireSpecs = [];
     let sigIdx = 0;
 
-    // Normalize connection specs: allow 2-element pairs, chained arrays [a,b,c,...], or {from,to}/{a,b} objects
+    // Normalize connection specs: pairs, chains [a,b,c,...], {from,to}/{a,b}, or star {from,to:[...]}
     const flatConnections = [];
     for (const item of (plan.connections || [])) {
       if (Array.isArray(item) && item.length >= 2) {
@@ -994,7 +1047,11 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
       } else if (item && typeof item === 'object') {
         const a = item.from ?? item.a ?? item[0];
         const b = item.to ?? item.b ?? item[1];
-        if (a && b) flatConnections.push([a, b]);
+        if (a && Array.isArray(b)) {
+          for (const dest of b) if (dest) flatConnections.push([a, dest]);
+        } else if (a && b) {
+          flatConnections.push([a, b]);
+        }
       }
     }
 
@@ -1006,13 +1063,7 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
       return Boolean(part && part.type === 'ne555' && resolvePinIndex(part, m[2].replace(/@.+$/, '')) === 4);
     };
 
-    for (const pair of flatConnections) {
-      const [aTok, bTok] = pair;
-      // A 555 CTRL pin tied straight to a rail breaks oscillation; leave it floating like a real astable.
-      if ((isNe555Ctrl(aTok) && parseRailToken(bTok)) || (isNe555Ctrl(bTok) && parseRailToken(aTok))) {
-        skippedNotes.push('Skipped wiring 555 CTRL (pin 5) straight to a rail — left open so it can oscillate.');
-        continue;
-      }
+    const wirePair = (aTok, bTok) => {
       const aRail = parseRailToken(aTok);
       const bRail = parseRailToken(bTok);
 
@@ -1024,7 +1075,7 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
         resA = resolveEndpoint(app, aTok, refMap, null);
         resB = resolveEndpoint(app, bTok, refMap, resA?.end);
       }
-      if (!resA || !resB) continue;
+      if (!resA || !resB) return;
 
       if (resA.rail === '+') { if (resA.usedTop) topPlusUsed = true; if (resA.usedBot) botPlusUsed = true; }
       if (resB.rail === '+') { if (resB.usedTop) topPlusUsed = true; if (resB.usedBot) botPlusUsed = true; }
@@ -1033,7 +1084,7 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
 
       const na = app.engine.netAt(resA.end.x, resA.end.y);
       const nb = app.engine.netAt(resB.end.x, resB.end.y);
-      if (na >= 0 && na === nb) continue; // Already electrically connected on same strip/rail!
+      if (na >= 0 && na === nb) return; // Already electrically connected on same strip/rail!
 
       const why = app.shortReason(resA.end, resB.end);
       if (why) throw new Error(`${aTok} → ${bTok}: ${why}`);
@@ -1045,10 +1096,55 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
       addedWires.push(w);
       wireSpecs.push({ aTok, bTok, a: { ...w.a }, b: { ...w.b }, color: col, aRail: resA.rail, bRail: resB.rail });
       app.reindex(true);
+    };
+
+    for (const pair of flatConnections) {
+      const [aTok, bTok] = pair;
+      // A 555 CTRL pin tied straight to a rail breaks oscillation; leave it floating like a real astable.
+      if ((isNe555Ctrl(aTok) && parseRailToken(bTok)) || (isNe555Ctrl(bTok) && parseRailToken(aTok))) {
+        skippedNotes.push('Skipped wiring 555 CTRL (pin 5) straight to a rail — left open so it can oscillate.');
+        continue;
+      }
+      wirePair(aTok, bTok);
+    }
+
+    const refById = new Map();
+    for (const [k, part] of refMap) {
+      if (part?.id && !refById.has(part.id) && k !== part.id) refById.set(part.id, k);
+    }
+    for (const sp of placedSpecs) refById.set(sp.partId, sp.ref);
+
+    // Auto-wire omitted IC VCC/VDD -> "+" and GND/VSS -> "-" only when rails already carry active power & ground
+    const bBridge = app.circuit.boards[0];
+    if (plan.autoPower !== false && bBridge && bBridge.rails) {
+      const railHasSupply = (railChar, tags) => {
+        for (const [, hl] of app.index.holes) {
+          if (hl.rail !== railChar) continue;
+          const n = app.engine.netAt(hl.x, hl.y);
+          if (n < 0) continue;
+          const ks = app.netKinds.get(n) || [];
+          if (ks.some(k => tags.includes(String(k.kind || '').split(':')[0]))) return true;
+        }
+        return false;
+      };
+      if (railHasSupply('+', ['V', 'B+']) && railHasSupply('−', ['G', 'B-'])) {
+        for (const p of app.circuit.parts) {
+          if (!getDef(p.type).ic) continue;
+          const tag = refById.get(p.id) || p.id;
+          for (const wp of p.worldPins()) {
+            const isV = /^(VCC|VDD)$/i.test(wp.name);
+            const isG = /^(GND|VSS)$/i.test(wp.name);
+            if (!isV && !isG) continue;
+            const n = app.engine.netAt(wp.x, wp.y);
+            if (n >= 0 && !app.engine.isNetConnected(n)) {
+              wirePair(`${tag}.${wp.name}`, isG ? '-' : '+');
+            }
+          }
+        }
+      }
     }
 
     // Bridge top and bottom power rails automatically if both halves were tapped
-    const bBridge = app.circuit.boards[0];
     if (bBridge && bBridge.rails) {
       const bridgeRail = (railChar, colHex, labelTop, labelBot) => {
         const rxA = closestRailHole(app, railChar, 't', bBridge.x + bBridge.cols, 0);
@@ -1091,9 +1187,7 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
       }
     }
 
-    const refById = new Map();
-    for (const sp of placedSpecs) refById.set(sp.partId, sp.ref);
-    const health = verifyCircuitHealth(app, refById, { prompt, incremental: !clear });
+    const health = verifyCircuitHealth(app, refById, { prompt, incremental: !clear || allowIncomplete, allowIncomplete });
     if (!health.ok) {
       app.load(backup, true);
       app.setMode(prevMode);

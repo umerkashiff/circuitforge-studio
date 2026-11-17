@@ -13,7 +13,7 @@ import { applyAiBuildPlan, parseRailToken, resolveEndpoint, pickWireColor } from
 const TAU = Math.PI * 2;
 const KEY_MATCH_PROPS = ['ohms', 'uf', 'volts', 'hz', 'color', 'common', 'wave', 'model', 'mh'];
 
-function createSandbox(realApp) {
+export function createSandbox(realApp) {
   const sbx = {
     circuit: new Circuit(),
     engine: new Engine(),
@@ -136,9 +136,15 @@ export class AiGuide {
     }
     const res = applyAiBuildPlan(sbx, plan, { commit: false, startSim: false, prompt });
     if (!res.ok) return res;
+    return this.startFromVerified(res, title, {
+      clearExisting: plan.clearExisting !== false,
+      aiDescs: Array.isArray(plan.steps) ? plan.steps : [],
+    });
+  }
 
-    // Prepare workspace if starting a fresh guided build
-    if (plan.clearExisting !== false) {
+  /** Build guide steps from an already-verified build result (supports single & multi-stage guides). */
+  startFromVerified(res, title = 'Guided Circuit Build', { clearExisting = true, aiDescs = [] } = {}) {
+    if (clearExisting) {
       const app = this.app;
       const dirty = app.circuit.parts.length > 0 || app.circuit.wires.length > 0;
       const curSize = app.circuit.boards[0]?.size;
@@ -154,7 +160,6 @@ export class AiGuide {
       }
     }
 
-    const aiDescs = Array.isArray(plan.steps) ? plan.steps : [];
     const steps = [];
     let stepNum = 1;
 
@@ -183,7 +188,7 @@ export class AiGuide {
       });
     }
 
-    for (const sp of res.placedParts) {
+    for (const sp of (res.placedParts || [])) {
       const valTag = fmtPropsSummary(sp.props);
       const label = valTag ? `${sp.name} (${valTag})` : sp.name;
       const aiMatch = aiDescs.find(s => s.kind === 'part' && String(s.ref || '').toUpperCase() === String(sp.ref).toUpperCase());
@@ -204,7 +209,7 @@ export class AiGuide {
       });
     }
 
-    for (const ws of res.wireSpecs) {
+    for (const ws of (res.wireSpecs || [])) {
       const aiMatch = aiDescs.find(s =>
         s.kind === 'wire' &&
         ((s.from === ws.aTok && s.to === ws.bTok) || (s.from === ws.bTok && s.to === ws.aTok))
@@ -233,12 +238,16 @@ export class AiGuide {
       wasFinished: false,
     };
 
-    // Map any pre-existing parts on incremental guides
     for (const p of this.app.circuit.parts) this.guide.boundParts.set(p.id, p.id);
 
     this.syncProgress();
     this.app.redraw();
-    return { ok: true, stepCount: steps.length };
+    return {
+      ok: true,
+      stepCount: steps.length,
+      boardSize: res.boardSize,
+      warnings: res.warnings || [],
+    };
   }
 
   stop() {

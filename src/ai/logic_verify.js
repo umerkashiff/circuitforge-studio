@@ -55,13 +55,23 @@ export function extractGateConstraints(prompt = '') {
   const nandOnly = explicitOnlyNand || (mentionsNand && /\busing\s+(?:a\s+|the\s+)?nand\s+gates?\b|\bwith\s+nand\s+gates?\b/i.test(raw) && !mentionsOtherGates);
   const norOnly = !nandOnly && (explicitOnlyNor || (/\b(nor|7402|7427)\b/i.test(raw) && /\b(?:using|with)\s+(?:a\s+|the\s+)?nor\s+gates?\b/i.test(raw) && !mentionsNonNorGates));
 
-  return { nandOnly, norOnly };
+  const nandChipM = raw.match(/\b(\d+)\s*(?:ic\s*7400|7400|nand)\s*(?:chips?|ics?)\b/i);
+  const minNandChips = nandChipM ? parseInt(nandChipM[1], 10) : 0;
+  const ledM = raw.match(/(?:with|using|place|build|add|make|and)\s+(\d+)\s*leds?(?!\s*(?:matrix|grid|x\d))\b/i);
+  const minLeds = ledM ? parseInt(ledM[1], 10) : 0;
+
+  return {
+    nandOnly,
+    norOnly,
+    minNandChips: minNandChips >= 2 && minNandChips <= 16 ? minNandChips : 0,
+    minLeds: minLeds >= 2 && minLeds <= 25 ? minLeds : 0,
+  };
 }
 
-/** Verify built parts satisfy user gate-family constraints. */
+/** Verify built parts satisfy user gate-family & explicit component-count constraints. */
 export function verifyPromptConstraints(prompt, circuit, refById = null) {
   const errors = [];
-  const { nandOnly, norOnly } = extractGateConstraints(prompt);
+  const { nandOnly, norOnly, minNandChips, minLeds } = extractGateConstraints(prompt);
   if (nandOnly) {
     for (const p of circuit.parts) {
       if (LOGIC_GATE_TYPES.has(p.type) && !NAND_TYPES.has(p.type)) {
@@ -75,6 +85,18 @@ export function verifyPromptConstraints(prompt, circuit, refById = null) {
         const tag = refById?.get(p.id) || p.id;
         errors.push(`Constraint failed: user asked for NOR gates ONLY, so remove "${tag}" (${p.type}) and implement its logic with ic7402/ic7427 NOR gates.`);
       }
+    }
+  }
+  if (minNandChips) {
+    const haveNand = circuit.parts.filter(p => NAND_TYPES.has(p.type)).length;
+    if (haveNand < minNandChips) {
+      errors.push(`Constraint failed: user asked for ${minNandChips} NAND chips, but only ${haveNand} NAND IC(s) placed — add the remaining ${minNandChips - haveNand} ic7400 chip(s) and wire them.`);
+    }
+  }
+  if (minLeds && !circuit.parts.some(p => ['board-ssd1306', 'wokwi-lcd1602', 'lcd16x2'].includes(p.type))) {
+    const haveLed = circuit.parts.filter(p => p.type === 'led').length;
+    if (haveLed < minLeds) {
+      errors.push(`Constraint failed: user asked for ${minLeds} LEDs, but only ${haveLed} LED(s) placed — add the remaining ${minLeds - haveLed} LED(s) with 220Ω resistors.`);
     }
   }
   return errors;

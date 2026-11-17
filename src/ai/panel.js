@@ -4,7 +4,7 @@
  * Markdown chat stream, starter chips, and 3-way Auto | Build | Guide composer.
  */
 import { getDef } from '../parts/registry.js';
-import { splitKeys } from './client.js';
+import { splitKeys, detectKeyProvider } from './client.js';
 
 const esc = (s) => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -72,19 +72,19 @@ export function mountAiPanel(ui, container) {
 
   container.innerHTML = `
     <div class="ai-head">
-      <select class="input small ai-model-sel" id="ai-model-sel" title="Groq model"></select>
-      <button class="icon-btn small ai-key-btn" id="ai-key-btn" title="Groq API key">
+      <select class="input small ai-model-sel" id="ai-model-sel" title="AI model"></select>
+      <button class="icon-btn small ai-key-btn" id="ai-key-btn" title="API key (Gemini or Groq)">
         <span class="ai-key-dot" id="ai-key-dot"></span>🔑
       </button>
       <button class="text-btn small" id="ai-clear-btn" title="Clear chat">Clear</button>
     </div>
     <div class="ai-key-box" id="ai-key-box" hidden>
-      <div class="ai-key-title">Groq API Key <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Get free key ↗</a></div>
+      <div class="ai-key-title">AI API Key <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Gemini (250K TPM) ↗</a> · <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Groq ↗</a></div>
       <div class="ai-key-row">
-        <input type="password" class="input small" id="ai-key-input" placeholder="gsk_... (or comma-separated keys)" autocomplete="off" spellcheck="false">
+        <input type="password" class="input small" id="ai-key-input" placeholder="AIza... / AQ.... (Gemini) or gsk_... (Groq)" autocomplete="off" spellcheck="false">
         <button class="btn primary small" id="ai-key-save">Save</button>
       </div>
-      <div class="ai-key-hint" id="ai-key-hint">Stored locally in your browser. Not needed if server key is enabled.</div>
+      <div class="ai-key-hint" id="ai-key-hint">Stored locally in your browser. Separate multiple keys with commas.</div>
     </div>
     <div class="ai-guide-card" id="ai-guide-card" hidden></div>
     <div class="ai-chat" id="ai-chat"></div>
@@ -261,7 +261,7 @@ export function mountAiPanel(ui, container) {
     if (ai.busy) {
       const spin = document.createElement('div');
       spin.className = 'ai-msg assistant thinking';
-      spin.innerHTML = '<div class="ai-dots"><i></i><i></i><i></i><span>Analyzing &amp; verifying…</span></div>';
+      spin.innerHTML = `<div class="ai-dots"><i></i><i></i><i></i><span>${esc(ai.statusText || 'Analyzing & verifying…')}</span></div>`;
       chatEl.append(spin);
     }
     if (errorMsg) {
@@ -279,14 +279,17 @@ export function mountAiPanel(ui, container) {
     keyDot.className = 'ai-key-dot ' + (okAuth ? 'on' : 'off');
     keyInp.value = ai.apiKey;
     keyBox.hidden = !keyDrawerOpen && okAuth;
-    const savedCount = splitKeys(ai.apiKey).length;
+    const savedKeys = splitKeys(ai.apiKey);
+    const savedCount = savedKeys.length;
+    const provs = [...new Set(savedKeys.map(detectKeyProvider).filter(Boolean))];
+    const provLabel = provs.map(p => (p === 'gemini' ? 'Gemini' : 'Groq')).join(' + ');
     keyHint.textContent = savedCount > 1
-      ? `${savedCount} personal Groq keys saved — automatic quota failover active.`
+      ? `${savedCount} keys saved (${provLabel}) — automatic quota & fallback routing active.`
       : savedCount === 1
-        ? 'Using your personal Groq key in localStorage (you can separate multiple keys with commas).'
+        ? `Using personal ${provLabel} key in localStorage (comma-separate multiple Gemini/Groq keys to combine quotas).`
         : ai.hasServerKey
-          ? 'Connected via server Groq proxy (or paste personal key above).'
-          : 'Paste a free Groq API key (gsk_...) from console.groq.com/keys.';
+          ? 'Connected via server AI proxy (or paste a personal Gemini/Groq key above).'
+          : 'Paste a free Google AI Studio key (AIza... / AQ....) or Groq key (gsk_...).';
 
     const curMode = ai.mode;
     for (const btn of modePill.querySelectorAll('button')) {
@@ -311,7 +314,7 @@ export function mountAiPanel(ui, container) {
     try {
       await ai.ask(txt, modeOverride);
     } catch (err) {
-      errorMsg = err?.message || 'Groq request failed.';
+      errorMsg = err?.message || 'AI request failed.';
       if (!ai.hasAuth) keyDrawerOpen = true;
     }
     sync();
@@ -332,7 +335,7 @@ export function mountAiPanel(ui, container) {
     errorMsg = '';
     await ai.refreshModels();
     keyDrawerOpen = false;
-    ui.toast(v ? 'Groq API key saved & models refreshed.' : 'Personal Groq API key cleared.');
+    ui.toast(v ? 'API key saved & models refreshed.' : 'Personal API key cleared.');
     sync();
   });
   clearBtn.addEventListener('click', () => {
