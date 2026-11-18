@@ -11,7 +11,38 @@ export const SCH_GRID = 20;
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 function isPowerPinName(name) {
-  return /^(VCC|VDD|V\+|5V|\+5V|3V3|VBUS|GND|VSS|−|SLAVE −|MASTER −|5V FIXED −|SLAVE GND|MASTER GND|COMP GND|TRIG GND|CH1 GND|CH2 GND|SYNC GND|OUT−)$/i.test(String(name || '').trim());
+  return /^(VCC|VDD|V\+|5V|\+5V|3V3|VIN|VBUS|AVCC|IOREF|GND|VSS|AGND|DGND|−|SLAVE −|MASTER −|5V FIXED −|SLAVE GND|MASTER GND|COMP GND|TRIG GND|CH1 GND|CH2 GND|SYNC GND|OUT−|SLAVE \+|MASTER \+|5V FIXED \+)$/i.test(String(name || '').trim());
+}
+
+function isPosSupplyPinName(name) {
+  return /^(VCC|VDD|V\+|5V|\+5V|3V3|VIN|VBUS|AVCC|IOREF|SLAVE \+|MASTER \+|5V FIXED \+)$/i.test(String(name || '').trim());
+}
+
+function isGndPinName(name) {
+  return /^(GND|VSS|AGND|DGND|−|SLAVE −|MASTER −|5V FIXED −|SLAVE GND|MASTER GND|COMP GND|TRIG GND|CH1 GND|CH2 GND|SYNC GND|OUT−)$/i.test(String(name || '').trim());
+}
+
+function collapseLinkedPins(partPins) {
+  const byGroup = new Map();
+  partPins.forEach((p, idx) => {
+    const src = { ...p, partPinIndex: idx, isPower: isPowerPinName(p.name) };
+    const gk = p.linkGroup ?? idx;
+    if (!byGroup.has(gk)) byGroup.set(gk, []);
+    byGroup.get(gk).push(src);
+  });
+  const out = [];
+  for (const grp of byGroup.values()) {
+    grp.sort((a, b) => (b.wired ? 1 : 0) - (a.wired ? 1 : 0) || a.name.length - b.name.length || a.partPinIndex - b.partPinIndex);
+    const chosen = { ...grp[0] };
+    if (grp.length > 1 && grp.every(g => /GND$/i.test(String(g.name || '').trim()))) {
+      chosen.name = 'GND';
+      chosen.hideNum = true;
+    } else if (grp.length > 1 && grp.every(g => g.name === chosen.name)) {
+      chosen.hideNum = true;
+    }
+    out.push(chosen);
+  }
+  return out;
 }
 
 function pinSideMeta(partEntry, opts, icPins, leftIdx, rightIdx, topIdx = [], botIdx = [], boxTitle = '') {
@@ -319,7 +350,7 @@ export function buildSchematicSymbols(data, opts = {}) {
           const allP = [...(u.ins || []), ...(u.s || []), u.out, u.en, u.d, u.j, u.k, u.clk, u.pre, u.clr, u.q, u.qn, u.r].filter(Boolean);
           return allP.some(pNum => {
             const pin = part.pins[pNum - 1];
-            return pin && pin.netName && pin.net >= 0;
+            return pin && (pin.wired ?? (pin.netName && pin.net >= 0));
           });
         };
         let activeUnits = meta.units.map((u, i) => ({ u, i })).filter(({ u }) => isUnitUsed(u));
@@ -327,6 +358,14 @@ export function buildSchematicSymbols(data, opts = {}) {
         if (!activeUnits.length) activeUnits = [{ u: meta.units[0], i: 0 }];
         else if (unused.length && meta.units.length > 1) {
           unusedNotes.push(`Unused ${part.ref} (${ic.id}): ${unused.map(x => part.ref + String.fromCharCode(65 + x.i)).join(', ')}`);
+        }
+        if (ic.vcc || ic.gnd) {
+          const pwrBits = [];
+          const vp = ic.vcc ? part.pins[ic.vcc - 1] : null;
+          const gp = ic.gnd ? part.pins[ic.gnd - 1] : null;
+          if (vp?.wired) pwrBits.push(`VCC=${ic.vcc} (${vp.netName || '+5V'})`);
+          if (gp?.wired) pwrBits.push(`GND=${ic.gnd} (${gp.netName || 'GND'})`);
+          if (pwrBits.length) unusedNotes.push(`Power ${part.ref} (${ic.id}): ${pwrBits.join(', ')}`);
         }
         for (const { u, i } of activeUnits) {
           if (['and', 'nand', 'or', 'nor', 'xor', 'xnor', 'not', 'buf'].includes(meta.kind)) {
@@ -529,49 +568,74 @@ export function buildSchematicSymbols(data, opts = {}) {
       continue;
     }
 
-    // 7. Tactile 4-pin Pushbutton -> momentary NO contact block (keeps all wired corners, collapses idle bridge)
+    // 7. Tactile 4-pin Pushbutton -> collapse bridged sides (1.l/1.r & 2.l/2.r) into a crisp 2-pin NO pushbutton symbol
     if (part.type === 'tactile') {
-      const leftPins = part.pins.filter((_, i) => i < 2);
-      const rightPins = part.pins.filter((_, i) => i >= 2);
-      const activeL = hideUnwired ? leftPins.filter(p => p.netName) : leftPins;
-      const activeR = hideUnwired ? rightPins.filter(p => p.netName) : rightPins;
-      const useL = activeL.length ? activeL : [leftPins[0]];
-      const useR = activeR.length ? activeR : [rightPins[0]];
-      const h = Math.max(40, (Math.max(useL.length, useR.length) + 1) * 20);
+      const collapsed = collapseLinkedPins(part.pins);
+      const pL = collapsed[0] || { ...part.pins[0], partPinIndex: 0 };
+      const pR = collapsed[1] || collapsed[0] || { ...part.pins[2], partPinIndex: 2 };
       const pins = [
-        ...useL.map((p, k) => ({ ...p, partPinIndex: p.i, lx: 0, ly: useL.length === 1 ? 20 : 20 + k * 20, side: 'L', isPower: false })),
-        ...useR.map((p, k) => ({ ...p, partPinIndex: p.i, lx: 80, ly: useR.length === 1 ? 20 : 20 + k * 20, side: 'R', isPower: false })),
+        { ...pL, lx: 0, ly: 20, side: 'L', isPower: false },
+        { ...pR, lx: 80, ly: 20, side: 'R', isPower: false },
       ];
       symbols.push({
         schId: part.id, partId: part.id, unit: null, ref: part.ref, value: part.value, type: part.type,
-        w: 80, h, pins, showValue, bodyBox: { x0: 14, y0: 4, x1: 66, y1: h - 4 },
+        w: 80, h: 40, pins, showValue, bodyBox: { x0: 18, y0: 4, x1: 62, y1: 36 },
         renderSVG(std, pal) {
-          const cy = Math.round(h / 40) * 20 || 20;
-          const out = [
-            `<text x="40" y="7" font-size="10.5" font-weight="700" text-anchor="middle" fill="${pal.ref}">${esc(part.ref)}</text>`,
-            `<line x1="26" y1="11" x2="54" y2="11" stroke="${pal.stroke}" stroke-width="1.8" stroke-linecap="round"/>`,
-            `<line x1="40" y1="11" x2="40" y2="18" stroke="${pal.stroke}" stroke-width="1.4" stroke-dasharray="2,2"/>`,
-            `<line x1="26" y1="${cy}" x2="54" y2="${cy}" stroke="${pal.stroke}" stroke-width="1.8" stroke-linecap="round"/>`,
-          ];
-          for (const p of pins) {
-            out.push(`<line x1="${p.lx}" y1="${p.ly}" x2="${p.side === 'L' ? 26 : 54}" y2="${cy}" stroke="${pal.pin}" stroke-width="1.5"/>`);
-          }
-          return out.join('\n');
+          return [
+            `<text x="40" y="4" font-size="10.5" font-weight="700" text-anchor="middle" fill="${pal.ref}">${esc(part.ref)}</text>`,
+            `<line x1="0" y1="20" x2="26" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`,
+            `<circle cx="28" cy="20" r="2.2" fill="${pal.bg}" stroke="${pal.stroke}" stroke-width="1.5"/>`,
+            `<line x1="54" y1="20" x2="80" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`,
+            `<circle cx="52" cy="20" r="2.2" fill="${pal.bg}" stroke="${pal.stroke}" stroke-width="1.5"/>`,
+            `<line x1="27" y1="15" x2="53" y2="15" stroke="${pal.stroke}" stroke-width="1.8" stroke-linecap="round"/>`,
+            `<line x1="40" y1="9" x2="40" y2="15" stroke="${pal.stroke}" stroke-width="1.4"/>`,
+            `<line x1="34" y1="9" x2="46" y2="9" stroke="${pal.stroke}" stroke-width="1.8" stroke-linecap="round"/>`,
+          ].join('\n');
         },
       });
       continue;
     }
 
-    // 8. 1-pin digital sources (`toggle`, `button`, `clock`) -> right-pointing driver flag box
+    // 8. 1-pin digital sources (`toggle`, `button`, `clock`) -> standard IEEE/IEC switch, pushbutton & square-wave clock symbols
     if (part.type === 'toggle' || part.type === 'button' || part.type === 'clock') {
       const w = 80, h = 40;
       const pins = [{ ...part.pins[0], partPinIndex: 0, lx: 80, ly: 20, side: 'R', isPower: false }];
-      const lbl = part.type === 'clock' ? (part.value || 'CLK') : (part.props?.label || (part.type === 'toggle' ? 'SW' : 'BTN'));
+      const userLbl = String(part.props?.label || '').trim();
       symbols.push({
         schId: part.id, partId: part.id, unit: null, ref: part.ref, value: part.value, type: part.type,
-        w, h, pins, showValue: false, bodyBox: { x0: 4, y0: 4, x1: 64, y1: 36 },
+        w, h, pins, showValue, bodyBox: { x0: 14, y0: 4, x1: 64, y1: 36 },
         renderSVG(std, pal) {
-          return drawGenericBox({ ref: part.ref, value: part.value, w, h, pins: [{ ...pins[0], name: '', hideNum: true }], showValue: false }, pal, std, false, lbl);
+          const out = [`<text x="40" y="4" font-size="10.5" font-weight="700" text-anchor="middle" fill="${pal.ref}">${esc(part.ref)}</text>`];
+          if (part.type === 'clock') {
+            out.push(`<circle cx="36" cy="20" r="13" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.8"/>`);
+            out.push(`<path d="M 27 24 L 30 24 L 30 16 L 36 16 L 36 24 L 41 24 L 41 16 L 45 16" fill="none" stroke="${pal.stroke}" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/>`);
+            out.push(`<line x1="49" y1="20" x2="80" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            const hzLbl = part.value || `${part.props?.hz || 1} Hz`;
+            if (showValue) out.push(`<text x="36" y="40" font-size="9" text-anchor="middle" fill="${pal.sub}">${esc(hzLbl)}</text>`);
+          } else if (part.type === 'toggle') {
+            const on = !!part.props?.on;
+            out.push(`<text x="17" y="15" font-size="8" font-weight="700" text-anchor="end" fill="${pal.sub}">1</text>`);
+            out.push(`<text x="17" y="30" font-size="8" font-weight="700" text-anchor="end" fill="${pal.sub}">0</text>`);
+            out.push(`<line x1="19" y1="12" x2="27" y2="12" stroke="${pal.stroke}" stroke-width="1.3"/>`);
+            out.push(`<line x1="19" y1="28" x2="27" y2="28" stroke="${pal.stroke}" stroke-width="1.3"/>`);
+            out.push(`<circle cx="29" cy="12" r="2.2" fill="${pal.bg}" stroke="${pal.stroke}" stroke-width="1.5"/>`);
+            out.push(`<circle cx="29" cy="28" r="2.2" fill="${pal.bg}" stroke="${pal.stroke}" stroke-width="1.5"/>`);
+            out.push(`<line x1="54" y1="20" x2="31" y2="${on ? 12.5 : 27.5}" stroke="${pal.stroke}" stroke-width="2" stroke-linecap="round"/>`);
+            out.push(`<circle cx="55" cy="20" r="2.3" fill="${pal.bg}" stroke="${pal.stroke}" stroke-width="1.5"/>`);
+            out.push(`<line x1="57" y1="20" x2="80" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            if (userLbl) out.push(`<text x="40" y="39" font-size="9" text-anchor="middle" fill="${pal.sub}">${esc(userLbl)}</text>`);
+          } else {
+            out.push(`<line x1="18" y1="12" x2="18" y2="28" stroke="${pal.stroke}" stroke-width="1.8" stroke-linecap="round"/>`);
+            out.push(`<line x1="18" y1="20" x2="27" y2="20" stroke="${pal.stroke}" stroke-width="1.4"/>`);
+            out.push(`<circle cx="29" cy="20" r="2.2" fill="${pal.bg}" stroke="${pal.stroke}" stroke-width="1.5"/>`);
+            out.push(`<circle cx="52" cy="20" r="2.2" fill="${pal.bg}" stroke="${pal.stroke}" stroke-width="1.5"/>`);
+            out.push(`<line x1="54" y1="20" x2="80" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            out.push(`<line x1="28" y1="15" x2="53" y2="15" stroke="${pal.stroke}" stroke-width="1.8" stroke-linecap="round"/>`);
+            out.push(`<line x1="40.5" y1="9" x2="40.5" y2="15" stroke="${pal.stroke}" stroke-width="1.4"/>`);
+            out.push(`<line x1="34.5" y1="9" x2="46.5" y2="9" stroke="${pal.stroke}" stroke-width="1.8" stroke-linecap="round"/>`);
+            if (userLbl) out.push(`<text x="40" y="39" font-size="9" text-anchor="middle" fill="${pal.sub}">${esc(userLbl)}</text>`);
+          }
+          return out.join('\n');
         },
       });
       continue;
@@ -588,31 +652,170 @@ export function buildSchematicSymbols(data, opts = {}) {
       continue;
     }
 
-    // 10. Multi-pin modules, MCUs, Displays, DIP switches, Trainer, Instruments
-    //     Apply smart pin pruning (`hideUnwired: true`) on parts with >= 8 pins so Arduino schematics stay clean!
-    let candPins = part.pins.map((p, idx) => ({ ...p, partPinIndex: idx, isPower: isPowerPinName(p.name) }));
-    if (hideUnwired && candPins.length >= 8) {
-      const connected = candPins.filter(p => p.netName && p.net >= 0);
+    // 10. LED Bar Graph -> Paired Left Anodes (A1..A8) & Right Cathodes (K1..K8) with internal LED symbols
+    if (part.type === 'bargraph') {
+      const pairs = [];
+      for (let i = 0; i < 8; i++) {
+        const a = { ...part.pins[i], partPinIndex: i, isPower: false };
+        const k = { ...part.pins[8 + i], partPinIndex: 8 + i, isPower: false };
+        if (!hideUnwired || a.wired || k.wired) pairs.push({ a, k });
+      }
+      const active = pairs.length ? pairs : [0, 1, 2, 3].map(i => ({
+        a: { ...part.pins[i], partPinIndex: i, isPower: false },
+        k: { ...part.pins[8 + i], partPinIndex: 8 + i, isPower: false },
+      }));
+      const w = 120, h = Math.max(80, (active.length + 1) * 20);
+      const pins = [];
+      active.forEach((pr, rowIdx) => {
+        const ly = 20 + rowIdx * 20;
+        pins.push({ ...pr.a, lx: 0, ly, side: 'L' });
+        pins.push({ ...pr.k, lx: w, ly, side: 'R' });
+      });
+      symbols.push({
+        schId: part.id, partId: part.id, unit: null, ref: part.ref, value: part.value, type: part.type,
+        w, h, pins, showValue, prunedCount: Math.max(0, 16 - active.length * 2),
+        bodyBox: { x0: 14, y0: 4, x1: w - 14, y1: h - 4 },
+        renderSVG(std, pal, showNums) {
+          const out = [
+            `<rect x="16" y="4" width="${w - 32}" height="${h - 8}" rx="3" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.8"/>`,
+            `<text x="16" y="-1" font-size="10.5" font-weight="700" fill="${pal.ref}">${esc(part.ref)}</text>`,
+            showValue ? `<text x="${w - 16}" y="-1" font-size="9.5" text-anchor="end" fill="${pal.sub}">${esc(part.value)}</text>` : '',
+          ];
+          active.forEach((pr, rowIdx) => {
+            const ly = 20 + rowIdx * 20;
+            out.push(`<line x1="0" y1="${ly}" x2="16" y2="${ly}" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            out.push(`<line x1="${w - 16}" y1="${ly}" x2="${w}" y2="${ly}" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            if (showNums) {
+              out.push(`<text x="12" y="${ly - 4}" font-size="8.5" text-anchor="end" font-family="'SF Mono', ui-monospace, monospace" fill="${pal.pinNum}">${pr.a.num}</text>`);
+              out.push(`<text x="${w - 12}" y="${ly - 4}" font-size="8.5" font-family="'SF Mono', ui-monospace, monospace" fill="${pal.pinNum}">${pr.k.num}</text>`);
+            }
+            out.push(`<text x="20" y="${ly + 3}" font-size="8" font-weight="600" fill="${pal.pinText}">${esc(pr.a.name)}</text>`);
+            out.push(`<text x="${w - 20}" y="${ly + 3}" font-size="8" font-weight="600" text-anchor="end" fill="${pal.pinText}">${esc(pr.k.name)}</text>`);
+            out.push(`<line x1="36" y1="${ly}" x2="54" y2="${ly}" stroke="${pal.stroke}" stroke-width="1.3"/>`);
+            out.push(`<polygon points="54,${ly - 5} 54,${ly + 5} 66,${ly}" fill="#ffedd5" stroke="${pal.stroke}" stroke-width="1.4" stroke-linejoin="round"/>`);
+            out.push(`<line x1="66" y1="${ly - 5}" x2="66" y2="${ly + 5}" stroke="${pal.stroke}" stroke-width="1.6"/>`);
+            out.push(`<line x1="66" y1="${ly}" x2="84" y2="${ly}" stroke="${pal.stroke}" stroke-width="1.3"/>`);
+          });
+          return out.join('\n');
+        },
+      });
+      continue;
+    }
+
+    // 11. RGB LED -> R/G/B Left -> COM Right
+    if (part.type === 'wokwi-rgb-led') {
+      const box = pinSideMeta(part, opts, part.pins, [0, 2, 3], [1], [], [], 'RGB LED');
+      symbols.push({
+        schId: part.id, partId: part.id, unit: null, ref: part.ref, value: part.value, type: part.type,
+        w: box.w, h: box.h, pins: box.pins, showValue, bodyBox: { x0: 14, y0: 4, x1: box.w - 14, y1: box.h - 4 },
+        renderSVG: (std, pal, showNums) => drawGenericBox({ ref: part.ref, value: part.value, w: box.w, h: box.h, pins: box.pins, showValue }, pal, std, showNums, 'RGB LED'),
+      });
+      continue;
+    }
+
+    // 12. 7-Segment Display -> collapsed single COM Top/Bottom + ordered segment inputs Left
+    if (part.type === 'seg7') {
+      const collapsed = collapseLinkedPins(part.pins);
+      const isAnode = part.props?.common === 'anode';
+      const segOrder = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'DP'];
+      const sigPins = collapsed
+        .filter(p => !/^COM$/i.test(p.name) && (!hideUnwired || p.wired))
+        .sort((a, b) => segOrder.indexOf(a.name) - segOrder.indexOf(b.name));
+      const comPins = collapsed.filter(p => /^COM$/i.test(p.name));
+      const finalSig = sigPins.length ? sigPins : collapsed.filter(p => !/^COM$/i.test(p.name));
+      const cand = [...finalSig, ...comPins];
+      const leftIdx = finalSig.map((_, i) => i);
+      const topIdx = isAnode ? comPins.map((_, i) => finalSig.length + i) : [];
+      const botIdx = isAnode ? [] : comPins.map((_, i) => finalSig.length + i);
+      const box = pinSideMeta(part, opts, cand, leftIdx, [], topIdx, botIdx, '7-SEG');
+      const remapped = box.pins.map(bp => ({ ...bp, partPinIndex: cand[bp.partPinIndex].partPinIndex, hideNum: cand[bp.partPinIndex].hideNum }));
+      symbols.push({
+        schId: part.id, partId: part.id, unit: null, ref: part.ref, value: part.value, type: part.type,
+        w: box.w, h: box.h, pins: remapped, showValue, prunedCount: Math.max(0, part.pins.length - cand.length),
+        bodyBox: { x0: 14, y0: 4, x1: box.w - 14, y1: box.h - 4 },
+        renderSVG: (std, pal, showNums) => drawGenericBox({ ref: part.ref, value: part.value, w: box.w, h: box.h, pins: remapped, showValue }, pal, std, showNums, '7-SEG'),
+      });
+      continue;
+    }
+
+    // 13. DIP Switch Arrays (`dip4`, `dip8`) -> drive outputs on Right with switch glyphs
+    if (part.type === 'dip4' || part.type === 'dip8') {
+      const all = part.pins.map((p, idx) => ({ ...p, partPinIndex: idx, isPower: false }));
+      const wired = hideUnwired ? all.filter(p => p.wired) : all;
+      const cand = wired.length ? wired : all;
+      const rightList = cand.map((_, i) => i);
+      const box = pinSideMeta(part, opts, cand, [], rightList, [], [], part.shortName);
+      const remapped = box.pins.map(bp => ({ ...bp, partPinIndex: cand[bp.partPinIndex].partPinIndex }));
+      symbols.push({
+        schId: part.id, partId: part.id, unit: null, ref: part.ref, value: part.value, type: part.type,
+        w: box.w, h: box.h, pins: remapped, showValue, prunedCount: part.pins.length - cand.length,
+        bodyBox: { x0: 14, y0: 4, x1: box.w - 14, y1: box.h - 4 },
+        renderSVG: (std, pal, showNums) => drawGenericBox({ ref: part.ref, value: part.value, w: box.w, h: box.h, pins: remapped, showValue }, pal, std, showNums, part.shortName),
+      });
+      continue;
+    }
+
+    // 14. Multi-pin modules, MCUs, Displays, Trainer, Benchtop Instruments
+    // Collapse redundant internally-linked header sockets first (e.g. 4x Trainer strips, tied Scope/PSU/FG GNDs)
+    const collapsedPins = collapseLinkedPins(part.pins);
+    let candPins = collapsedPins;
+    if (hideUnwired && (part.type === 'trainer-board' || def?.cat === 'Instruments' || candPins.length >= 6)) {
+      const connected = candPins.filter(p => p.wired);
       if (connected.length > 0) candPins = connected;
-      else candPins = candPins.slice(0, Math.min(8, candPins.length));
+      else if (part.type === 'trainer-board') {
+        const previewNames = new Set(['L0', 'S0', 'CLK', '+5V', 'GND']);
+        candPins = candPins.filter(p => previewNames.has(p.name));
+      } else {
+        candPins = candPins.slice(0, Math.min(8, candPins.length));
+      }
     }
 
-    // Split naturally into input-ish Left pins vs output-ish Right pins (power pins routed cleanly via local symbols when powerStyle==='symbols')
+    // Semantic pin classification: Supply (+V) -> Top, Ground (GND/-) -> Bottom, Signal -> Left/Right by function
+    const topList = [], botList = [], sigIndices = [];
+    candPins.forEach((p, i) => {
+      if (isPosSupplyPinName(p.name) && topList.length < 4) topList.push(i);
+      else if (isGndPinName(p.name) && botList.length < 4) botList.push(i);
+      else sigIndices.push(i);
+    });
+
     let leftList = [], rightList = [];
-    if (def?.cat === 'Inputs' || part.type === 'funcgen' || part.type === 'power-supply') {
-      rightList = candPins.map((_, i) => i);
-    } else if (def?.cat === 'Outputs' || part.type === 'oscilloscope' || part.type === 'wokwi-logic-analyzer') {
-      leftList = candPins.map((_, i) => i);
+    const isSensorOrSource = def?.cat === 'Inputs' || part.type === 'trainer-board' || part.type === 'power-supply' || part.type === 'funcgen';
+    const isDisplayOrSink = def?.cat === 'Outputs' || part.type === 'oscilloscope' || part.type === 'wokwi-logic-analyzer';
+    if (part.type === 'funcgen') {
+      for (const i of sigIndices) {
+        if (/^(EXT|SWEEP)/i.test(candPins[i].name)) leftList.push(i);
+        else rightList.push(i);
+      }
+    } else if (part.type === 'trainer-board') {
+      rightList = [...sigIndices];
+    } else if (def?.mcu) {
+      for (const i of sigIndices) {
+        const nm = String(candPins[i].name || '');
+        if (/^(RST|RESET|AREF|RX|BOOT|EN|A\d)/i.test(nm)) leftList.push(i);
+        else rightList.push(i);
+      }
+      if (rightList.length > 10 && leftList.length < 3) {
+        const half = Math.ceil(sigIndices.length / 2);
+        leftList = sigIndices.slice(0, half);
+        rightList = sigIndices.slice(half);
+      }
+    } else if (isSensorOrSource) {
+      rightList = [...sigIndices];
+    } else if (isDisplayOrSink) {
+      leftList = [...sigIndices];
     } else {
-      const half = Math.ceil(candPins.length / 2);
-      leftList = candPins.slice(0, half).map((_, i) => i);
-      rightList = candPins.slice(half).map((_, i) => half + i);
+      const half = Math.ceil(sigIndices.length / 2);
+      leftList = sigIndices.slice(0, half);
+      rightList = sigIndices.slice(half);
     }
 
-    const title = def?.mcu ? part.shortName : part.shortName;
-    const box = pinSideMeta(part, opts, candPins, leftList, rightList, [], [], title);
-    // Keep original partPinIndex cleanly after candPins subsetting
-    const remappedPins = box.pins.map(bp => ({ ...bp, partPinIndex: candPins[bp.partPinIndex].partPinIndex }));
+    const title = part.shortName;
+    const box = pinSideMeta(part, opts, candPins, leftList, rightList, topList, botList, title);
+    const remappedPins = box.pins.map(bp => ({
+      ...bp,
+      partPinIndex: candPins[bp.partPinIndex].partPinIndex,
+      hideNum: candPins[bp.partPinIndex].hideNum,
+    }));
     symbols.push({
       schId: part.id,
       partId: part.id,
@@ -624,7 +827,7 @@ export function buildSchematicSymbols(data, opts = {}) {
       h: box.h,
       pins: remappedPins,
       showValue,
-      prunedCount: part.pins.length - candPins.length,
+      prunedCount: Math.max(0, collapsedPins.length - candPins.length),
       bodyBox: { x0: 14, y0: 4, x1: box.w - 14, y1: box.h - 4 },
       renderSVG: (std, pal, showNums) => drawGenericBox({ ref: part.ref, value: part.value, w: box.w, h: box.h, pins: remappedPins, showValue }, pal, std, showNums, title),
     });

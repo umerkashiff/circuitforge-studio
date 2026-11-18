@@ -22,7 +22,7 @@ const SOURCE_TYPES = new Set([
   'wokwi-mpu6050', 'wokwi-ds1307', 'wokwi-bmp180',
 ]);
 const SINK_TYPES = new Set([
-  'led', 'wokwi-rgb-led', 'seg7', 'bargraph', 'buzzer',
+  'led', 'wokwi-rgb-led', 'seg7', 'buzzer',
   'lcd16x2', 'board-ssd1306', 'wokwi-sh1107', 'wokwi-lcd1602', 'wokwi-lcd2004',
   'oscilloscope', 'wokwi-logic-analyzer', 'wokwi-relay-module',
 ]);
@@ -221,11 +221,10 @@ export function computeSchematicLayout(circuit, engine = null, index = null, opt
   }
 
   const symbols = rawSymbols.filter((s) => {
-    if (!s.isSupplyOrigin || powerStyle !== 'symbols') return true;
-    const n = s.pins[0]?.net;
-    const occ = netPinOccurrences.get(n) || [];
-    // Omit bare VCC1/GND1 supply block whenever another component uses that power net cleanly via power symbols
-    return occ.length <= 1;
+    if (!s.isSupplyOrigin) return true;
+    // In VCC / GND symbol mode, breadboard rail plugs are redundant whenever actual circuit symbols exist.
+    if (powerStyle === 'symbols') return rawSymbols.every(other => other.isSupplyOrigin);
+    return true;
   });
 
   // Build bipartite adjacency between remaining symbols on non-power nets (plus rail->load for column depth)

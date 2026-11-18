@@ -76,11 +76,28 @@ export function extractCircuitData(circuit, engine = null, index = null) {
   const boardNames = new Map();
   (circuit.boards || []).forEach((b, i) => boardNames.set(b.id, b.label || `Board ${i + 1}`));
 
+  const partInternalGroups = (part, def, pinCount) => {
+    const parent = Array.from({ length: pinCount }, (_, i) => i);
+    const find = (x) => (parent[x] === x ? x : (parent[x] = find(parent[x])));
+    const links = def?.links ? def.links(part) : null;
+    if (links) {
+      for (const [a, b] of links) {
+        if (a >= 0 && a < pinCount && b >= 0 && b < pinCount) {
+          const ra = find(a), rb = find(b);
+          if (ra !== rb) parent[rb] = ra;
+        }
+      }
+    }
+    return Array.from({ length: pinCount }, (_, i) => find(i));
+  };
+
   const electricalParts = (circuit.parts || []).filter(p => !isAnnotationType(p.type));
   const pinByPoint = new Map();
   const netPinList = new Map();
+  const netExtGroupMap = new Map();
   const netHoleSet = new Map();
   const netHasWire = new Set();
+  const partGroupMap = new Map();
 
   for (const w of circuit.wires || []) {
     const na = eng.netAt(w.a.x, w.a.y), nb = eng.netAt(w.b.x, w.b.y);
@@ -98,16 +115,22 @@ export function extractCircuitData(circuit, engine = null, index = null) {
 
   for (const p of electricalParts) {
     const def = getDef(p.type, true);
-    for (const q of p.worldPins()) {
+    const wPins = p.worldPins();
+    const groups = partInternalGroups(p, def, wPins.length);
+    partGroupMap.set(p.id, groups);
+    for (const q of wPins) {
       const n = eng.netAt(q.x, q.y);
       const k = key(q.x, q.y);
       const hl = holeMap.get(k);
-      const entry = { part: p, ref: p.ref || p.id, pinIndex: q.i, pinNum: q.i + 1, name: q.name, x: q.x, y: q.y, net: n, hole: hl ? hl.label : null, rail: hl ? hl.rail : null };
+      const lg = groups[q.i] ?? q.i;
+      const entry = { part: p, ref: p.ref || p.id, pinIndex: q.i, pinNum: q.i + 1, name: q.name, linkGroup: lg, x: q.x, y: q.y, net: n, hole: hl ? hl.label : null, rail: hl ? hl.rail : null };
       if (!pinByPoint.has(k)) pinByPoint.set(k, []);
       pinByPoint.get(k).push(entry);
       if (n >= 0) {
         if (!netPinList.has(n)) netPinList.set(n, []);
         netPinList.get(n).push(entry);
+        if (!netExtGroupMap.has(n)) netExtGroupMap.set(n, new Set());
+        netExtGroupMap.get(n).add(`${p.id}:${lg}`);
         if (hl) {
           if (!netHoleSet.has(n)) netHoleSet.set(n, new Set());
           netHoleSet.get(n).add(hl.label);
@@ -116,10 +139,11 @@ export function extractCircuitData(circuit, engine = null, index = null) {
     }
   }
 
-  // Gather active nets (participating in wiring, multi-pin strips, supplies, or user net labels)
+  // Gather externally active nets (excluding internal-only links within a single unwired part)
   const activeNetIds = new Set();
-  for (const [n, pins] of netPinList) {
-    if (pins.length > 1 || netHasWire.has(n) || userNetLabels.has(n) || pins.some(p => p.part.type === 'vcc' || p.part.type === 'gnd' || p.rail)) {
+  for (const [n] of netPinList) {
+    const extCount = netExtGroupMap.get(n)?.size || 0;
+    if (extCount >= 2 || netHasWire.has(n) || userNetLabels.has(n)) {
       activeNetIds.add(n);
     }
   }
@@ -198,22 +222,26 @@ export function extractCircuitData(circuit, engine = null, index = null) {
     });
   }
 
-  // Enrich part pin descriptors with resolved net name + voltage
+  // Enrich part pin descriptors with resolved net name + external connectivity + voltage
   const parts = electricalParts.map((p) => {
     const def = getDef(p.type, true);
+    const groups = partGroupMap.get(p.id) || [];
     const pins = p.worldPins().map((q) => {
       const n = eng.netAt(q.x, q.y);
       const hl = holeMap.get(key(q.x, q.y));
       const v = n >= 0 ? eng.voltage(n) : NaN;
+      const wired = n >= 0 && activeNetIds.has(n);
       return {
         i: q.i,
         num: q.i + 1,
         name: q.name,
+        linkGroup: groups[q.i] ?? q.i,
+        wired,
         x: q.x,
         y: q.y,
         hole: hl ? hl.label : null,
         net: n,
-        netName: n >= 0 && netInfoById.has(n) ? netInfoById.get(n).name : '',
+        netName: wired && netInfoById.has(n) ? netInfoById.get(n).name : '',
         voltage: Number.isNaN(v) ? null : +v.toFixed(3),
       };
     });

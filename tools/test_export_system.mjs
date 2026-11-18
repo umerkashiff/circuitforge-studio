@@ -681,6 +681,103 @@ test('P4.5', 'Schematic Consolidation, Manual Drag Push-Apart & Footer Notes Cle
   return `${res.layout.powerTrunks.length} consolidated trunks, ${symBoxes.length} non-overlapping symbols, footer clearance & drag push-apart verified`;
 });
 
+test('P4.6', 'AND Gate Schematic: no roaming VCC1 box, real switch/clock/tactile symbols & IC power pin footnote', () => {
+  const c = new Circuit(); c.name = 'AND Gate';
+  c.boards.push(new Board('half', 0, 0));
+  c.parts.push(
+    new Part('vcc', 3, -3), new Part('gnd', 6, -3), new Part('ic7408', 10, 11),
+    new Part('toggle', 7, 22, 2), new Part('toggle', 13, 22, 2),
+    new Part('resistor', 20, 13, 0, { ohms: 220 }), new Part('led', 24, 12, 0, { color: 'red' }),
+  );
+  const wires = [
+    [3, -3, 3, 1, '#e5484d'], [6, -3, 6, 2, '#2b2d31'], [28, 1, 28, 17, '#e5484d'], [29, 2, 29, 18, '#2b2d31'],
+    [10, 1, 10, 7, '#e5484d'], [16, 2, 16, 12, '#2b2d31'],
+    [7, 22, 10, 15, '#0a84ff'], [13, 22, 11, 15, '#f5c400'], [12, 14, 20, 14, '#30a46c'], [25, 15, 25, 18, '#2b2d31'],
+  ];
+  for (const [x1, y1, x2, y2, col] of wires) c.wires.push(new Wire({ x: x1, y: y1 }, { x: x2, y: y2 }, col));
+  ensureDesignators(c);
+
+  const res = renderSchematicSVG(c, null, null, { standard: 'ieee', powerStyle: 'symbols' });
+  assert.ok(!res.layout.symbols.some(s => s.isSupplyOrigin), 'Breadboard VCC/GND rail plugs omitted in symbols mode');
+  assert.ok(res.layout.unusedNotes.some(n => n.includes('Power U1 (7408): VCC=14 (+5V), GND=7 (GND)')), 'IC power pins documented cleanly in footer');
+  assert.ok(!res.svg.includes('>SW</text>'), 'Toggle switches use SPDT switch geometry rather than generic SW box');
+  assert.ok(res.svg.includes('<circle cx="29" cy="12"'), 'Toggle switch draws real contact terminals');
+
+  // Verify tactile 4-pin bridge collapses to 2 logical pins & button/clock render non-box glyphs
+  const c2 = new Circuit();
+  c2.boards.push(new Board('half', 0, 0));
+  const tact = new Part('tactile', 10, 11);
+  const btn = new Part('button', 6, 22, 2);
+  const clk = new Part('clock', 3, -2, 0, { hz: 5 });
+  const r = new Part('resistor', 14, 11, 0, { ohms: 1000 });
+  c2.parts.push(tact, btn, clk, r);
+  c2.wires.push(
+    new Wire(btn.worldPins()[0], tact.worldPins()[0], '#0a84ff'),
+    new Wire(tact.worldPins()[2], r.worldPins()[0], '#30a46c'),
+    new Wire(clk.worldPins()[0], r.worldPins()[1], '#ff8a00'),
+  );
+  ensureDesignators(c2);
+  const res2 = renderSchematicSVG(c2, null, null, { standard: 'ieee' });
+  const tactSym = res2.layout.symbols.find(s => s.type === 'tactile');
+  assert.equal(tactSym.pins.length, 2, 'Tactile internal 1.l/1.r & 2.l/2.r links collapse cleanly to 2 terminals');
+  assert.ok(res2.svg.includes('L 36 16 L 36 24 L 41 24'), 'Clock renders square-wave oscillator glyph');
+  return 'Zero roaming VCC1 plug, SPDT toggles, 2-pin collapsed tactile, clock & pushbutton verified';
+});
+
+test('P4.7', 'Trainer Board, seg7 & Oscilloscope internal link dedup + active-net filtering + semantic Bargraph/OLED pins', () => {
+  const c = new Circuit(); c.name = 'Trainer + Displays';
+  c.boards.push(new Board('half', 0, 0));
+  const tb = new Part('trainer-board', 0, -5);
+  const ic = new Part('ic7404', 10, 11);
+  const seg = new Part('seg7', 2, 11);
+  const scope = new Part('oscilloscope', 45, -5);
+  const oled = new Part('board-ssd1306', 2, 22);
+  const bg = new Part('bargraph', 20, 11);
+  const r1 = new Part('resistor', 20, 14, 1, { ohms: 330 });
+  c.parts.push(tb, ic, seg, scope, oled, bg, r1);
+  const tp = tb.worldPins();
+  const vccPin = tp.find(p => p.name === '+5V');
+  const gndPin = tp.find(p => p.name === 'GND');
+  const s0Pin = tp.find(p => p.name === 'S0');
+  const l0Pin = tp.find(p => p.name === 'L0');
+  const ip = ic.worldPins();
+  c.wires.push(
+    new Wire(vccPin, ip[13], '#e5484d'),
+    new Wire(gndPin, ip[6], '#2b2d31'),
+    new Wire(s0Pin, ip[0], '#0a84ff'),
+    new Wire(ip[1], l0Pin, '#30a46c'),
+    new Wire(ip[1], bg.worldPins()[0], '#ff8a00'), // A1
+    new Wire(r1.worldPins()[1], gndPin, '#2b2d31'),
+  );
+  ensureDesignators(c);
+
+  const data = extractCircuitData(c);
+  assert.ok(!data.nets.some(n => n.name === '+5V_2' || n.name === 'GND_2'), 'No spurious +5V_2 or GND_2 nets');
+  assert.equal(data.nets.length, 5, `Expected 5 genuinely wired nets (+5V, GND, S0, L0/A1, K1-R1), got ${data.nets.length}`);
+
+  const res = renderSchematicSVG(c, null, null, { standard: 'ieee', hideUnwired: true });
+  const tbSym = res.layout.symbols.find(s => s.type === 'trainer-board');
+  assert.ok(tbSym.pins.length === 4, `Trainer prunes from 164 physical sockets to exactly 4 logical wired pins (got ${tbSym.pins.length})`);
+  assert.equal(tbSym.pins.find(p => p.name === '+5V')?.side, 'T', 'Trainer +5V sits on Top');
+  assert.equal(tbSym.pins.find(p => p.name === 'GND')?.side, 'B', 'Trainer GND sits on Bottom');
+
+  const segSym = res.layout.symbols.find(s => s.type === 'seg7');
+  assert.equal(segSym.pins.filter(p => p.name === 'COM').length, 1, 'seg7 twin COM pins collapse to 1 COM');
+
+  const scopeSym = res.layout.symbols.find(s => s.type === 'oscilloscope');
+  assert.equal(scopeSym.pins.filter(p => /GND/.test(p.name)).length, 1, 'oscilloscope 4 linked GNDs collapse to 1 GND');
+
+  const oledSym = res.layout.symbols.find(s => s.type === 'board-ssd1306');
+  assert.equal(oledSym.pins.find(p => p.name === 'VCC')?.side, 'T', 'OLED VCC placed on Top');
+  assert.equal(oledSym.pins.find(p => p.name === 'GND')?.side, 'B', 'OLED GND placed on Bottom');
+
+  const bgSym = res.layout.symbols.find(s => s.type === 'bargraph');
+  assert.equal(bgSym.pins.find(p => p.name === 'A1')?.side, 'L', 'Bargraph anode A1 on Left');
+  assert.equal(bgSym.pins.find(p => p.name === 'K1')?.side, 'R', 'Bargraph cathode K1 on Right');
+  assert.ok(!/NaN|Infinity|undefined/.test(res.svg));
+  return `Trainer 164->${tbSym.pins.length} pins, 0 self-loops, ${data.nets.length} nets, Bargraph L->R & OLED T/B verified`;
+});
+
 let failed = 0;
 for (const r of results) {
   console.log(`${r.pass ? 'PASS' : 'FAIL'} [${r.id}] ${r.name} -> ${r.info}`);
