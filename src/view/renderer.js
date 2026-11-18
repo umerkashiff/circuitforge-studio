@@ -27,10 +27,15 @@ export class Renderer {
 
   resize() {
     const r = this.cv.parentElement.getBoundingClientRect();
-    this.dpr = window.devicePixelRatio || 1;
+    const dpr = window.devicePixelRatio || 1;
+    const nw = Math.max(1, Math.round(r.width * dpr));
+    const nh = Math.max(1, Math.round(r.height * dpr));
+    this.dpr = dpr;
     this.w = r.width; this.h = r.height;
-    this.cv.width = Math.round(r.width * this.dpr);
-    this.cv.height = Math.round(r.height * this.dpr);
+    if (this.cv.width !== nw || this.cv.height !== nh) {
+      this.cv.width = nw;
+      this.cv.height = nh;
+    }
     this.cv.style.width = r.width + 'px';
     this.cv.style.height = r.height + 'px';
   }

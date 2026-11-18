@@ -889,14 +889,16 @@ export class UI {
   buildAnalyzer() {
     this.an = { el: $('#analyzer'), cv: $('#an-canvas'), list: $('#an-list'), window: 2 };
     $('#an-close').addEventListener('click', () => this.toggleAnalyzer(false));
-    $('#an-clear').addEventListener('click', () => { this.app.circuit.probes = []; this.app.commit('Clear probes'); this.renderProbes(); });
-    $('#an-window').addEventListener('change', (e) => { this.an.window = +e.target.value; });
+    $('#an-clear').addEventListener('click', () => { this.app.circuit.probes = []; this.app.commit('Clear probes'); this.renderProbes(); this.drawAnalyzer(); });
+    $('#an-window').addEventListener('change', (e) => { this.an.window = +e.target.value; this.drawAnalyzer(); });
+    this.an.list.addEventListener('scroll', () => this.drawAnalyzer());
   }
   toggleAnalyzer(force) {
     const open = force ?? !document.body.classList.contains('analyzer-open');
     document.body.classList.toggle('analyzer-open', open);
     $('#btn-analyzer').classList.toggle('on', open);
     this.renderProbes();
+    if (open) requestAnimationFrame(() => this.drawAnalyzer());
     setTimeout(() => this.app.resize(), 220);
   }
   renderProbes() {
@@ -906,16 +908,18 @@ export class UI {
     if (!probes.length) list.append(h('div', { class: 'an-empty' }, 'Right-click any hole or pin and choose “Add Probe”, or click a pin in an IC’s pinout.'));
     probes.forEach((p) => list.append(h('div', { class: 'an-row' }, h('i', { style: `background:${p.color}` }),
       h('span', { class: 'an-name', title: p.name }, p.name),
-      h('button', { class: 'an-mode' + (p.analog ? ' on' : ''), title: p.analog ? 'Showing voltage — click for HIGH/LOW' : 'Showing HIGH/LOW — click for voltage', onclick: () => { p.analog = !p.analog; this.app.commit('Probe mode'); } }, '∿'),
-      h('button', { class: 'an-x', title: 'Remove', onclick: () => { this.app.removeProbe(p.id); } }, '×'))));
+      h('button', { class: 'an-mode' + (p.analog ? ' on' : ''), title: p.analog ? 'Showing voltage — click for HIGH/LOW' : 'Showing HIGH/LOW — click for voltage', onclick: () => { p.analog = !p.analog; this.app.commit('Probe mode'); this.drawAnalyzer(); } }, '∿'),
+      h('button', { class: 'an-x', title: 'Remove', onclick: () => { this.app.removeProbe(p.id); this.drawAnalyzer(); } }, '×'))));
   }
   drawAnalyzer() {
     if (!document.body.classList.contains('analyzer-open')) return;
     const cv = this.an.cv, app = this.app;
     const r = cv.parentElement.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return;
     const dpr = window.devicePixelRatio || 1;
-    if (cv.width !== Math.round(r.width * dpr) || cv.height !== Math.round(r.height * dpr)) {
-      cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+    const nw = Math.round(r.width * dpr), nh = Math.round(r.height * dpr);
+    if (cv.width !== nw || cv.height !== nh) {
+      cv.width = nw; cv.height = nh;
       cv.style.width = r.width + 'px'; cv.style.height = r.height + 'px';
     }
     const g = cv.getContext('2d');
@@ -925,38 +929,54 @@ export class UI {
     const probes = app.circuit.probes;
     const dark = document.documentElement.dataset.theme === 'dark';
     const lane = 34;
+    const scrollY = this.an.list.scrollTop || 0;
     const t1 = app.engine.time, t0 = t1 - this.an.window;
     g.strokeStyle = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
     g.lineWidth = 1;
     for (let k = 0; k <= 10; k++) { const x = (k / 10) * W; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
     probes.forEach((p, i) => {
       const buf = app.samples.get(p.id);
-      if (!buf) return;
-      const yHi = i * lane + 9, yLo = i * lane + lane - 7;
+      if (!buf || !buf.t.length) return;
+      const yTop = i * lane - scrollY;
+      if (yTop + lane < 0 || yTop > H) return;
+      const yHi = yTop + 9, yLo = yTop + lane - 7;
+      const yOf = (v) => (p.analog
+        ? (Number.isNaN(v) ? yLo : yLo - Math.max(0, Math.min(1, v / 5)) * (yLo - yHi))
+        : (Number.isNaN(v) ? (yHi + yLo) / 2 : v >= 2 ? yHi : v <= 0.8 ? yLo : (yHi + yLo) / 2));
+
+      g.save();
+      g.beginPath(); g.rect(0, 0, W, H); g.clip();
       g.strokeStyle = p.color; g.lineWidth = 1.8; g.lineJoin = 'miter';
       g.beginPath();
+
+      // Seed left edge (x=0) from the latest sample at or before t0 so steady signals stay visible
+      let kStart = 0;
+      while (kStart < buf.t.length && buf.t[kStart] < t0) kStart++;
       let started = false, lastY = 0;
-      for (let k = 0; k < buf.t.length; k++) {
-        const t = buf.t[k];
-        if (t < t0) continue;
-        const x = ((t - t0) / this.an.window) * W;
-        const v = buf.v[k];
-        // Analog probes plot voltage (0–5 V) so RC charge curves are visible; digital ones plot HIGH/LOW.
-        const y = p.analog
-          ? (Number.isNaN(v) ? yLo : yLo - Math.max(0, Math.min(1, v / 5)) * (yLo - yHi))
-          : (Number.isNaN(v) ? (yHi + yLo) / 2 : v >= 2 ? yHi : v <= 0.8 ? yLo : (yHi + yLo) / 2);
-        if (!started) { g.moveTo(x, y); started = true; } else if (p.analog) g.lineTo(x, y); else { g.lineTo(x, lastY); g.lineTo(x, y); }
+      if (kStart > 0) {
+        lastY = yOf(buf.v[kStart - 1]);
+        g.moveTo(0, lastY);
+        started = true;
+      }
+      for (let k = kStart; k < buf.t.length; k++) {
+        const x = ((buf.t[k] - t0) / this.an.window) * W;
+        const y = yOf(buf.v[k]);
+        if (!started) { g.moveTo(x, y); started = true; }
+        else if (p.analog) g.lineTo(x, y);
+        else { g.lineTo(x, lastY); g.lineTo(x, y); }
         lastY = y;
       }
       if (started) g.lineTo(W, lastY);
       g.stroke();
+      g.restore();
+
       const last = buf.v[buf.v.length - 1];
-      if (p.analog && last !== undefined) {
+      if (p.analog && last !== undefined && yHi >= 0 && yHi <= H) {
         g.fillStyle = p.color; g.font = '600 10px "SF Mono", ui-monospace, Menlo, monospace'; g.textAlign = 'right';
         g.fillText(Number.isNaN(last) ? 'no power' : last.toFixed(2) + ' V', W - 6, yHi + 4);
       }
     });
-    g.fillStyle = dark ? '#8e8e93' : '#8e8e93'; g.font = '10px -apple-system, Inter, sans-serif'; g.textAlign = 'right';
+    g.fillStyle = '#8e8e93'; g.font = '10px -apple-system, Inter, sans-serif'; g.textAlign = 'right';
     g.fillText(`${this.an.window} s window`, W - 6, H - 6);
   }
 

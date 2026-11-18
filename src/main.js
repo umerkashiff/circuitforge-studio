@@ -486,7 +486,12 @@ class App {
 
   // ---------------------------------------------------------------- view --
   redraw() { this.dirty = true; }
-  resize() { this.renderer.resize(); this.redraw(); }
+  resize() {
+    this.renderer.resize();
+    this.renderer.draw();
+    this.ui.drawAnalyzer();
+    this.dirty = false;
+  }
   zoomAt(sx, sy, z) {
     z = Math.min(4, Math.max(0.25, z));
     const c = this.cam;
