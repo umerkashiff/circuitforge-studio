@@ -466,13 +466,14 @@ class App {
       this.handleEvents();
       this.ui.simClock();
       this.ui.pumpSerial();
-      // buzzers
+      // buzzers & multimeter continuity beep
       let hz = 0;
       for (const d of e.devices) {
         if (d.audible && d.cur[0] > 0.004) hz = hz || 2300;
+        if (d.beep) hz = hz || 2400;
         if (d.rt && d.rt.tones && d.rt.tones.size && d.rt.toneHz) hz = d.rt.toneHz;
       }
-      const buzzing = e.devices.some(d => d.audible && d.cur[0] > 0.004);
+      const buzzing = e.devices.some(d => (d.audible && d.cur[0] > 0.004) || d.beep);
       if (buzzing) this.audio.tone(hz || 2300); else this.audio.stopTone();
       this.dirty = true;
     } else if (this.mode !== 'sim') this.audio.stopTone();

@@ -676,15 +676,15 @@ export class UI {
           row('Landing markers', toggle('landingMarks'), 'Green / red dots under pins while dragging.'),
           row('Hole tooltips', toggle('tooltips')),
           row('Ask before deleting', toggle('confirmDelete'))),
-        h('div', { class: 'set-sub' }, 'AI Copilot (Groq)'),
-        box(row('Personal Groq API Key', h('input', {
+        h('div', { class: 'set-sub' }, 'AI Copilot (Gemini)'),
+        box(row('Personal Gemini API Key', h('input', {
           type: 'password',
           class: 'input',
           style: 'max-width:210px',
-          placeholder: 'gsk_...',
-          value: st.get('groqKey') || '',
+          placeholder: 'AIza... / AQ....',
+          value: st.get('geminiKey') || '',
           onchange: async (e) => {
-            st.set('groqKey', e.target.value.trim());
+            st.set('geminiKey', e.target.value.trim());
             await app.ai?.refreshModels();
             this.syncAiPanel();
           },
@@ -1087,10 +1087,11 @@ export class UI {
     const def = getDef(part.type);
     const nOpen = this.instWins.size;
     const isScope = part.type === 'oscilloscope';
-    const widthEst = isScope ? Math.min(740, window.innerWidth - 20) : Math.min(500, window.innerWidth - 20);
+    const widthEst = isScope ? Math.min(740, window.innerWidth - 20) : (part.type === 'multimeter' ? 340 : Math.min(500, window.innerWidth - 20));
     const libW = document.body.classList.contains('no-library') ? 16 : 260;
-    const x0 = Math.max(8, Math.min(window.innerWidth - widthEst - 10, libW + ((nOpen * 28) % 120)));
-    const y0 = Math.max(60, Math.min(window.innerHeight - 280, 66 + (nOpen * 28) % 110));
+    const xAvail = Math.max(1, window.innerWidth - libW - widthEst - 24);
+    const x0 = Math.max(8, Math.min(window.innerWidth - widthEst - 10, libW + 14 + ((nOpen * 356) % xAvail)));
+    const y0 = Math.max(84, Math.min(window.innerHeight - 280, 84 + (nOpen * 38) % 120));
 
     const dot = h('i', { class: 'inst-dot' });
     const titleEl = h('span', { class: 'inst-title' }, def.name);
@@ -1135,6 +1136,7 @@ export class UI {
     if (isScope) updater = this._buildScopeWindow(part, body, dot);
     else if (part.type === 'funcgen') updater = this._buildFuncGenWindow(part, body, dot);
     else if (part.type === 'power-supply') updater = this._buildPsuWindow(part, body, dot);
+    else if (part.type === 'multimeter') updater = this._buildDmmWindow(part, body, dot);
 
     this.instLayer.append(el);
     this.instWins.set(part.id, { el, part, minBtn, update: updater });
@@ -1521,6 +1523,78 @@ export class UI {
       c2Card.lastChild.textContent = fmtCard(st2);
 
       kV1.sync(); kV2.sync(); kT.sync(); kP1.sync(); kP2.sync(); kTr.sync();
+    };
+    return update;
+  }
+
+  _buildDmmWindow(part, body, dot) {
+    const p = part.props;
+    const modeEl = h('span', { style: 'font-size:11px;font-weight:800;letter-spacing:.05em;color:#334155' }, 'DC VOLTS');
+    const holdBadge = h('span', { style: 'font-size:10px;font-weight:800;padding:1px 6px;border-radius:4px;background:#0f172a;color:#facc15;display:none' }, 'HOLD');
+    const valEl = h('div', { style: 'font-family:ui-monospace,Menlo,monospace;font-size:28px;font-weight:800;letter-spacing:.02em;color:#0f172a;text-align:right;margin-top:4px' }, '---- V');
+    const lcd = h('div', {
+      style: 'background:#c6d5b2;border:2px solid #0f172a;border-radius:8px;padding:10px 14px;min-width:260px;box-shadow:inset 0 2px 6px rgba(0,0,0,0.2)',
+    }, h('div', { style: 'display:flex;justify-content:space-between;align-items:center' }, modeEl, holdBadge), valEl);
+
+    const safety = h('div', {
+      style: 'font-size:11px;line-height:1.35;margin-top:8px;padding:6px 8px;border-radius:6px;background:rgba(148,163,184,0.12);color:var(--ink-2)',
+    });
+
+    const mkModeBtn = (key, label) => h('button', {
+      class: 'hw-btn',
+      onclick: () => {
+        p.mode = key;
+        this.app.stateChanged(false);
+        if (this.app.editor.selected().parts[0]?.id === part.id) this.inspect();
+        update();
+      },
+    }, label);
+    const bDcv = mkModeBtn('dcv', 'DC V');
+    const bDca = mkModeBtn('dca', 'DC mA');
+    const bOhm = mkModeBtn('ohm', 'Ω Ohm');
+    const bCont = mkModeBtn('cont', '♪ Cont');
+    const bHold = h('button', {
+      class: 'hw-btn',
+      onclick: () => {
+        p.hold = !p.hold;
+        this.app.stateChanged(false);
+        if (this.app.editor.selected().parts[0]?.id === part.id) this.inspect();
+        update();
+      },
+    }, 'HOLD');
+
+    body.append(lcd, h('div', { class: 'inst-btn-row', style: 'margin-top:10px' }, bDcv, bDca, bOhm, bCont, bHold), safety);
+
+    const MODE_TITLES = { dcv: 'DC VOLTS (10 MΩ)', dca: 'DC CURRENT (0.1 Ω)', ohm: 'RESISTANCE (Ω)', cont: 'CONTINUITY (< 50 Ω ♪)' };
+    const update = () => {
+      const d = this.app.engine.byPart.get(part.id)?.device;
+      const mode = p.mode || 'dcv';
+      dot.classList.toggle('off', !!(d && d.liveBlocked));
+      modeEl.textContent = MODE_TITLES[mode] || 'DC VOLTS';
+      holdBadge.style.display = p.hold ? 'inline-block' : 'none';
+      lcd.style.background = d && d.liveBlocked ? '#fecaca' : d && d.beep ? '#d9f99d' : '#c6d5b2';
+      valEl.style.color = d && d.liveBlocked ? '#991b1b' : '#0f172a';
+      valEl.textContent = d ? d.display : (mode === 'dcv' ? '---- V' : mode === 'dca' ? '---- mA' : 'OL');
+
+      bDcv.className = 'hw-btn' + (mode === 'dcv' ? ' on' : '');
+      bDca.className = 'hw-btn' + (mode === 'dca' ? ' on' : '');
+      bOhm.className = 'hw-btn' + (mode === 'ohm' ? ' on' : '');
+      bCont.className = 'hw-btn' + (mode === 'cont' ? ' on' : '');
+      bHold.className = 'hw-btn' + (p.hold ? ' run' : '');
+
+      if (d && d.liveBlocked) {
+        safety.textContent = 'LIVE VOLTAGE DETECTED (> 0.35 V) — Turn off power or isolate network before testing Ω / Continuity.';
+        safety.style.color = '#ef4444';
+      } else if (mode === 'ohm' || mode === 'cont') {
+        safety.textContent = 'Connect RED (+) and BLK (−) across unpowered components. Beeps below 50 Ω in Continuity mode.';
+        safety.style.color = 'var(--ink-2)';
+      } else if (mode === 'dca') {
+        safety.textContent = 'Wire RED (+) → BLK (−) in series with the branch. Internal 0.1 Ω shunt (2 A limit).';
+        safety.style.color = 'var(--ink-2)';
+      } else {
+        safety.textContent = 'Wire RED (+) and BLK (−) in parallel across any two nodes for differential V(+) − V(−).';
+        safety.style.color = 'var(--ink-2)';
+      }
     };
     return update;
   }

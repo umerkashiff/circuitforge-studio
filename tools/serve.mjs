@@ -32,7 +32,7 @@ const server = http.createServer((req, res) => {
   if (urlPath === '/api/ai') {
     if (req.method === 'OPTIONS') {
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-groq-key');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-ai-key');
       res.writeHead(204);
       return res.end();
     }

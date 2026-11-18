@@ -1,17 +1,10 @@
 /**
- * Multi-provider AI client for CircuitForge Copilot (Google Gemini OpenAI-compat + Groq).
+ * Gemini AI client for CircuitForge Copilot (Google Gemini OpenAI-compat endpoint).
  * Supports hybrid authentication (BYOK keys in localStorage or Vercel /api/ai proxy),
- * live model discovery, 503/TPM recovery, truncated JSON salvage, and automatic fallback.
+ * live model discovery, 503/rate-limit recovery, truncated JSON salvage, and automatic fallback.
  */
 
-const GROQ_BASE = 'https://api.groq.com/openai/v1';
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/openai';
-
-export const PREFERRED_MODELS = [
-  'openai/gpt-oss-120b',
-  'qwen/qwen3.8-27b',
-  'openai/gpt-oss-20b',
-];
 
 export const PREFERRED_GEMINI_MODELS = [
   'gemini-3.5-flash-lite',
@@ -23,17 +16,12 @@ export const PREFERRED_GEMINI_MODELS = [
   'gemini-4-hydrogen',
 ];
 
-const NON_CHAT_RE = /(whisper|orpheus|prompt-guard|safeguard|tts|embed|moderation|rerank|distil-whisper|playai|-image|nano-banana|lyria|transcribe|robotics|computer-use|veo|imagen|aqa)/i;
+export const PREFERRED_MODELS = PREFERRED_GEMINI_MODELS;
 
-export function detectKeyProvider(key = '') {
-  const k = String(key || '').trim();
-  if (/^(AIza|AQ\.)/.test(k)) return 'gemini';
-  if (k) return 'groq';
-  return '';
-}
+const NON_CHAT_RE = /(tts|embed|moderation|rerank|-image|nano-banana|lyria|transcribe|robotics|computer-use|veo|imagen|aqa)/i;
 
 export function isGeminiModel(id = '') {
-  return /^(?:models\/)?(?:gemini|nano-banana)/i.test(String(id || '').trim());
+  return /^(?:models\/)?gemini/i.test(String(id || '').trim());
 }
 
 export function normalizeModelId(id = '') {
@@ -42,7 +30,7 @@ export function normalizeModelId(id = '') {
 
 export function isChatModelId(id) {
   const norm = normalizeModelId(id);
-  return norm.length > 0 && !NON_CHAT_RE.test(norm);
+  return norm.length > 0 && isGeminiModel(norm) && !NON_CHAT_RE.test(norm);
 }
 
 export function filterAndSortModels(rawList = []) {
@@ -55,10 +43,9 @@ export function filterAndSortModels(rawList = []) {
       byId.set(id, typeof item === 'object' && item ? { ...item, id } : { id });
     }
   }
-  const combinedPref = [...PREFERRED_GEMINI_MODELS, ...PREFERRED_MODELS];
   const rank = (id) => {
-    const idx = combinedPref.indexOf(id);
-    return idx >= 0 ? idx : combinedPref.length + 100;
+    const idx = PREFERRED_GEMINI_MODELS.indexOf(id);
+    return idx >= 0 ? idx : PREFERRED_GEMINI_MODELS.length + 100;
   };
   return [...byId.values()].sort((a, b) => {
     const ra = rank(a.id), rb = rank(b.id);
@@ -87,21 +74,14 @@ export function splitKeys(raw = '') {
 export async function fetchModels(apiKey = '', fetchFn = fetch) {
   const keys = splitKeys(apiKey);
   const tryKeys = keys.length ? keys : [''];
-  const defaultPref = keys.some(k => detectKeyProvider(k) === 'gemini')
-    ? PREFERRED_GEMINI_MODELS.slice(0, 3)
-    : PREFERRED_MODELS;
-  const fallback = defaultPref.map(id => ({ id, owned_by: 'fallback', fallback: true }));
+  const fallback = PREFERRED_GEMINI_MODELS.slice(0, 3).map(id => ({ id, owned_by: 'fallback', fallback: true }));
   let lastStatus = 0;
   const collected = [];
-  const fetchedProviders = new Set();
 
   for (const cleanKey of tryKeys) {
-    const prov = cleanKey ? detectKeyProvider(cleanKey) : 'proxy';
-    if (fetchedProviders.has(prov)) continue;
     try {
-      const base = prov === 'gemini' ? GEMINI_BASE : GROQ_BASE;
       const res = cleanKey
-        ? await fetchFn(`${base}/models`, { method: 'GET', headers: { Authorization: `Bearer ${cleanKey}` } })
+        ? await fetchFn(`${GEMINI_BASE}/models`, { method: 'GET', headers: { Authorization: `Bearer ${cleanKey}` } })
         : await fetchFn('/api/ai?models=1', { method: 'GET' });
       lastStatus = res.status;
       if (!res.ok) continue;
@@ -109,7 +89,7 @@ export async function fetchModels(apiKey = '', fetchFn = fetch) {
       const rawData = payload?.data || payload?.models || [];
       if (Array.isArray(rawData) && rawData.length) {
         collected.push(...rawData);
-        fetchedProviders.add(prov);
+        break;
       }
     } catch { /* try next key */ }
   }
@@ -127,26 +107,21 @@ export function extractJsonObject(text) {
   let cleaned = text.trim();
   if (!cleaned) return null;
 
-  // Strip reasoning tags emitted by some models (e.g. <think>...</think>)
   cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
-  // Direct parse attempt
   try { return JSON.parse(cleaned); } catch { /* continue */ }
 
-  // Repair rare LLM typo like `"connections",":",` -> `"connections":`
   const repaired = cleaned.replace(/",\s*":",\s*/g, '": ');
   if (repaired !== cleaned) {
     try { return JSON.parse(repaired); } catch { /* continue */ }
     cleaned = repaired;
   }
 
-  // Fenced markdown block extraction
   const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   if (fence && fence[1]) {
     try { return JSON.parse(fence[1].trim()); } catch { /* continue */ }
   }
 
-  // First balanced JSON object scan
   const start = cleaned.indexOf('{');
   if (start >= 0) {
     let depth = 0, inStr = false, esc = false;
@@ -272,8 +247,6 @@ export function isModelDecommissionedError(status, errPayload) {
     msg.includes('decommissioned') ||
     msg.includes('does not exist') ||
     msg.includes('model not found') ||
-    msg.includes('requires terms') ||
-    msg.includes('accept the terms') ||
     msg.includes('not supported') ||
     msg.includes('no longer available')
   );
@@ -288,8 +261,6 @@ function isResponseFormatError(status, errPayload) {
     code.includes('json_validate_failed') ||
     msg.includes('failed to validate json') ||
     msg.includes('failed to generate json') ||
-    msg.includes('failed_generation') ||
-    typeof err?.failed_generation === 'string' ||
     msg.includes('response_format') ||
     msg.includes('json_object')
   );
@@ -306,17 +277,8 @@ function parseRetryDelayMs(errPayload) {
   return ms > 12500 ? Infinity : Math.min(12500, Math.ceil(ms) + 300);
 }
 
-function parseOtpBudgetRemaining(errPayload) {
-  const err = extractErrObj(errPayload);
-  const msg = String(err?.message || '');
-  const m = msg.match(/on output tokens per minute \(OTPM\):\s*Limit\s*(\d+),\s*Used\s*(\d+)/i);
-  if (!m) return null;
-  const limit = parseInt(m[1], 10), used = parseInt(m[2], 10);
-  return Math.max(0, limit - used - 40);
-}
-
-async function sendCompletion({ cleanKey, baseUrl = GROQ_BASE, body, fetchFn, timeoutMs = 45000 }) {
-  const url = cleanKey ? `${baseUrl}/chat/completions` : '/api/ai';
+async function sendCompletion({ cleanKey, body, fetchFn, timeoutMs = 45000 }) {
+  const url = cleanKey ? `${GEMINI_BASE}/chat/completions` : '/api/ai';
   const headers = { 'Content-Type': 'application/json' };
   if (cleanKey) headers.Authorization = `Bearer ${cleanKey}`;
   const opts = { method: 'POST', headers, body: JSON.stringify(body) };
@@ -338,62 +300,44 @@ async function sendCompletion({ cleanKey, baseUrl = GROQ_BASE, body, fetchFn, ti
   return { ok: res.ok, status: res.status, payload };
 }
 
-export async function callGroq({
+export async function callGemini({
   apiKey = '',
-  model = PREFERRED_MODELS[0],
+  model = PREFERRED_GEMINI_MODELS[0],
   messages,
   jsonMode = true,
   temperature = 0.2,
   maxTokens = null,
-  reasoningEffort = null,
   availableModels = null,
   onWait = null,
   fetchFn = fetch,
 }) {
   const parsedKeys = splitKeys(apiKey);
   const keyList = parsedKeys.length ? parsedKeys : [''];
-  const proxyMode = keyList[0] === '';
-  const hasGeminiKey = keyList.some(k => detectKeyProvider(k) === 'gemini');
-  const hasGroqKey = keyList.some(k => detectKeyProvider(k) === 'groq');
 
   const liveIds = (availableModels || []).filter(m => !m.fallback).map(m => normalizeModelId(typeof m === 'string' ? m : m.id)).filter(isChatModelId);
-  const defaultOrder = hasGeminiKey ? [...PREFERRED_GEMINI_MODELS, ...PREFERRED_MODELS] : PREFERRED_MODELS;
-  const baseOrder = liveIds.length ? liveIds : defaultOrder;
+  const baseOrder = liveIds.length ? liveIds : PREFERRED_GEMINI_MODELS;
   const tried = new Set();
   const candidates = [
-    ...(model ? [normalizeModelId(model)] : []),
-    ...(hasGeminiKey ? PREFERRED_GEMINI_MODELS.filter(id => !liveIds.length || liveIds.includes(id)) : []),
-    ...(hasGroqKey || proxyMode ? PREFERRED_MODELS.filter(id => !liveIds.length || liveIds.includes(id)) : []),
+    ...(model && isGeminiModel(model) ? [normalizeModelId(model)] : []),
+    ...PREFERRED_GEMINI_MODELS.filter(id => !liveIds.length || liveIds.includes(id)),
     ...baseOrder,
   ].filter(id => {
     if (!id || tried.has(id)) return false;
     tried.add(id);
-    if (!proxyMode) {
-      const needsGemini = isGeminiModel(id);
-      if (needsGemini && !hasGeminiKey && id !== normalizeModelId(model)) return false;
-      if (!needsGemini && !hasGroqKey && id !== normalizeModelId(model)) return false;
-    }
     return true;
   }).slice(0, 6);
 
-  if (!candidates.length) candidates.push(hasGeminiKey ? PREFERRED_GEMINI_MODELS[0] : PREFERRED_MODELS[0]);
-
-  const totalChars = (messages || []).reduce((acc, m) => acc + String(m?.content || '').length + 24, 0);
-  const estInputTokens = Math.ceil(totalChars / 2.2) + 180;
-  const groqAdaptiveMax = maxTokens !== null
-    ? maxTokens
-    : Math.min(3500, Math.max(350, 7700 - estInputTokens));
+  if (!candidates.length) candidates.push(PREFERRED_GEMINI_MODELS[0]);
 
   let lastErr = null;
   let lastRateLimitErr = null;
   let requestedDecommissioned = false;
   const requestedModel = normalizeModelId(model);
   const now = Date.now();
+  const defaultModelMax = maxTokens !== null ? maxTokens : 8192;
 
   const buildBody = (activeModel, modelMax) => {
     const body = { model: activeModel, messages, temperature, max_completion_tokens: modelMax };
-    if (/^openai\/gpt-oss-20b/i.test(activeModel)) body.reasoning_effort = 'low';
-    else if (reasoningEffort && /^openai\/gpt-oss-/i.test(activeModel)) body.reasoning_effort = reasoningEffort;
     if (jsonMode) body.response_format = { type: 'json_object' };
     return body;
   };
@@ -409,59 +353,29 @@ export async function callGroq({
     usage,
   });
 
-  // Model-first across matching provider keys; wait out transient TPM / 503 blips before downgrading!
   for (let i = 0; i < candidates.length; i++) {
     const activeModel = candidates[i];
-    const isGemini = isGeminiModel(activeModel);
-    const baseUrl = isGemini ? GEMINI_BASE : GROQ_BASE;
-    if (i > 0 && /allam-2-7b/i.test(activeModel) && estInputTokens > 1200) continue;
-
-    const matchingKeys = proxyMode
-      ? ['']
-      : keyList.filter(k => (isGemini ? detectKeyProvider(k) === 'gemini' : detectKeyProvider(k) === 'groq'));
-    if (!matchingKeys.length) continue;
-
-    const uncooledKeys = matchingKeys.filter(k => (cooldownUntil.get(`${k}|${activeModel}`) || 0) <= now);
-    const activeKeys = uncooledKeys.length ? uncooledKeys : matchingKeys;
-    const defaultModelMax = isGemini
-      ? (maxTokens !== null ? maxTokens : 8192)
-      : (/^qwen\/qwen3/i.test(activeModel) ? Math.min(groqAdaptiveMax, 920) : groqAdaptiveMax);
+    const uncooledKeys = keyList.filter(k => (cooldownUntil.get(`${k}|${activeModel}`) || 0) <= now);
+    const activeKeys = uncooledKeys.length ? uncooledKeys : keyList;
 
     let modelTpmErr = null;
     let modelTpmKey = '';
     let modelTpmWaitMs = Infinity;
-    let modelTpmMaxTokens = defaultModelMax;
 
     for (const cleanKey of activeKeys) {
-      let modelMax = defaultModelMax;
-      const baseBody = buildBody(activeModel, modelMax);
-      let attempt = await sendCompletion({ cleanKey, baseUrl, body: baseBody, fetchFn });
+      const baseBody = buildBody(activeModel, defaultModelMax);
+      let attempt = await sendCompletion({ cleanKey, body: baseBody, fetchFn });
 
       if (attempt.status === 502 || attempt.status === 503 || attempt.status === 504) {
         try { onWait?.({ model: activeModel, waitMs: 2200, reason: 'high demand' }); } catch { /* ignore */ }
         await new Promise(r => setTimeout(r, 2200));
-        attempt = await sendCompletion({ cleanKey, baseUrl, body: baseBody, fetchFn });
-      }
-
-      if (!attempt.ok && attempt.status === 400 && baseBody.reasoning_effort !== undefined
-        && /reasoning_effort/i.test(String(extractErrObj(attempt.payload)?.message || ''))) {
-        const stripped = { ...baseBody };
-        delete stripped.reasoning_effort;
-        attempt = await sendCompletion({ cleanKey, baseUrl, body: stripped, fetchFn });
+        attempt = await sendCompletion({ cleanKey, body: baseBody, fetchFn });
       }
 
       if (!attempt.ok && jsonMode && isResponseFormatError(attempt.status, attempt.payload)) {
-        const failedGen = extractErrObj(attempt.payload)?.failed_generation;
-        if (typeof failedGen === 'string' && failedGen.trim()) {
-          const salvaged = extractJsonObject(failedGen);
-          if (salvaged) return makeResult(activeModel, failedGen, salvaged, false);
-          if (maxTokens !== null && maxTokens <= 250) {
-            return makeResult(activeModel, failedGen, null, true, null, extractPartialReply(failedGen));
-          }
-        }
         const retryBody = { ...baseBody };
         delete retryBody.response_format;
-        attempt = await sendCompletion({ cleanKey, baseUrl, body: retryBody, fetchFn });
+        attempt = await sendCompletion({ cleanKey, body: retryBody, fetchFn });
       }
 
       if (attempt.ok) {
@@ -472,13 +386,11 @@ export async function callGroq({
         if (jsonMode && !truncated && !parsed && maxTokens === null) {
           const repairRes = await sendCompletion({
             cleanKey,
-            baseUrl,
             body: {
               model: activeModel,
               messages: [...messages, { role: 'assistant', content: rawText.slice(0, 800) }, { role: 'user', content: 'Your previous response had invalid JSON syntax. Output ONLY a single strictly valid JSON object matching the schema.' }],
               temperature,
-              max_completion_tokens: modelMax,
-              ...(baseBody.reasoning_effort ? { reasoning_effort: baseBody.reasoning_effort } : {}),
+              max_completion_tokens: defaultModelMax,
             },
             fetchFn,
           });
@@ -495,7 +407,7 @@ export async function callGroq({
       }
 
       const errObj = extractErrObj(attempt.payload);
-      const msg = errObj?.message || `${isGemini ? 'Gemini' : 'Groq'} HTTP ${attempt.status}`;
+      const msg = errObj?.message || `Gemini HTTP ${attempt.status}`;
       lastErr = new Error(msg);
       lastErr.status = attempt.status;
       lastErr.code = errObj?.code || '';
@@ -510,18 +422,6 @@ export async function callGroq({
         continue;
       }
       if (attempt.status === 429) {
-        const otpmAvail = parseOtpBudgetRemaining(attempt.payload);
-        if (otpmAvail !== null && otpmAvail >= 450 && otpmAvail < modelMax) {
-          modelMax = otpmAvail;
-          const shrunkRes = await sendCompletion({ cleanKey, baseUrl, body: { ...baseBody, max_completion_tokens: modelMax }, fetchFn });
-          if (shrunkRes.ok) {
-            const choice = shrunkRes.payload?.choices?.[0];
-            const rawText = String(choice?.message?.content || '');
-            const truncated = choice?.finish_reason === 'length';
-            return makeResult(activeModel, rawText, jsonMode ? extractJsonObject(rawText) : null, truncated, shrunkRes.payload?.usage || null);
-          }
-        }
-
         if (!lastRateLimitErr) lastRateLimitErr = lastErr;
         const d = parseRetryDelayMs(attempt.payload);
         if (d === Infinity) {
@@ -530,7 +430,6 @@ export async function callGroq({
           modelTpmErr = lastErr;
           modelTpmKey = cleanKey;
           modelTpmWaitMs = d;
-          modelTpmMaxTokens = modelMax;
         }
         continue;
       }
@@ -538,13 +437,12 @@ export async function callGroq({
       throw lastErr;
     }
 
-    // Pause-and-retry transient TPM right on this model before falling back
     if (modelTpmErr && modelTpmWaitMs < Infinity) {
       const waitMs = Math.max(1500, Math.min(12500, modelTpmWaitMs || 3000));
       try { onWait?.({ model: activeModel, waitMs }); } catch { /* ignore callback errors */ }
       await new Promise(r => setTimeout(r, waitMs));
-      const retryBody = buildBody(activeModel, modelTpmMaxTokens);
-      const retryRes = await sendCompletion({ cleanKey: modelTpmKey, baseUrl, body: retryBody, fetchFn });
+      const retryBody = buildBody(activeModel, defaultModelMax);
+      const retryRes = await sendCompletion({ cleanKey: modelTpmKey, body: retryBody, fetchFn });
       if (retryRes.ok) {
         const choice = retryRes.payload?.choices?.[0];
         const rawText = String(choice?.message?.content || '');
@@ -553,7 +451,7 @@ export async function callGroq({
       }
       if (retryRes.status === 429) {
         const rErrObj = extractErrObj(retryRes.payload);
-        const rMsg = rErrObj?.message || `${isGemini ? 'Gemini' : 'Groq'} HTTP ${retryRes.status}`;
+        const rMsg = rErrObj?.message || `Gemini HTTP ${retryRes.status}`;
         lastErr = new Error(rMsg);
         lastErr.status = 429;
         lastRateLimitErr = lastErr;
@@ -561,7 +459,7 @@ export async function callGroq({
     }
   }
 
-  throw lastRateLimitErr || lastErr || new Error('All candidate AI models failed.');
+  throw lastRateLimitErr || lastErr || new Error('All candidate Gemini models failed.');
 }
 
-export const callAi = callGroq;
+export const callAi = callGemini;

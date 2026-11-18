@@ -15,7 +15,7 @@ import '../src/mcu/boards.js';
 import { Circuit } from '../src/model.js';
 import { Engine, key } from '../src/sim/engine.js';
 import { findProblems } from '../src/editor.js';
-import { fetchModels, detectKeyProvider, splitKeys } from '../src/ai/client.js';
+import { fetchModels, isGeminiModel, splitKeys } from '../src/ai/client.js';
 import { serializeCircuitState } from '../src/ai/context.js';
 import { AiCopilot } from '../src/ai/copilot.js';
 import { AiGuide } from '../src/ai/guide.js';
@@ -72,7 +72,7 @@ function createHeadlessApp({ apiKey, model }) {
     netKinds: new Map(),
     index: { holes: new Map(), pins: new Map(), ends: new Map() },
     settings: {
-      get: (k) => (k === 'groqKey' ? apiKey : k === 'aiModel' ? activeModel : k === 'aiMode' ? 'build' : true),
+      get: (k) => (k === 'geminiKey' ? apiKey : k === 'aiModel' ? activeModel : k === 'aiMode' ? 'build' : true),
       set: (k, v) => { if (k === 'aiModel') activeModel = v; },
     },
     historyStack: [],
@@ -289,6 +289,12 @@ function evaluateCircuit(app, tc) {
       }
       break;
     }
+    case 'dmm_valid': {
+      const dmms = st.parts.filter(x => x.type === 'multimeter');
+      const good = dmms.some(d => d.readings && !d.readings.liveBlocked && d.readings.display && !/^(----|-+ |OL$)/.test(d.readings.display));
+      if (!good) silentReasons.push('multimeter produced no valid finite reading (---- / OL / LIVE V!)');
+      break;
+    }
   }
 
   return {
@@ -440,10 +446,10 @@ function renderDigest({ opts, state, autoReg, newIdeasCount, fineTuneAdded, fine
 
 async function run() {
   const opts = parseArgs(process.argv.slice(2));
-  const rawKeys = [process.env.GEM_KEY, process.env.GROQ_KEY, process.env.AI_API_KEY].filter(Boolean).join(',');
+  const rawKeys = [process.env.GEM_KEY, process.env.AI_API_KEY, process.env.GEMINI_API_KEY].filter(Boolean).join(',');
   const hasKey = splitKeys(rawKeys).length > 0;
   if (!opts.dryRun && !hasKey) {
-    console.error('No API key found (set GEM_KEY, GROQ_KEY, or AI_API_KEY), or pass --dry-run.');
+    console.error('No API key found (set GEM_KEY, GEMINI_API_KEY, or AI_API_KEY), or pass --dry-run.');
     process.exit(1);
   }
 
@@ -527,8 +533,7 @@ async function run() {
   const skipList = opts.skipScopes.split(',').map(s => s.trim()).filter(Boolean);
 
   if (!opts.dryRun) {
-    const keys = splitKeys(rawKeys);
-    if (keys.some(k => detectKeyProvider(k) === 'gemini') && !opts.model.startsWith('gemini')) {
+    if (!isGeminiModel(opts.model)) {
       opts.model = 'gemini-3.5-flash-lite';
     }
     const fm = await fetchModels(rawKeys);

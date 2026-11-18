@@ -2,7 +2,7 @@
  * High-level AI Copilot coordinator: manages chat history, model discovery,
  * prompt execution, closed-loop simulator verification retries, and Guide Mode launch.
  */
-import { checkServerKey, fetchModels, callGroq, PREFERRED_MODELS, PREFERRED_GEMINI_MODELS, detectKeyProvider, salvageTruncatedBuildJson } from './client.js';
+import { checkServerKey, fetchModels, callGemini, PREFERRED_GEMINI_MODELS, isGeminiModel, salvageTruncatedBuildJson } from './client.js';
 import { buildSystemPrompt, serializeCircuitState } from './context.js';
 import { applyAiBuildPlan } from './builder.js';
 import { createSandbox } from './guide.js';
@@ -13,7 +13,7 @@ export class AiCopilot {
     this.app = app;
     this.messages = []; // UI display messages: { id, role, text, intent, meta, ts }
     this.history = [];  // LLM turn pairs: { role: 'user'|'assistant', content }
-    this.models = PREFERRED_MODELS.map(id => ({ id, fallback: true }));
+    this.models = PREFERRED_GEMINI_MODELS.map(id => ({ id, fallback: true }));
     this.hasServerKey = false;
     this.busy = false;
     this.statusText = '';
@@ -27,11 +27,12 @@ export class AiCopilot {
   }
 
   get apiKey() {
-    return (this.app.settings.get('groqKey') || '').trim();
+    return (this.app.settings.get('geminiKey') || '').trim();
   }
 
   get model() {
-    return (this.app.settings.get('aiModel') || PREFERRED_MODELS[0]).trim();
+    const saved = (this.app.settings.get('aiModel') || '').trim();
+    return isGeminiModel(saved) ? saved : PREFERRED_GEMINI_MODELS[0];
   }
 
   get mode() {
@@ -49,18 +50,13 @@ export class AiCopilot {
 
   async refreshModels() {
     if (!this.hasAuth) {
-      this.models = PREFERRED_MODELS.map(id => ({ id, fallback: true }));
+      this.models = PREFERRED_GEMINI_MODELS.map(id => ({ id, fallback: true }));
       return this.models;
     }
-    const keys = this.apiKey.split(/[\s,;]+/).map(k => k.trim()).filter(Boolean);
-    const hasGem = keys.some(k => detectKeyProvider(k) === 'gemini');
     const res = await fetchModels(this.apiKey);
     this.models = res.models;
-    // Switch default model cleanly when saved model doesn't match loaded provider keys
     if (this.models.length && !this.models.some(m => m.id === this.model)) {
       this.app.settings.set('aiModel', this.models[0].id);
-    } else if (hasGem && !keys.some(k => detectKeyProvider(k) === 'groq') && !this.model.startsWith('gemini')) {
-      this.app.settings.set('aiModel', this.models[0]?.id || PREFERRED_GEMINI_MODELS[0]);
     }
     return this.models;
   }
@@ -71,7 +67,7 @@ export class AiCopilot {
     this.app.aiGuide?.stop();
   }
 
-  /** Send a user prompt through Gemini/Groq, apply Build or Guide actions if requested, and self-verify. */
+  /** Send a user prompt through Gemini, apply Build or Guide actions if requested, and self-verify. */
   async ask(promptText, modeOverride = null) {
     const prompt = String(promptText || '').trim();
     if (!prompt || this.busy) return null;
@@ -79,7 +75,7 @@ export class AiCopilot {
     if (!this.hasAuth) {
       this.hasServerKey = await checkServerKey();
       if (!this.hasAuth) {
-        throw new Error('Add a free Google AI Studio (Gemini) or Groq API key using the 🔑 button above to start.');
+        throw new Error('Add a free Google AI Studio (Gemini) API key using the 🔑 button above to start.');
       }
     }
 
@@ -115,7 +111,7 @@ export class AiCopilot {
       const initialReasoning = ((explicitAction || hardwareRequest) && !isLogicPuzzle) ? 'low' : null;
 
       this._setStatus(`Thinking (${this.model.split('/').pop()})…`);
-      let res = await callGroq({
+      let res = await callGemini({
         apiKey: this.apiKey,
         model: this.model,
         messages: llmMessages,
@@ -428,7 +424,7 @@ export class AiCopilot {
           ...(curRes.rawText ? [{ role: 'assistant', content: String(curRes.rawText).slice(0, 2200) }] : []),
           { role: 'user', content: `Stage ${stage} failed verification:\n- ${errList}\n\nFix ONLY these issues using exact declared refs and pin names.${emptyBoardNote} Output MINIFIED STRICT JSON.` },
         ];
-        const fixRes = await callGroq({
+        const fixRes = await callGemini({
           apiKey: this.apiKey,
           model: curRes.modelUsed,
           messages: fixMsgs,
@@ -475,7 +471,7 @@ export class AiCopilot {
       ];
       let nextRes;
       try {
-        nextRes = await callGroq({
+        nextRes = await callGemini({
           apiKey: this.apiKey,
           model: curRes.modelUsed,
           messages: nextMsgs,
@@ -524,7 +520,7 @@ export class AiCopilot {
 
   async _tryFollowUp(res, llmMessages, userContent, extraOpts = {}) {
     try {
-      return await callGroq({
+      return await callGemini({
         apiKey: this.apiKey,
         model: res.modelUsed,
         messages: [

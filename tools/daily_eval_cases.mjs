@@ -7,7 +7,7 @@
  */
 
 import { allDefs } from '../src/parts/registry.js';
-import { callGroq, extractJsonObject } from '../src/ai/client.js';
+import { callGemini, extractJsonObject } from '../src/ai/client.js';
 import { resolvePartType } from '../src/ai/builder.js';
 
 function prng(seed) {
@@ -56,7 +56,12 @@ const SYN = {
   ic4017: ['cd4017', '4017', 'cd4017 decde cntr'],
   ic74595: ['74hc595', '74595', '74hc595 shift registor'],
   bargraph: ['bargraph', '8 segment bar led array', '10 seg led bar'],
-  diode: ['diode', '1n4148', '1n4007', 'rectifier diode'],
+  diode: ['diode', '1n4148', '1n4007', 'rectifier diode', '1n5819 schottky'],
+  lm358: ['lm358', 'lm-358 opamp', 'dual op-amp'],
+  lm393: ['lm393', 'voltage comparator', 'lm-393 comparator'],
+  nmos: ['nmos', '2n7000', '2n7000 n-mosfet', 'irf540 mosfet'],
+  zener: ['zener', 'zener diode', '5.1v zener clamp'],
+  multimeter: ['dmm', 'multimeter', 'digital multimeter'],
 };
 
 export function expandTypoText(rng, tpl) {
@@ -223,6 +228,38 @@ export const REGRESSION_CASES = [
     scopes: ['esp32', 'oled'],
     oracle: { minParts: 3, requireTypes: [['esp32'], ['wokwi-mpu6050']], check: 'mcu_run' },
   },
+  {
+    id: 'reg_lm358_noninv_amp',
+    bucket: 'regression',
+    name: 'LM358 Non-Inverting Amplifier + DMM',
+    prompt: 'build a 2x non-inverting amplifier using an LM358 op-amp powered by 9V battery, 1.5V divider or pot into 1IN+, two 10k feedback resistors from 1OUT to 1IN- and GND, and a DMM measuring 1OUT DC volts',
+    scopes: [],
+    oracle: { minParts: 5, requireTypes: [['lm358'], ['multimeter']], check: 'dmm_valid' },
+  },
+  {
+    id: 'reg_lm393_comparator_led',
+    bucket: 'regression',
+    name: 'LM393 Open-Collector Comparator LED',
+    prompt: 'build a voltage comparator circuit using LM393 powered from +5V and GND, comparing a pot wiper vs 2.5V resistor divider and lighting a green LED via a 330 ohm pull-up resistor to +5V',
+    scopes: [],
+    oracle: { minParts: 6, requireTypes: [['lm393'], ['led'], ['resistor']], check: 'led_active' },
+  },
+  {
+    id: 'reg_zener_5v1_clamp',
+    bucket: 'regression',
+    name: '5.1 V Zener Voltage Reference + DMM',
+    prompt: 'build a 5.1V Zener diode shunt regulator from a 12V battery through a 470 ohm series resistor to Zener cathode (anode to GND) and wire a DMM in DCV mode across the Zener',
+    scopes: [],
+    oracle: { minParts: 4, requireTypes: [['zener'], ['multimeter'], ['battery']], check: 'dmm_valid' },
+  },
+  {
+    id: 'reg_nmos_lowside_led',
+    bucket: 'regression',
+    name: '2N7000 N-MOSFET LED Driver',
+    prompt: 'build an enhancement N-MOSFET 2N7000 low-side switch where a toggle switch drives Gate HIGH, Source goes to GND, and Drain sinks a red LED with 220 ohm resistor from +5V',
+    scopes: [],
+    oracle: { minParts: 5, requireTypes: [['nmos'], ['led']], check: 'led_active' },
+  },
 ];
 
 export const WILD_CASES = [
@@ -305,6 +342,22 @@ export const WILD_CASES = [
     prompt: 'build a 4-diode 1n4007 full wave bridge rectifier fed by 100Hz sine function generator across a 1k load resistor with scope measuring output ripple',
     scopes: [],
     oracle: { minParts: 7, requireTypes: [['funcgen'], ['diode'], ['oscilloscope']], check: 'scope_ac' },
+  },
+  {
+    id: 'wild_pc817_opto_isolated',
+    bucket: 'wild',
+    name: 'PC817 Optocoupler Isolated Driver',
+    prompt: 'build a galvanically isolated LED driver with a PC817 optocoupler: +5V switch -> 220 ohm -> PC817 A/K -> GND, and an isolated 9V battery -> 470 ohm -> red LED -> PC817 collector/emitter',
+    scopes: [],
+    oracle: { minParts: 5, requireTypes: [['pc817'], ['led'], ['battery']], check: 'led_active' },
+  },
+  {
+    id: 'wild_lm317_adjustable_reg',
+    bucket: 'wild',
+    name: 'LM317 Adjustable 5V Supply + DMM',
+    prompt: 'build a 5V adjustable regulator using LM317 powered by a 9V battery with 240 ohm resistor between OUT and ADJ, 720 ohm from ADJ to GND, and a DMM reading regulated OUT DC volts',
+    scopes: [],
+    oracle: { minParts: 5, requireTypes: [['lm317'], ['multimeter'], ['battery']], check: 'dmm_valid' },
   },
   {
     id: 'wild_xor_parity',
@@ -493,7 +546,7 @@ export async function generateDailyNewIdeas({ apiKey, model, availableModels = n
     `Output MINIFIED STRICT JSON ONLY: {"ideas":[{"name":"short title","prompt":"realistic user prompt (may include minor casual phrasing)","requireTypes":["ne555","led"],"check":"led_active|led_multi|buzzer_active|scope_ac|seg7_active|bargraph_active|mcu_run","usesUno":false}]} with exactly ${count} ideas.`,
   ].filter(Boolean).join('\n');
 
-  const res = await callGroq({
+  const res = await callGemini({
     apiKey,
     model,
     availableModels,
@@ -502,7 +555,6 @@ export async function generateDailyNewIdeas({ apiKey, model, availableModels = n
       { role: 'user', content: `Generate ${count} fresh electronics circuit ideas.` },
     ],
     jsonMode: true,
-    reasoningEffort: 'low',
   });
 
   const parsed = res?.parsed || extractJsonObject(res?.rawText || '');

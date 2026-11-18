@@ -51,7 +51,6 @@ jobs:
         id: auth
         env:
           GEM_KEY: ${{ secrets.GEM_KEY }}
-          GROQ_KEY: ${{ secrets.GROQ_KEY }}
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
         run: |
@@ -59,8 +58,8 @@ jobs:
             echo "Running in offline --dry-run mode."
             exit 0
           fi
-          if [ -z "${GEM_KEY}${GROQ_KEY}${AI_API_KEY}" ]; then
-            echo "::error::Missing API key. Add GEM_KEY (or GROQ_KEY / AI_API_KEY) under Settings -> Secrets and variables -> Actions -> Repository secrets."
+          if [ -z "${GEM_KEY}${AI_API_KEY}" ]; then
+            echo "::error::Missing API key. Add GEM_KEY (or AI_API_KEY) under Settings -> Secrets and variables -> Actions -> Repository secrets."
             exit 1
           fi
 
@@ -83,7 +82,6 @@ jobs:
       - name: Run daily AI eval suite
         env:
           GEM_KEY: ${{ secrets.GEM_KEY }}
-          GROQ_KEY: ${{ secrets.GROQ_KEY }}
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
           AI_MODEL: ${{ vars.AI_EVAL_MODEL || 'gemini-3.5-flash-lite' }}
           MAX_CALLS: ${{ inputs.max_calls || vars.AI_EVAL_MAX_CALLS || '300' }}

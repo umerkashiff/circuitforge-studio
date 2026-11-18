@@ -23,11 +23,11 @@ import {
 } from './logic_verify.js';
 
 const SIGNAL_COLORS = ['#0a84ff', '#30a46c', '#ff8a00', '#8e4ec6', '#06b6d4', '#f5c400', '#d946ef', '#65a30d'];
-const PASSIVE_BODY_TYPES = new Set(['resistor', 'diode', 'inductor', 'capacitor']);
+const PASSIVE_BODY_TYPES = new Set(['resistor', 'diode', 'zener', 'inductor', 'capacitor']);
 const holeBoardId = (hl) => (hl?.strip ? String(hl.strip).split(':')[0] : null);
 const PROBE_COLORS = ['#ff9f0a', '#30d158', '#0a84ff', '#ff375f', '#bf5af2', '#64d2ff', '#ffd60a', '#ac8e68'];
 
-const KNOWN_PROP_KEYS = ['code', 'sketch', 'program', 'ohms', 'resistance', 'value', 'watts', 'uf', 'capacitance', 'vmax', 'color', 'protect', 'hz', 'duty', 'vpp', 'wave', 'offset', 'power', 'common', 'on', 'label', 'run', 'ch1On', 'ch2On', 'ch1Scale', 'ch2Scale', 'timeDiv', 'coupling', 'trigSrc', 'trigLevel'];
+const KNOWN_PROP_KEYS = ['code', 'sketch', 'program', 'ohms', 'resistance', 'value', 'watts', 'uf', 'capacitance', 'kind', 'mh', 'rs', 'vz', 'vreg', 'vmax', 'color', 'protect', 'hz', 'duty', 'vpp', 'wave', 'offset', 'power', 'common', 'on', 'label', 'mode', 'hold', 'run', 'ch1On', 'ch2On', 'ch1Scale', 'ch2Scale', 'timeDiv', 'coupling', 'trigSrc', 'trigLevel'];
 
 /** Normalize malformed LLM part specs (e.g. string items, `part`/`component` instead of `type`, or top-level `ohms`/`code`). */
 export function normalizePartSpec(raw = {}) {
@@ -72,6 +72,7 @@ export function resolvePartType(rawType, rawProps = {}) {
   if (/^(?:dip-?4|4[-\s]*dip\s*switch|dip\s*switch\s*4)$/.test(low)) return { type: 'dip4', props: { ...props } };
   if (/^(?:r|resis?t[eo]rs?)$/.test(low)) return { type: 'resistor', props: { ...props } };
   if (/^(?:c|caps?|capacitors?|capcitors?|condensators?|condensers?)$/.test(low)) return { type: 'capacitor', props: { ...props } };
+  if (/^(?:ceramic|non[-\s]*polarized|film|disc)\s*cap\w*$/.test(low)) return { type: 'capacitor', props: { kind: 'ceramic', uf: 0.1, vmax: 50, ...props } };
   if (/^(?:l|inductors?|coils?|chokes?)$/.test(low)) return { type: 'inductor', props: { ...props } };
   if (/^(?:potentiometers?|potnetiometers?|potentiomters?|trimpots?|variable\s*resistors?|rheostats?|vr|pot)$/.test(low)) return { type: 'pot', props: { ...props } };
   if (/^(?:buzzers?|piezos?|peizos?|piezo\s*buzzers?|peizo\s*buzzers?|peizo\s*sounders?|piezo\s*sounders?|sounders?|beepers?|peizo\s*beepers?|piezo\s*beepers?|speakers?|horns?)$/.test(low)) return { type: 'buzzer', props: { ...props } };
@@ -83,6 +84,30 @@ export function resolvePartType(rawType, rawProps = {}) {
     else if (/bc547/.test(low)) out.model = 'BC547';
     return { type: 'npn', props: out };
   }
+  if (/^(?:pnp|pnp\s*bjt|pnp\s*transistors?|2n3906|2n2907|bc557)(?:\s+(?:pnp|bjt|transistor))?$/.test(low)) {
+    const out = { ...props };
+    if (/2n3906/.test(low)) out.model = '2N3906';
+    else if (/2n2907/.test(low)) out.model = '2N2907';
+    else if (/bc557/.test(low)) out.model = 'BC557';
+    return { type: 'pnp', props: out };
+  }
+  if (/^(?:n[-\s]?mos(?:fet)?|mosfet|2n7000|irf540)$/.test(low)) {
+    return { type: 'nmos', props: { model: /irf540/.test(low) ? 'IRF540' : '2N7000', ...props } };
+  }
+  if (/^(?:p[-\s]?mos(?:fet)?|bs250|irf9540)$/.test(low)) {
+    return { type: 'pmos', props: { model: /irf9540/.test(low) ? 'IRF9540' : 'BS250', ...props } };
+  }
+  if (/^(?:zener|zener\s*diodes?|1n4733\w*|1n4728\w*|1n4742\w*)$/.test(low)) return { type: 'zener', props: { ...props } };
+  if (/^(?:schottky|schottky\s*diodes?|1n5819|bat85)$/.test(low)) {
+    return { type: 'diode', props: { model: /bat85/.test(low) ? 'BAT85' : '1N5819', ...props } };
+  }
+  if (/^(?:op[-\s]?amp|opamp|741|lm-?741|ua741)$/.test(low)) return { type: 'lm741', props: { ...props } };
+  if (/^(?:lm-?358|dual\s*op[-\s]?amp|lm-?324)$/.test(low)) return { type: 'lm358', props: { ...props } };
+  if (/^(?:lm-?393|comparator|voltage\s*comparator|lm-?339)$/.test(low)) return { type: 'lm393', props: { ...props } };
+  if (/^(?:7805|lm-?7805|voltage\s*regulator|5v\s*regulator)$/.test(low)) return { type: 'lm7805', props: { ...props } };
+  if (/^(?:lm-?317|adjustable\s*regulator)$/.test(low)) return { type: 'lm317', props: { ...props } };
+  if (/^(?:pc-?817|opto(?:coupler|isolator)?|4n25|4n35)$/.test(low)) return { type: 'pc817', props: { ...props } };
+  if (/^(?:dmm|multimeter|digital\s*multimeter|voltmeter|ammeter|ohmmeter)$/.test(low)) return { type: 'multimeter', props: { ...props } };
   if (/^(?:bargraph|bar\s*graph|led\s*bar|led\s*array|8[-\s]*led\s*bar|8[-\s]*segment\s*bar(?:\s*led)?(?:\s*array)?)$/.test(low)) return { type: 'bargraph', props: { ...props } };
   if (low === 'diode' || low === 'diodes' || low === '1n4148' || low === '1n4001' || low === '1n4007' || low === 'rectifier') {
     const out = { ...props };
@@ -194,7 +219,8 @@ export function resolvePinIndex(part, rawPin) {
   const aliasMap = {
     led: { A: 0, ANODE: 0, '+': 0, POS: 0, K: 1, CATHODE: 1, '-': 1, NEG: 1 },
     diode: { A: 0, ANODE: 0, '+': 0, K: 1, CATHODE: 1, '-': 1 },
-    capacitor: { '+': 0, POS: 0, A: 0, '-': 1, NEG: 1, K: 1, GND: 1 },
+    zener: { A: 0, ANODE: 0, '+': 0, K: 1, CATHODE: 1, '-': 1 },
+    capacitor: { '+': 0, POS: 0, A: 0, '1': 0, '-': 1, NEG: 1, K: 1, GND: 1, '2': 1 },
     battery: { '+': 0, POS: 0, VCC: 0, '-': 1, NEG: 1, GND: 1 },
     buzzer: { '+': 0, POS: 0, '-': 1, NEG: 1, GND: 1 },
     resistor: { A: 0, '1': 0, B: 1, '2': 1 },
@@ -202,7 +228,17 @@ export function resolvePinIndex(part, rawPin) {
     pot: { A: 0, '1': 0, W: 1, WIPER: 1, OUT: 1, '2': 1, B: 2, '3': 2 },
     'wokwi-slide-potentiometer': { A: 0, '1': 0, W: 1, WIPER: 1, OUT: 1, B: 2 },
     npn: { E: 0, EMITTER: 0, B: 1, BASE: 1, C: 2, COLLECTOR: 2 },
+    pnp: { E: 0, EMITTER: 0, B: 1, BASE: 1, C: 2, COLLECTOR: 2 },
     jfet: { D: 0, DRAIN: 0, S: 1, SOURCE: 1, G: 2, GATE: 2 },
+    nmos: { G: 0, GATE: 0, D: 1, DRAIN: 1, S: 2, SOURCE: 2 },
+    pmos: { G: 0, GATE: 0, D: 1, DRAIN: 1, S: 2, SOURCE: 2 },
+    lm7805: { IN: 0, VI: 0, VIN: 0, GND: 1, '-': 1, OUT: 2, VO: 2, VOUT: 2 },
+    lm317: { ADJ: 0, OUT: 1, VO: 1, VOUT: 1, IN: 2, VI: 2, VIN: 2 },
+    pc817: { A: 0, ANODE: 0, K: 1, CATHODE: 1, E: 2, EMITTER: 2, C: 3, COLLECTOR: 3 },
+    lm741: { OFF1: 0, 'IN-': 1, INN: 1, INV: 1, 'IN+': 2, INP: 2, NONINV: 2, 'V-': 3, VEE: 3, GND: 3, OFF2: 4, OUT: 5, 'V+': 6, VCC: 6, NC: 7 },
+    lm358: { '1OUT': 0, OUTA: 0, OUT: 0, '1IN-': 1, INA_N: 1, '1IN+': 2, INA_P: 2, 'V-': 3, GND: 3, '2IN+': 4, INB_P: 4, '2IN-': 5, INB_N: 5, '2OUT': 6, OUTB: 6, 'V+': 7, VCC: 7 },
+    lm393: { '1OUT': 0, OUTA: 0, OUT: 0, '1IN-': 1, '1IN+': 2, GND: 3, 'V-': 3, '2IN+': 4, '2IN-': 5, '2OUT': 6, OUTB: 6, VCC: 7, 'V+': 7 },
+    multimeter: { '+': 0, RED: 0, POS: 0, V: 0, '-': 1, BLK: 1, BLACK: 1, COM: 1, GND: 1 },
     oscilloscope: { CH1: 0, 'CH1+': 0, 'CH1-': 1, GND1: 1, CH1_GND: 1, CH2: 2, 'CH2+': 2, 'CH2-': 3, GND2: 3, CH2_GND: 3, TRIG: 4, EXT: 4 },
     funcgen: { OUT: 4, 'OUT+': 4, SIG: 4, '+': 4, 'OUT-': 5, GND: 5, '-': 5, SYNC: 1 },
     'power-supply': {

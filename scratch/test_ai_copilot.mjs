@@ -4,7 +4,7 @@ import '../src/mcu/boards.js';
 import { Circuit, Board, Part, Wire } from '../src/model.js';
 import { Engine, key } from '../src/sim/engine.js';
 import { findProblems } from '../src/editor.js';
-import { filterAndSortModels, extractJsonObject, salvageTruncatedBuildJson, callGroq, splitKeys, fetchModels, detectKeyProvider, isGeminiModel } from '../src/ai/client.js';
+import { filterAndSortModels, extractJsonObject, salvageTruncatedBuildJson, callGemini, splitKeys, fetchModels, isGeminiModel } from '../src/ai/client.js';
 import { buildPartsCatalogPrompt, buildSystemPrompt, serializeCircuitState } from '../src/ai/context.js';
 import { applyAiBuildPlan, resolvePartType, resolvePinIndex } from '../src/ai/builder.js';
 import { parseBooleanExpr, evalBooleanAst, extractGateConstraints, extractBooleanSpec } from '../src/ai/logic_verify.js';
@@ -125,16 +125,16 @@ function createHeadlessApp() {
   return app;
 }
 
-console.log('1. Testing Groq client model filtering, JSON parsing & decommissioned model fallback...');
+console.log('1. Testing Gemini client model filtering, JSON parsing & decommissioned model fallback...');
 const sorted = filterAndSortModels([
-  { id: 'whisper-large-v3' },
-  { id: 'canopylabs/orpheus-v1-english' },
-  { id: 'meta-llama/llama-prompt-guard-2-22m' },
-  { id: 'openai/gpt-oss-20b' },
-  { id: 'qwen/qwen3.8-27b' },
-  { id: 'openai/gpt-oss-120b' },
+  { id: 'models/gemini-2.5-flash-preview-tts' },
+  { id: 'models/gemini-3.1-flash-image' },
+  { id: 'models/gemini-robotics-er-2-preview' },
+  { id: 'models/gemini-2.5-flash' },
+  { id: 'models/gemini-2.5-flash-lite' },
+  { id: 'models/gemini-3.5-flash-lite' },
 ]);
-assert.deepEqual(sorted.map(m => m.id), ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'openai/gpt-oss-20b']);
+assert.deepEqual(sorted.map(m => m.id), ['gemini-3.5-flash-lite', 'gemini-2.5-flash-lite', 'gemini-2.5-flash']);
 
 const parsed1 = extractJsonObject('<think>let me calculate R=220</think>\n```json\n{"intent":"analyze","reply":"OK"}\n```');
 assert.equal(parsed1.intent, 'analyze');
@@ -143,33 +143,15 @@ assert.equal(parsed1.reply, 'OK');
 const parsedTypo = extractJsonObject('{"intent":"build","connections",":",[["V1.1","+"]]}');
 assert.equal(parsedTypo.connections[0][0], 'V1.1');
 
-let otpmTries = 0;
-const otpmFetch = async (_url, opts) => {
-  otpmTries++;
-  const b = JSON.parse(opts.body);
-  if (otpmTries === 1) {
-    assert.equal(b.max_completion_tokens, 920);
-    return {
-      ok: false,
-      status: 429,
-      json: async () => ({ error: { message: 'Request too large for model `qwen/qwen3.8-27b` on output tokens per minute (OTPM): Limit 1000, Used 300, Requested 920.' } }),
-    };
-  }
-  assert.equal(b.max_completion_tokens, 660);
-  return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"intent":"analyze","reply":"Shrunk"}' } }] }) };
-};
-const shrunkRes = await callGroq({ apiKey: 'gsk_test', model: 'qwen/qwen3.8-27b', messages: [{ role: 'user', content: 'hi' }], availableModels: [{ id: 'qwen/qwen3.8-27b' }], fetchFn: otpmFetch });
-assert.equal(shrunkRes.parsed.reply, 'Shrunk');
-
 let calls = 0;
 const mockFetch = async (_url, opts) => {
   calls++;
   const body = JSON.parse(opts.body);
-  if (body.model === 'llama-3.3-70b-versatile') {
+  if (body.model === 'gemini-1.5-pro') {
     return {
       ok: false,
-      status: 400,
-      json: async () => ({ error: { code: 'model_decommissioned', message: 'Model has been decommissioned' } }),
+      status: 404,
+      json: async () => ({ error: { code: 'model_not_found', message: 'Model does not exist' } }),
     };
   }
   return {
@@ -178,16 +160,16 @@ const mockFetch = async (_url, opts) => {
     json: async () => ({ choices: [{ message: { content: JSON.stringify({ intent: 'analyze', reply: 'Switched!' }) } }] }),
   };
 };
-const fallbackRes = await callGroq({
-  apiKey: 'gsk_test',
-  model: 'llama-3.3-70b-versatile',
+const fallbackRes = await callGemini({
+  apiKey: 'AIza_test',
+  model: 'gemini-1.5-pro',
   messages: [{ role: 'user', content: 'hi' }],
   fetchFn: mockFetch,
 });
 assert.equal(calls, 2);
-assert.equal(fallbackRes.modelUsed, 'openai/gpt-oss-120b');
-assert.equal(fallbackRes.switchedFrom, 'llama-3.3-70b-versatile');
-console.log('   [PASS] Groq client tests passed.');
+assert.equal(fallbackRes.modelUsed, 'gemini-3.5-flash-lite');
+assert.equal(fallbackRes.switchedFrom, 'gemini-1.5-pro');
+console.log('   [PASS] Gemini client tests passed.');
 
 console.log('2. Testing Catalog prompt & Circuit serializer...');
 const cat = buildPartsCatalogPrompt();
@@ -490,25 +472,25 @@ assert.ok(app.circuit.partById(u1Id), 'Original ic7408 must be preserved');
 console.log('   [PASS] Incomplete-board awareness, surgical wire repair & incremental Guide passed.');
 
 console.log('10. Testing Multi-Key Failover, Fuzzy 555/DIP8 Safeguards & Instant User Message Hook...');
-assert.deepEqual(splitKeys('gsk_a, gsk_b\ngsk_c;gsk_d'), ['gsk_a', 'gsk_b', 'gsk_c', 'gsk_d']);
+assert.deepEqual(splitKeys('AIza_a, AIza_b\nAQ.c;AQ.d'), ['AIza_a', 'AIza_b', 'AQ.c', 'AQ.d']);
 
 const mkTrace = [];
-const multiKeyRes = await callGroq({
-  apiKey: 'gsk_dead1, gsk_live2',
-  model: 'openai/gpt-oss-120b',
+const multiKeyRes = await callGemini({
+  apiKey: 'AQ.dead1, AQ.live2',
+  model: 'gemini-3.5-flash-lite',
   messages: [{ role: 'user', content: 'hi' }],
   fetchFn: async (_u, opts) => {
     const k = opts.headers.Authorization.replace('Bearer ', '');
     const b = JSON.parse(opts.body);
     mkTrace.push(`${k}:${b.model}`);
-    if (k === 'gsk_dead1') {
+    if (k === 'AQ.dead1') {
       return { ok: false, status: 429, json: async () => ({ error: { message: 'tokens per day (TPD) exceeded, try again in 15m' } }) };
     }
     return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"intent":"analyze","reply":"Key2 works!"}' } }] }) };
   },
 });
-assert.deepEqual(mkTrace, ['gsk_dead1:openai/gpt-oss-120b', 'gsk_live2:openai/gpt-oss-120b']);
-assert.equal(multiKeyRes.modelUsed, 'openai/gpt-oss-120b');
+assert.deepEqual(mkTrace, ['AQ.dead1:gemini-3.5-flash-lite', 'AQ.live2:gemini-3.5-flash-lite']);
+assert.equal(multiKeyRes.modelUsed, 'gemini-3.5-flash-lite');
 
 const tmp555 = new Part('ne555', 5, 11, 0);
 assert.equal(resolvePinIndex(tmp555, 'DISC'), 6, 'Fuzzy pin resolver must map DISC -> DIS (pin 7)');
@@ -522,10 +504,10 @@ assert.equal(dipClash.ok, false);
 assert.match(dipClash.errors.join(' '), /DIP Switch/);
 
 // Verify user message appears synchronously via onChange before async API completes
-let savedModel = 'openai/gpt-oss-120b';
+let savedModel = 'gemini-3.5-flash-lite';
 const copApp = {
   ...app,
-  settings: { get: (k) => (k === 'groqKey' ? 'gsk_mock' : k === 'aiModel' ? savedModel : 'auto'), set: (k, v) => { if (k === 'aiModel') savedModel = v; } },
+  settings: { get: (k) => (k === 'geminiKey' ? 'AQ.mock' : k === 'aiModel' ? savedModel : 'auto'), set: (k, v) => { if (k === 'aiModel') savedModel = v; } },
 };
 const cop = new AiCopilot(copApp);
 cop.hasServerKey = true;
@@ -739,7 +721,7 @@ globalThis.fetch = async () => {
 };
 try {
   const { app: fresh13 } = createHeadlessApp ? { app: createHeadlessApp() } : { app: copApp };
-  fresh13.settings = { get: (k) => (k === 'groqKey' ? 'gsk_mock' : k === 'aiModel' ? 'openai/gpt-oss-120b' : 'auto'), set: () => {} };
+  fresh13.settings = { get: (k) => (k === 'geminiKey' ? 'AQ.mock' : k === 'aiModel' ? 'gemini-3.5-flash-lite' : 'auto'), set: () => {} };
   const cop13 = new AiCopilot(fresh13);
   cop13.hasServerKey = true;
   const r13 = await cop13.ask('build simple led circuit', 'build');
@@ -824,9 +806,9 @@ const leds5 = auto5x5.placedParts.filter(p => p.type === 'led');
 assert.equal(new Set(leds5.map(p => p.x)).size, 5, '5x5 must auto-arrange across 5 distinct X cols');
 assert.equal(new Set(leds5.map(p => p.y)).size, 5, '5x5 must auto-arrange across 5 distinct Y rows');
 
-// Serializing a huge 5x5 (34 parts + 25+ wires) board must fit cleanly inside 4800 chars (never TPM 9271!)
+// Serializing a huge 5x5 (34 parts + 25+ wires) board must fit cleanly inside 4800 chars
 const hugeSnap = JSON.stringify(serializeCircuitState(app));
-assert.ok(hugeSnap.length <= 4850, `Large board snapshot too large (${hugeSnap.length} chars) — risks Groq 8k TPM overflow`);
+assert.ok(hugeSnap.length <= 4850, `Large board snapshot too large (${hugeSnap.length} chars) — risks prompt overflow`);
 console.log(`   [PASS] Unpowered rejection, 5x5 auto-grid & large-board serialization cap (${hugeSnap.length} chars) passed.`);
 
 console.log('16. Testing Compact System Prompt, Truncated JSON Salvage, Per-Model TPM Recovery, autoPower & 7-IC Auto Multi-Stage Execution...');
@@ -843,32 +825,32 @@ assert.ok(salvaged7 && salvaged7._salvaged === true && salvaged7.more === true);
 assert.equal(salvaged7.parts.length, 3);
 assert.equal(salvaged7.connections.length, 2);
 
-// 16c. Per-model transient TPM wait retries 120b instead of demoting to qwen/20b
+// 16c. Per-model transient TPM wait retries gemini-3.5-flash-lite instead of demoting immediately
 let tpmTries = 0;
 const tpmHoldFetch = async (_url, opts) => {
   tpmTries++;
   const b = JSON.parse(opts.body);
-  assert.equal(b.model, 'openai/gpt-oss-120b', 'Transient TPM must wait & retry 120b instead of dropping to weaker model');
+  assert.equal(b.model, 'gemini-3.5-flash-lite', 'Transient TPM must wait & retry primary model before falling back');
   if (tpmTries === 1) {
     return {
       ok: false,
       status: 429,
-      json: async () => ({ error: { message: 'Rate limit reached on tokens per minute (TPM): Limit 8000, Used 7000, Requested 3000. Please try again in 200ms.' } }),
+      json: async () => ({ error: { message: 'Rate limit reached on tokens per minute (TPM): Limit 250000, Used 240000, Requested 12000. Please try again in 200ms.' } }),
     };
   }
-  return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"intent":"analyze","reply":"Held 120b"}' } }] }) };
+  return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"intent":"analyze","reply":"Held 3.5-flash-lite"}' } }] }) };
 };
-const heldRes = await callGroq({
-  apiKey: 'gsk_tpmtest',
-  model: 'openai/gpt-oss-120b',
+const heldRes = await callGemini({
+  apiKey: 'AQ.tpmtest',
+  model: 'gemini-3.5-flash-lite',
   messages: [{ role: 'user', content: 'hi' }],
-  availableModels: [{ id: 'openai/gpt-oss-120b' }, { id: 'qwen/qwen3.8-27b' }, { id: 'openai/gpt-oss-20b' }],
+  availableModels: [{ id: 'gemini-3.5-flash-lite' }, { id: 'gemini-2.5-flash-lite' }],
   fetchFn: tpmHoldFetch,
 });
-assert.equal(heldRes.modelUsed, 'openai/gpt-oss-120b');
-assert.equal(heldRes.parsed.reply, 'Held 120b');
+assert.equal(heldRes.modelUsed, 'gemini-3.5-flash-lite');
+assert.equal(heldRes.parsed.reply, 'Held 3.5-flash-lite');
 
-// 16d + 16e. End-to-end 7 NAND chips (U1..U7) + 10 LEDs built cleanly via automatic 2-stage flow & autoPower (NO manual phase 2!)
+// 16d + 16e. End-to-end 7 NAND chips (U1..U7) + 10 LEDs built cleanly via automatic 2-stage flow & autoPower
 const stage1Parts = [
   { ref: 'V1', type: 'vcc' }, { ref: 'G1', type: 'gnd' }, { ref: 'CLK', type: 'clock', props: { freq: 2 } },
   ...Array.from({ length: 7 }, (_, i) => ({ ref: `U${i + 1}`, type: 'ic7400' })),
@@ -897,7 +879,7 @@ globalThis.fetch = async () => {
 };
 try {
   const app16 = createHeadlessApp();
-  app16.settings = { get: (k) => (k === 'groqKey' ? 'gsk_mock' : k === 'aiModel' ? 'openai/gpt-oss-120b' : 'auto'), set: () => {} };
+  app16.settings = { get: (k) => (k === 'geminiKey' ? 'AQ.mock' : k === 'aiModel' ? 'gemini-3.5-flash-lite' : 'auto'), set: () => {} };
   const cop16 = new AiCopilot(app16);
   cop16.hasServerKey = true;
   const r16 = await cop16.ask('build the most complex circuit you can build with 7 nand chips and 10 leds', 'build');
@@ -928,53 +910,48 @@ const aliasRes = applyAiBuildPlan(app, {
 assert.equal(aliasRes.ok, true, 'Singleton power ref typo VCC1/GND1 must resolve cleanly: ' + JSON.stringify(aliasRes.errors));
 console.log('   [PASS] Compact prompt, JSON salvage, TPM wait hold, autoPower & 7-NAND+10-LED multi-stage tests passed.');
 
-console.log('17. Testing Multi-Provider Gemini + Groq Routing, 503 Recovery, Mixed Key Isolation & Proxy Check...');
-assert.equal(detectKeyProvider('AQ.Ab8TestToken'), 'gemini');
-assert.equal(detectKeyProvider('AIzaSyTestKey123'), 'gemini');
-assert.equal(detectKeyProvider('gsk_TestGroqKey123'), 'groq');
+console.log('17. Testing Gemini-Only Model Filtering, 503 Recovery & Multi-Key Support...');
 assert.equal(isGeminiModel('models/gemini-3.5-flash-lite'), true);
 assert.equal(isGeminiModel('openai/gpt-oss-120b'), false);
 
-// 17a. Gemini models/ prefix stripped, TTS/image/robotics filtered, 3.5-flash-lite prioritized
+// 17a. Gemini models/ prefix stripped, non-chat models filtered, 3.5-flash-lite prioritized
 const sortedGem = filterAndSortModels([
   { id: 'models/gemini-2.5-flash-preview-tts' },
   { id: 'models/gemini-3.1-flash-image' },
   { id: 'models/gemini-2.5-flash-lite' },
   { id: 'models/gemini-3.5-flash-lite' },
   { id: 'models/gemini-robotics-er-2-preview' },
+  { id: 'non-gemini-legacy-model' },
 ]);
 assert.deepEqual(sortedGem.map(m => m.id), ['gemini-3.5-flash-lite', 'gemini-2.5-flash-lite']);
 
-// 17b. fetchModels merges mixed Gemini + Groq keys against exact provider endpoints
-const mixedFetches = [];
-const mixedFetchFn = async (url, opts) => {
-  mixedFetches.push({ url, auth: opts?.headers?.Authorization });
-  if (String(url).includes('generativelanguage.googleapis.com')) {
-    assert.equal(opts.headers.Authorization, 'Bearer AQ.gemTest');
-    return { ok: true, status: 200, json: async () => ({ data: [{ id: 'models/gemini-3.5-flash-lite' }, { id: 'models/gemini-2.5-flash-lite' }] }) };
-  }
-  assert.equal(opts.headers.Authorization, 'Bearer gsk_groqTest');
-  return { ok: true, status: 200, json: async () => ({ data: [{ id: 'openai/gpt-oss-120b' }] }) };
+// 17b. fetchModels queries Gemini endpoint cleanly
+const gemFetches = [];
+const gemFetchFn = async (url, opts) => {
+  gemFetches.push({ url, auth: opts?.headers?.Authorization });
+  assert.ok(String(url).startsWith('https://generativelanguage.googleapis.com/v1beta/openai/models'));
+  assert.equal(opts.headers.Authorization, 'Bearer AQ.gemTest');
+  return { ok: true, status: 200, json: async () => ({ data: [{ id: 'models/gemini-3.5-flash-lite' }, { id: 'models/gemini-2.5-flash-lite' }] }) };
 };
-const mfRes = await fetchModels('AQ.gemTest, gsk_groqTest', mixedFetchFn);
-assert.equal(mixedFetches.length, 2);
-assert.deepEqual(mfRes.models.map(m => m.id), ['gemini-3.5-flash-lite', 'gemini-2.5-flash-lite', 'openai/gpt-oss-120b']);
+const mfRes = await fetchModels('AQ.gemTest', gemFetchFn);
+assert.equal(gemFetches.length, 1);
+assert.deepEqual(mfRes.models.map(m => m.id), ['gemini-3.5-flash-lite', 'gemini-2.5-flash-lite']);
 
-// 17c. Gemini 503 high-demand pauses & falls back cleanly to gemini-2.5-flash-lite using 8192 max tokens and matching Gemini key
+// 17c. Gemini 503 high-demand pauses & falls back cleanly to gemini-2.5-flash-lite using 8192 max tokens
 const gemCalls = [];
 const gemFallbackFetch = async (url, opts) => {
   const b = JSON.parse(opts.body);
   gemCalls.push({ url, auth: opts.headers.Authorization, model: b.model, max: b.max_completion_tokens });
   assert.ok(String(url).startsWith('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'));
   assert.equal(opts.headers.Authorization, 'Bearer AQ.gemKeyOnly');
-  assert.equal(b.max_completion_tokens, 8192, 'Gemini must use 8192 budget instead of Groq 8k cap');
+  assert.equal(b.max_completion_tokens, 8192);
   if (b.model === 'gemini-3.5-flash-lite') {
     return { ok: false, status: 503, json: async () => ([{ error: { code: 503, message: 'high demand' } }]) };
   }
   return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"intent":"analyze","reply":"Served via 2.5 Flash Lite"}' } }] }) };
 };
-const gemFb = await callGroq({
-  apiKey: 'AQ.gemKeyOnly, gsk_unusedGroq',
+const gemFb = await callGemini({
+  apiKey: 'AQ.gemKeyOnly',
   model: 'gemini-3.5-flash-lite',
   messages: [{ role: 'user', content: 'hi' }],
   availableModels: [{ id: 'gemini-3.5-flash-lite' }, { id: 'gemini-2.5-flash-lite' }],
@@ -984,7 +961,7 @@ assert.equal(gemFb.modelUsed, 'gemini-2.5-flash-lite');
 assert.equal(gemFb.switchedFrom, 'gemini-3.5-flash-lite');
 assert.equal(gemFb.parsed.reply, 'Served via 2.5 Flash Lite');
 assert.equal(gemCalls.length, 3, '2 tries on 3.5-flash-lite (initial + 503 retry), then fallback to 2.5-flash-lite');
-console.log('   [PASS] Multi-provider Gemini + Groq routing, 503 recovery & key isolation passed.');
+console.log('   [PASS] Gemini-only model filtering, 503 recovery & multi-key support passed.');
 
 console.log('18. Testing Strict Follow-Up LED Health Verification, Counter 9-Cycle Liveness & LED Telemetry...');
 const app18 = createHeadlessApp();

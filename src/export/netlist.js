@@ -38,9 +38,11 @@ function packageLabel(part, def) {
   if (def.ic) return `DIP-${def.ic.n}`;
   if (part.type === 'ne555') return 'DIP-8';
   if (def.mcu) return 'Module';
-  if (part.type === 'resistor' || part.type === 'diode' || part.type === 'inductor') return 'Axial THT';
+  if (part.type === 'resistor' || part.type === 'diode' || part.type === 'zener' || part.type === 'inductor') return 'Axial THT';
   if (part.type === 'capacitor' || part.type === 'led') return 'Radial THT';
-  if (part.type === 'npn' || part.type === 'jfet') return 'TO-92';
+  if (part.type === 'npn' || part.type === 'pnp' || part.type === 'jfet') return 'TO-92';
+  if (part.type === 'nmos' || part.type === 'pmos') return (part.props?.model === 'IRF540' || part.props?.model === 'IRF9540') ? 'TO-220' : 'TO-92';
+  if (part.type === 'lm7805' || part.type === 'lm317') return 'TO-220';
   if (part.type === 'tactile') return '4-pin THT';
   if (def.cat === 'Instruments') return 'Benchtop';
   return 'THT';
@@ -416,14 +418,22 @@ export function toSpiceNetlist(data) {
       lines.push(`${p.ref} ${nodeOf(p, 0)} ${nodeOf(p, 1)} ${pr.mh ?? 10}m`);
     } else if (p.type === 'diode') {
       lines.push(`D_${p.ref} ${nodeOf(p, 0)} ${nodeOf(p, 1)} D${pr.model || '1N4148'}`);
+    } else if (p.type === 'zener') {
+      lines.push(`D_${p.ref} ${nodeOf(p, 0)} ${nodeOf(p, 1)} DZ_${String(pr.vz ?? 5.1).replace('.', 'V')}`);
     } else if (p.type === 'led') {
       lines.push(`D_${p.ref} ${nodeOf(p, 0)} ${nodeOf(p, 1)} LED_${String(pr.color || 'red').toUpperCase()}`);
-    } else if (p.type === 'npn') {
+    } else if (p.type === 'npn' || p.type === 'pnp') {
       // part pins: 0=E, 1=B, 2=C -> SPICE Qname C B E model
-      lines.push(`Q_${p.ref} ${nodeOf(p, 2)} ${nodeOf(p, 1)} ${nodeOf(p, 0)} Q${pr.model || '2N3904'}`);
+      lines.push(`Q_${p.ref} ${nodeOf(p, 2)} ${nodeOf(p, 1)} ${nodeOf(p, 0)} Q${pr.model || (p.type === 'pnp' ? '2N3906' : '2N3904')}`);
     } else if (p.type === 'jfet') {
       // part pins: 0=D, 1=S, 2=G -> SPICE Jname D G S model
       lines.push(`J_${p.ref} ${nodeOf(p, 0)} ${nodeOf(p, 2)} ${nodeOf(p, 1)} J${pr.model || '2N5484'}`);
+    } else if (p.type === 'nmos' || p.type === 'pmos') {
+      // part pins: 0=G, 1=D, 2=S -> SPICE Mname D G S S model
+      lines.push(`M_${p.ref} ${nodeOf(p, 1)} ${nodeOf(p, 0)} ${nodeOf(p, 2)} ${nodeOf(p, 2)} M${pr.model || (p.type === 'pmos' ? 'BS250' : '2N7000')}`);
+    } else if (p.type === 'lm7805' || p.type === 'lm317' || p.type === 'pc817' || p.type === 'lm741' || p.type === 'lm358' || p.type === 'lm393') {
+      const nodes = p.pins.map((_, i) => nodeOf(p, i)).join(' ');
+      lines.push(`X_${p.ref} ${nodes} ${(p.shortName || p.type).toUpperCase()}`);
     } else if (p.type === 'pot' || p.type === 'wokwi-slide-potentiometer') {
       const rTot = +(pr.ohms ?? 10000), k = Math.max(0.001, Math.min(0.999, +(pr.pos ?? 0.5)));
       lines.push(`${p.ref}A ${nodeOf(p, 0)} ${nodeOf(p, 1)} ${(rTot * k).toFixed(2)}`);

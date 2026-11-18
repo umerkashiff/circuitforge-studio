@@ -69,7 +69,7 @@ export function resistor(nets, part) {
   };
 }
 
-/** Electrolytic capacitor: bursts on sustained over-voltage or reverse polarity. */
+/** Capacitor: electrolytic bursts on reverse polarity/over-voltage; ceramic/film is non-polarized. */
 export function capacitor(nets, part) {
   return {
     timeDependent: true,
@@ -79,7 +79,7 @@ export function capacitor(nets, part) {
     stamp(S, V, e) {
       if (part.props.damaged) return;
       const geq = (part.props.uf * 1e-6) / e.dt;
-      S.G(nets[0], nets[1], geq);
+      S.G(nets[0], nets[1], geq, false);
       S.I(nets[0], nets[1], -geq * this.vc);
     },
     i: 0,
@@ -96,14 +96,20 @@ export function capacitor(nets, part) {
         const r = (ga > 1e-9 ? 1 / ga : 1e9) + (gb > 1e-9 ? 1 / gb : 1e9);
         e.minTau = Math.min(e.minTau, C * r);
       }
-      const rating = part.props.vmax || 16;
-      const over = this.vc > rating * 1.1, rev = this.vc < -1.5;
+      const polarized = part.props.kind !== 'ceramic';
+      const rating = part.props.vmax || (polarized ? 16 : 50);
+      const vstress = polarized ? this.vc : Math.abs(this.vc);
+      const over = vstress > rating * 1.1, rev = polarized && this.vc < -1.5;
       if (over || rev) this.stress += dt; else this.stress = Math.max(0, this.stress - dt * 0.5);
       this.warning = null;
-      this.notes = this.vc < -0.3 ? ['Capacitor is backwards — the − stripe must go to the lower voltage.'] : this.vc > rating * 0.9 ? [`${this.vc.toFixed(1)} V is close to the ${rating} V rating.`] : null;
+      this.notes = (polarized && this.vc < -0.3)
+        ? ['Capacitor is backwards — the − stripe must go to the lower voltage.']
+        : vstress > rating * 0.9
+          ? [`${Math.abs(this.vc).toFixed(1)} V is close to the ${rating} V rating.`]
+          : null;
       if (this.stress > 0.25) {
         part.props.damaged = 'burst';
-        this.event = { kind: 'burst', text: rev ? 'Capacitor burst — it was wired backwards.' : `Capacitor burst — ${this.vc.toFixed(1)} V across a ${rating} V part.` };
+        this.event = { kind: 'burst', text: rev ? 'Capacitor burst — it was wired backwards.' : `Capacitor burst — ${Math.abs(this.vc).toFixed(1)} V across a ${rating} V part.` };
       }
     },
   };
@@ -366,15 +372,15 @@ export function bjtNpn(nets, part) {
     stamp(S) {
       const [e, b, c] = nets;
       if (this.state === 'off') {
-        S.G(b, e, OPEN);
-        S.G(c, e, OPEN);
+        S.G(b, e, OPEN, false);
+        S.G(c, e, OPEN, false);
       } else if (this.state === 'sat') {
         S.vdrop(b, e, Vbe_on, Rbe);
         S.vdrop(c, e, Vce_sat, Rsat);
       } else {
         S.vdrop(b, e, Vbe_on, Rbe);
         const geff = Math.max(1e-4, Math.min(0.2, (beta * Math.max(1e-5, this.ib)) / Math.max(0.15, this.vce || 1)));
-        S.G(c, e, geff);
+        S.G(c, e, geff, false);
       }
     },
     update(V) {
@@ -447,14 +453,14 @@ export function jfetN(nets, part) {
     adopt(o) { this.state = o.state || 'on'; this.id = o.id || 0; },
     stamp(S) {
       const [d, s, g] = nets;
-      S.G(g, s, OPEN);
+      S.G(g, s, OPEN, false);
       if (this.state === 'off') {
-        S.G(d, s, OPEN);
+        S.G(d, s, OPEN, false);
       } else if (this.state === 'linear') {
-        S.G(d, s, 1 / rds_on);
+        S.G(d, s, 1 / rds_on, false);
       } else {
         const geff = Math.max(1e-5, Math.min(0.1, this.id / Math.max(0.15, this.vds || 1)));
-        S.G(d, s, geff);
+        S.G(d, s, geff, false);
       }
     },
     update(V) {
@@ -597,4 +603,709 @@ export function lcd16x2(nets, part) {
     },
   };
 }
+
+/**
+ * Reactive Inductor (Backward Euler companion model with winding ESR Rs).
+ * Pins: [aNet, bNet] — positive current `i` flows a -> b.
+ */
+export function inductor(nets, part) {
+  return {
+    timeDependent: true,
+    i: 0,
+    vl: 0,
+    reset() { this.i = 0; this.vl = 0; },
+    adopt(o) { this.i = o.i || 0; this.vl = o.vl || 0; },
+    stamp(S, V, e) {
+      const L = (part.props.mh || 10) * 1e-3;
+      const rs = part.props.rs || 0.5;
+      const dt = Math.max(1e-7, e.dt || 5e-4);
+      const geq = dt / (L + rs * dt);
+      const ieq = (L / (L + rs * dt)) * this.i;
+      S.G(nets[0], nets[1], geq, false);
+      S.I(nets[0], nets[1], ieq);
+      S.P(nets[0], nets[1], 1 / rs);
+    },
+    commit(V, dt, e) {
+      const a = V[nets[0]], b = V[nets[1]];
+      const L = (part.props.mh || 10) * 1e-3;
+      const rs = part.props.rs || 0.5;
+      const geq = dt / (L + rs * dt);
+      const k = L / (L + rs * dt);
+      this.vl = (ok(a) && ok(b)) ? a - b : 0;
+      this.i = k * this.i + geq * this.vl;
+      if (e && e.gsum && nets[0] >= 0 && nets[1] >= 0) {
+        const ga = e.gsum[nets[0]] - geq, gb = e.gsum[nets[1]] - geq;
+        const r = rs + (ga > 1e-9 ? 1 / ga : 1e9) + (gb > 1e-9 ? 1 / gb : 1e9);
+        if (r > 0) e.minTau = Math.min(e.minTau, L / r);
+      }
+      this.warning = null;
+      this.notes = Math.abs(this.i) > 2.0 ? [`High coil current (${this.i.toFixed(2)} A).`] : null;
+      this.infos = Math.abs(this.vl) > 24 ? [`Inductive kickback: ${this.vl.toFixed(1)} V across coil — add a flyback diode to clamp voltage.`] : null;
+    },
+  };
+}
+
+/**
+ * Zener diode with three piece-wise regions: forward (0.72 V), off, or reverse breakdown (-Vz).
+ * Pins: [anodeNet, cathodeNet]
+ */
+export function zener(nets, part) {
+  const vf = 0.72, rf = 10, rz = 4;
+  return {
+    analog: true,
+    state: 'off',
+    i: 0,
+    vd: 0,
+    reset() { this.state = 'off'; this.i = 0; this.vd = 0; },
+    adopt(o) { this.state = o.state || 'off'; this.i = o.i || 0; this.vd = o.vd || 0; },
+    stamp(S) {
+      const [a, c] = nets;
+      const vz = part.props.vz || 5.1;
+      if (this.state === 'fwd') S.vdrop(a, c, vf, rf);
+      else if (this.state === 'zener') S.vdrop(c, a, vz, rz);
+      else S.G(a, c, OPEN, false);
+    },
+    update(V) {
+      const [a, c] = nets;
+      const vz = part.props.vz || 5.1;
+      const wired = a >= 0 && c >= 0 && ok(V[a]) && ok(V[c]);
+      const vd = wired ? V[a] - V[c] : 0;
+      this.vd = vd;
+      let next = 'off';
+      if (wired) {
+        if (this.state === 'fwd' ? (vd - vf) / rf > 5e-7 : vd > vf) next = 'fwd';
+        else if (this.state === 'zener' ? -(vd + vz) / rz > 5e-7 : vd < -vz) next = 'zener';
+      }
+      if (next !== this.state) { this.state = next; return true; }
+      return false;
+    },
+    commit(V) {
+      const [a, c] = nets;
+      const vz = part.props.vz || 5.1;
+      const wired = a >= 0 && c >= 0 && ok(V[a]) && ok(V[c]);
+      this.vd = wired ? V[a] - V[c] : 0;
+      this.i = !wired ? 0
+        : this.state === 'fwd' ? (this.vd - vf) / rf
+        : this.state === 'zener' ? (this.vd + vz) / rz
+        : 0;
+      const p = Math.abs(this.i * this.vd);
+      const pmax = part.props.pmax || 0.5;
+      this.warning = p > pmax * 1.5 ? `Zener overheating (${p.toFixed(2)} W > ${pmax} W) — add a series resistor.` : null;
+      this.notes = null;
+      this.infos = this.state === 'zener'
+        ? [`Zener clamping at Vz = ${(-this.vd).toFixed(2)} V (Iz ≈ ${(-this.i * 1000).toFixed(1)} mA)`]
+        : this.state === 'fwd'
+          ? [`Forward conducting: ${(this.i * 1000).toFixed(1)} mA`]
+          : null;
+    },
+  };
+}
+
+/**
+ * PNP BJT (e.g. 2N3906, BC557). Pins: [emitterNet, baseNet, collectorNet].
+ */
+export function bjtPnp(nets, part) {
+  const beta = part.props.beta || 150;
+  const Veb_on = 0.68, Rbe = 40, Vec_sat = 0.15, Rsat = 12;
+  return {
+    analog: true,
+    state: 'off',
+    ib: 0,
+    ic: 0,
+    veb: 0,
+    vec: 0,
+    reset() { this.state = 'off'; this.ib = 0; this.ic = 0; },
+    adopt(o) { this.state = o.state || 'off'; this.ib = o.ib || 0; this.ic = o.ic || 0; },
+    stamp(S) {
+      const [e, b, c] = nets;
+      if (this.state === 'off') {
+        S.G(e, b, OPEN, false);
+        S.G(e, c, OPEN, false);
+      } else if (this.state === 'sat') {
+        S.vdrop(e, b, Veb_on, Rbe);
+        S.vdrop(e, c, Vec_sat, Rsat);
+      } else {
+        S.vdrop(e, b, Veb_on, Rbe);
+        const geff = Math.max(OPEN, Math.min(0.2, (beta * Math.max(0, this.ib)) / Math.max(0.15, this.vec || 1)));
+        S.G(e, c, geff, false);
+      }
+    },
+    update(V) {
+      const [e, b, c] = nets;
+      const eOk = e >= 0 && ok(V[e]), bOk = b >= 0 && ok(V[b]), cOk = c >= 0 && ok(V[c]);
+      const ve = eOk ? V[e] : 0;
+      const vb = bOk ? V[b] : ve;
+      const vc = cOk ? V[c] : ve;
+      const veb = (eOk && bOk) ? ve - vb : 0;
+      const vec = (eOk && cOk) ? ve - vc : 0;
+      this.veb = veb; this.vec = vec;
+      let next = 'off';
+      const ibCalc = Math.max(0, (veb - Veb_on) / Rbe);
+      const minOnVeb = this.state === 'off' ? Veb_on - 0.03 : Veb_on - 0.05;
+      const hasDrive = this.state === 'off' ? (veb > minOnVeb) : (veb > minOnVeb && ibCalc >= 5e-7);
+      if (hasDrive && vec > -0.2) {
+        this.ib = ibCalc;
+        const ic_avail = Math.max(0, (vec - Vec_sat) / Rsat);
+        if (vec <= Vec_sat || beta * this.ib >= ic_avail) { next = 'sat'; this.ic = ic_avail; }
+        else { next = 'active'; this.ic = beta * this.ib; }
+      } else {
+        this.ib = 0; this.ic = 0;
+      }
+      if (next !== this.state) { this.state = next; return true; }
+      return false;
+    },
+    commit(V) {
+      const [e, b, c] = nets;
+      const ve = e >= 0 && ok(V[e]) ? V[e] : 0;
+      const vb = b >= 0 && ok(V[b]) ? V[b] : 0;
+      const vc = c >= 0 && ok(V[c]) ? V[c] : 0;
+      this.veb = ve - vb; this.vec = ve - vc;
+      if (this.state === 'off') {
+        this.notes = this.veb < 0.2 ? null : [`Cut-off: Veb = ${this.veb.toFixed(2)} V (needs ≥ 0.65 V to conduct)`];
+      } else if (this.state === 'sat') {
+        this.notes = [`Saturated: Veb = ${this.veb.toFixed(2)} V, Vec = ${this.vec.toFixed(2)} V, Ic ≈ ${(this.ic * 1000).toFixed(1)} mA`];
+      } else {
+        this.notes = [`Active: Veb = ${this.veb.toFixed(2)} V, Vec = ${this.vec.toFixed(2)} V, Ib ≈ ${(this.ib * 1000).toFixed(2)} mA, Ic ≈ ${(this.ic * 1000).toFixed(1)} mA`];
+      }
+    },
+  };
+}
+
+/**
+ * Enhancement-mode MOSFET (NMOS / PMOS) with insulated gate and intrinsic body diode.
+ * Unified pinout: [gateNet, drainNet, sourceNet].
+ */
+export function mosfet(nets, part, isPmos = false) {
+  return {
+    analog: true,
+    state: 'off',
+    bodyOn: false,
+    id: 0,
+    vgs: 0,
+    vds: 0,
+    ron: 1,
+    reset() { this.state = 'off'; this.bodyOn = false; this.id = 0; },
+    adopt(o) { this.state = o.state || 'off'; this.bodyOn = !!o.bodyOn; this.id = o.id || 0; },
+    stamp(S) {
+      const [g, d, s] = nets;
+      const vth = Math.abs(part.props.vth || (isPmos ? 2.2 : 2.0));
+      const kp = part.props.kp || 0.25;
+      const rdson = part.props.rdson || 1.8;
+      S.G(g, s, OPEN, false);
+      S.G(g, d, OPEN, false);
+      if (this.bodyOn) S.vdrop(isPmos ? d : s, isPmos ? s : d, 0.72, 1.0);
+      if (this.state === 'off') {
+        S.G(d, s, OPEN, false);
+      } else if (this.state === 'linear') {
+        const vov = Math.max(0.05, (isPmos ? -this.vgs : this.vgs) - vth);
+        this.ron = rdson + 1 / (kp * vov);
+        S.G(d, s, 1 / this.ron, false);
+      } else {
+        const vdsMag = Math.max(0.1, isPmos ? -this.vds : this.vds);
+        const geff = Math.min(1 / rdson, Math.max(1e-5, this.id / vdsMag));
+        S.G(d, s, geff, false);
+      }
+    },
+    update(V) {
+      const [g, d, s] = nets;
+      const gOk = g >= 0 && ok(V[g]), dOk = d >= 0 && ok(V[d]), sOk = s >= 0 && ok(V[s]);
+      const vs = sOk ? V[s] : 0;
+      const vg = gOk ? V[g] : vs;
+      const vd = dOk ? V[d] : vs;
+      const vth = Math.abs(part.props.vth || (isPmos ? 2.2 : 2.0));
+      const kp = part.props.kp || 0.25;
+      const rdson = part.props.rdson || 1.8;
+      this.vgs = (gOk && sOk) ? vg - vs : 0;
+      this.vds = (dOk && sOk) ? vd - vs : 0;
+
+      const vdrive = (gOk && sOk) ? (isPmos ? (vs - vg) : (vg - vs)) : 0;
+      const vdrop = (dOk && sOk) ? (isPmos ? (vs - vd) : (vd - vs)) : 0;
+      const vbody = (dOk && sOk) ? (isPmos ? (vd - vs) : (vs - vd)) : 0;
+      const nextBody = vbody > (this.bodyOn ? 0.65 : 0.72);
+
+      let next = 'off', idNew = 0;
+      const vov = vdrive - vth;
+      if (vov > 0 && vdrop > 0) {
+        if (vdrop < vov) {
+          next = 'linear';
+          const ron = rdson + 1 / (kp * vov);
+          idNew = vdrop / ron;
+        } else {
+          next = 'sat';
+          idNew = Math.min(vdrop / rdson, 0.5 * kp * vov * vov);
+        }
+      }
+      const idChanged = next === 'sat' && Math.abs(idNew - this.id) / Math.max(1e-4, this.id) > 0.05;
+      const changed = next !== this.state || nextBody !== this.bodyOn || idChanged;
+      this.state = next;
+      this.bodyOn = nextBody;
+      this.id = idNew;
+      return changed;
+    },
+    commit(V) {
+      const [g, d, s] = nets;
+      const vg = g >= 0 && ok(V[g]) ? V[g] : 0;
+      const vd = d >= 0 && ok(V[d]) ? V[d] : 0;
+      const vs = s >= 0 && ok(V[s]) ? V[s] : 0;
+      this.vgs = vg - vs;
+      this.vds = vd - vs;
+      if (this.state === 'linear') this.id = (isPmos ? -this.vds : this.vds) / this.ron;
+      else if (this.state === 'off') this.id = 0;
+      const vth = Math.abs(part.props.vth || (isPmos ? 2.2 : 2.0));
+      this.notes = this.state === 'off'
+        ? [`Cut-off: Vgs = ${this.vgs.toFixed(2)} V (threshold ${isPmos ? '-' : ''}${vth.toFixed(1)} V)`]
+        : [`${this.state === 'linear' ? 'Triode' : 'Saturation'}: Vgs = ${this.vgs.toFixed(2)} V, Vds = ${this.vds.toFixed(2)} V, Id ≈ ${(this.id * 1000).toFixed(1)} mA`];
+    },
+  };
+}
+
+/**
+ * Operational Amplifier IC (LM741 single or LM358 dual in DIP-8).
+ * Stamps linear VCCS directly into MNA matrices so negative feedback converges in 1 pass.
+ */
+export function opamp(nets, part, count = 1) {
+  const is741 = count === 1;
+  const vpIdx = is741 ? 6 : 7;
+  const vnIdx = 3;
+  const channels = is741
+    ? [{ inN: 1, inP: 2, out: 5 }]
+    : [{ inP: 2, inN: 1, out: 0 }, { inP: 4, inN: 5, out: 6 }];
+  const minSupply = is741 ? 4.5 : 3.0;
+  const headHi = is741 ? 1.2 : 1.3;
+  const headLo = is741 ? 1.2 : 0.05;
+  const Aol = 4000, Rout = 50, Gout = 1 / Rout, gm = Aol * Gout;
+
+  const chStates = channels.map(() => ({ mode: 'linear', vout: 0 }));
+  return {
+    analog: true,
+    powered: false,
+    chStates,
+    reset() { this.powered = false; for (const c of chStates) { c.mode = 'linear'; c.vout = 0; } },
+    adopt(o) {
+      if (o && o.chStates) {
+        for (let i = 0; i < Math.min(chStates.length, o.chStates.length); i++) {
+          chStates[i].mode = o.chStates[i].mode || 'linear';
+          chStates[i].vout = o.chStates[i].vout || 0;
+        }
+      }
+    },
+    stamp(S, V, e) {
+      const vp = nets[vpIdx], vn = nets[vnIdx];
+      const v_vp = vp >= 0 && ok(V[vp]) ? V[vp] : NaN;
+      const v_vn = vn >= 0 && ok(V[vn]) ? V[vn] : NaN;
+      const pwr = ok(v_vp) && ok(v_vn) && (v_vp - v_vn) >= minSupply;
+
+      for (let i = 0; i < channels.length; i++) {
+        const ch = channels[i];
+        const inP = nets[ch.inP], inN = nets[ch.inN], out = nets[ch.out];
+        const connected = !e || e.isNetConnected(inP) || e.isNetConnected(inN) || e.isNetConnected(out);
+        if (!pwr || !connected || inP < 0 || inN < 0 || out < 0) {
+          if (out >= 0 && vn >= 0) S.G(out, vn, OPEN, false);
+          continue;
+        }
+        S.G(inP, vn, 1e-7, false);
+        S.G(inN, vn, 1e-7, false);
+        const span = v_vp - v_vn;
+        const st = chStates[i].mode;
+        if (st === 'sat_high') {
+          S.vdrop(out, vn, Math.max(headLo, span - headHi), Rout);
+        } else if (st === 'sat_low') {
+          S.vdrop(out, vn, headLo, Rout);
+        } else {
+          const vMidOff = 0.5 * (span + headLo - headHi);
+          S.vdrop(out, vn, vMidOff, Rout);
+          S.vccs(vn, out, inP, inN, gm);
+        }
+      }
+    },
+    update(V, e) {
+      const vp = nets[vpIdx], vn = nets[vnIdx];
+      const v_vp = vp >= 0 && ok(V[vp]) ? V[vp] : NaN;
+      const v_vn = vn >= 0 && ok(V[vn]) ? V[vn] : NaN;
+      const pwr = ok(v_vp) && ok(v_vn) && (v_vp - v_vn) >= minSupply;
+      const wasPowered = this.powered;
+      let changed = pwr !== wasPowered;
+      this.powered = pwr;
+
+      if (!pwr) {
+        for (const st of chStates) {
+          if (st.mode !== 'linear') { st.mode = 'linear'; changed = true; }
+          st.vout = 0;
+        }
+        return changed;
+      }
+
+      // First iteration after becoming powered must start in 'linear' so gaussSolve finds the true feedback point.
+      if (!wasPowered) {
+        for (const st of chStates) {
+          if (st.mode !== 'linear') st.mode = 'linear';
+          st.vout = 0;
+        }
+        return true;
+      }
+
+      const hiRail = v_vp - headHi, loRail = v_vn + headLo;
+      const vMidOff = 0.5 * ((v_vp - v_vn) + headLo - headHi);
+      for (let i = 0; i < channels.length; i++) {
+        const ch = channels[i], st = chStates[i];
+        const inP = nets[ch.inP], inN = nets[ch.inN], out = nets[ch.out];
+        const connected = !e || e.isNetConnected(inP) || e.isNetConnected(inN) || e.isNetConnected(out);
+        if (!connected || inP < 0 || inN < 0 || out < 0) {
+          if (st.mode !== 'linear') { st.mode = 'linear'; changed = true; }
+          continue;
+        }
+        const vpIn = ok(V[inP]) ? V[inP] : v_vn;
+        const vnIn = ok(V[inN]) ? V[inN] : v_vn;
+        const vOut = ok(V[out]) ? V[out] : v_vn + vMidOff;
+        st.vout = vOut;
+        const vLin = v_vn + vMidOff + Aol * (vpIn - vnIn);
+        let next = st.mode;
+        if (st.mode === 'linear') {
+          if (vOut > hiRail + 0.01) next = 'sat_high';
+          else if (vOut < loRail - 0.01) next = 'sat_low';
+        } else if (st.mode === 'sat_high') {
+          if (vLin < hiRail - 0.05) next = 'linear';
+        } else {
+          if (vLin > loRail + 0.05) next = 'linear';
+        }
+        if (next !== st.mode) { st.mode = next; changed = true; }
+      }
+      return changed;
+    },
+    commit(V, dt, e) {
+      this.warning = null;
+      this.notes = null;
+      this.infos = null;
+      const anyWired = e
+        ? nets.some(n => e.isNetConnected(n))
+        : nets.some(n => n >= 0);
+      if (!this.powered) {
+        this.notes = anyWired ? [`Not powered — connect V+ (pin ${vpIdx + 1}) and V− (pin 4), ≥ ${minSupply} V apart.`] : null;
+        return;
+      }
+      const infos = [];
+      for (let i = 0; i < channels.length; i++) {
+        const ch = channels[i];
+        const inP = nets[ch.inP], inN = nets[ch.inN], out = nets[ch.out];
+        const connected = !e || e.isNetConnected(inP) || e.isNetConnected(inN) || e.isNetConnected(out);
+        if (connected && out >= 0 && ok(V[out])) {
+          chStates[i].vout = V[out];
+          infos.push(`${channels.length > 1 ? `Ch${i + 1}: ` : ''}Vout = ${V[out].toFixed(2)} V (${chStates[i].mode})`);
+        }
+      }
+      this.infos = infos.length ? infos : null;
+    },
+  };
+}
+
+/**
+ * Dual Open-Collector Comparator (LM393 DIP-8).
+ * Pulls output low (to GND/V- through ~18 Ω) when IN+ < IN−; open-circuit when IN+ > IN−.
+ */
+export function comparator(nets) {
+  const vpIdx = 7, vnIdx = 3;
+  const channels = [{ inP: 2, inN: 1, out: 0 }, { inP: 4, inN: 5, out: 6 }];
+  const low = new Uint8Array(2);
+  return {
+    analog: true,
+    powered: false,
+    low,
+    reset() { this.powered = false; low.fill(0); },
+    adopt(o) { if (o && o.low) low.set(o.low); },
+    stamp(S) {
+      const vn = nets[vnIdx];
+      for (let i = 0; i < 2; i++) {
+        const ch = channels[i];
+        const inP = nets[ch.inP], inN = nets[ch.inN], out = nets[ch.out];
+        if (inP >= 0 && vn >= 0) S.G(inP, vn, OPEN, false);
+        if (inN >= 0 && vn >= 0) S.G(inN, vn, OPEN, false);
+        if (this.powered && out >= 0 && vn >= 0 && low[i]) S.vdrop(out, vn, 0.12, 18);
+        else if (out >= 0 && vn >= 0) S.G(out, vn, OPEN, false);
+      }
+    },
+    update(V, e) {
+      const vp = nets[vpIdx], vn = nets[vnIdx];
+      const pwr = vp >= 0 && vn >= 0 && ok(V[vp]) && ok(V[vn]) && (V[vp] - V[vn]) >= 2.0;
+      let changed = pwr !== this.powered;
+      this.powered = pwr;
+      for (let i = 0; i < 2; i++) {
+        const ch = channels[i];
+        const inP = nets[ch.inP], inN = nets[ch.inN], out = nets[ch.out];
+        const connected = !e || ((e.isNetConnected(inP) || e.isNetConnected(inN)) && e.isNetConnected(out));
+        let next = 0;
+        if (pwr && connected && inP >= 0 && inN >= 0 && out >= 0 && ok(V[inP]) && ok(V[inN])) {
+          const diff = V[inP] - V[inN];
+          next = diff < (low[i] ? 0.0025 : -0.0025) ? 1 : 0;
+        }
+        if (next !== low[i]) { low[i] = next; changed = true; }
+      }
+      return changed;
+    },
+    commit(V, dt, e) {
+      this.warning = null;
+      this.notes = null;
+      this.infos = null;
+      const anyWired = e ? nets.some(n => e.isNetConnected(n)) : nets.some(n => n >= 0);
+      if (!this.powered) {
+        this.notes = anyWired ? ['Not powered — connect pin 8 (VCC) and pin 4 (GND).'] : null;
+        return;
+      }
+      const infos = [];
+      for (let i = 0; i < 2; i++) {
+        const ch = channels[i];
+        const out = nets[ch.out], inP = nets[ch.inP], inN = nets[ch.inN];
+        const chWired = e
+          ? (e.isNetConnected(out) && (e.isNetConnected(inP) || e.isNetConnected(inN)))
+          : (out >= 0 && (inP >= 0 || inN >= 0));
+        if (chWired) {
+          infos.push(`Ch${i + 1}: ${low[i] ? 'LOW (sinking to GND)' : 'HIGH-Z (open collector)'}`);
+          if (!low[i] && (!ok(V[out]) || (e && !e.resistorNets.has(out)))) {
+            infos.push(`LM393 Ch${i + 1} has an open-collector output — add a pull-up resistor to VCC if output cannot rise.`);
+          }
+        }
+      }
+      this.infos = infos.length ? infos : null;
+    },
+  };
+}
+
+/**
+ * Linear Voltage Regulator:
+ * - 'lm7805': pins [IN, GND, OUT], fixed Vreg (default 5.0 V) with 2.0 V dropout & input current mirror.
+ * - 'lm317':  pins [ADJ, OUT, IN], adjustable Vout - Vadj = 1.25 V via MNA VCCS error amplifier.
+ */
+export function regulator(nets, part) {
+  const is317 = part.type === 'lm317';
+  return {
+    analog: true,
+    active: false,
+    dropout: false,
+    vtarget: 0,
+    iload: 0,
+    vout: 0,
+    reset() { this.active = false; this.dropout = false; this.vtarget = 0; this.iload = 0; this.vout = 0; },
+    adopt(o) { this.active = !!o.active; this.dropout = !!o.dropout; this.vtarget = o.vtarget || 0; this.iload = o.iload || 0; },
+    stamp(S) {
+      if (!is317) {
+        const [vin, gnd, vout] = nets;
+        if (!this.active || vin < 0 || gnd < 0 || vout < 0) return;
+        S.vdrop(vout, gnd, this.vtarget, 0.08);
+        S.I(vin, gnd, 0.005 + Math.max(0, Math.min(1.5, this.iload)));
+      } else {
+        const [adj, vout, vin] = nets;
+        if (!this.active || vin < 0 || vout < 0) return;
+        const gm = 12.5; // Rout = 0.08 Ω
+        if (this.dropout || adj < 0) {
+          S.vdrop(vin, vout, 2.0, 0.15);
+        } else {
+          S.vccs(vin, vout, adj, vout, gm);
+          S.I(vin, vout, gm * 1.25);
+          S.I(vin, adj, 50e-6);
+        }
+      }
+    },
+    update(V) {
+      if (!is317) {
+        const [vin, gnd, vout] = nets;
+        const vreg = part.props.vreg || 5.0;
+        const vi = vin >= 0 && ok(V[vin]) ? V[vin] : NaN;
+        const vg = gnd >= 0 && ok(V[gnd]) ? V[gnd] : NaN;
+        const head = (ok(vi) && ok(vg)) ? (vi - vg - 2.0) : -1;
+        const nextActive = vin >= 0 && gnd >= 0 && vout >= 0 && head > 0.3;
+        const nextVt = nextActive ? Math.min(vreg, head) : 0;
+        const vo = vout >= 0 && ok(V[vout]) ? V[vout] : (vg + nextVt);
+        const nextI = nextActive ? Math.max(0, Math.min(1.5, (vg + nextVt - vo) / 0.08)) : 0;
+        const nextDrop = nextActive && head < vreg - 0.05;
+        const changed = nextActive !== this.active || Math.abs(nextVt - this.vtarget) > 0.01 || Math.abs(nextI - this.iload) > 0.002;
+        this.active = nextActive; this.vtarget = nextVt; this.iload = nextI; this.dropout = nextDrop;
+        return changed;
+      } else {
+        const [adj, vout, vin] = nets;
+        const vi = vin >= 0 && ok(V[vin]) ? V[vin] : NaN;
+        const va = adj >= 0 && ok(V[adj]) ? V[adj] : 0;
+        const head = ok(vi) ? (vi - va - 2.0) : -1;
+        const nextActive = vin >= 0 && vout >= 0 && ok(vi) && head > 0.2;
+        const nextDrop = adj < 0 || head < (this.dropout ? 1.30 : 1.25);
+        const changed = nextActive !== this.active || nextDrop !== this.dropout;
+        this.active = nextActive; this.dropout = nextDrop;
+        return changed;
+      }
+    },
+    commit(V) {
+      if (!is317) {
+        const [vin, gnd, vout] = nets;
+        const vi = vin >= 0 && ok(V[vin]) ? V[vin] : NaN;
+        const vg = gnd >= 0 && ok(V[gnd]) ? V[gnd] : 0;
+        const vo = vout >= 0 && ok(V[vout]) ? V[vout] : NaN;
+        this.vout = ok(vo) ? vo - vg : 0;
+        this.warning = null;
+        this.notes = !this.active
+          ? (vin >= 0 && vout >= 0 ? [`In dropout/off — needs Vin > ${((part.props.vreg || 5.0) + 2).toFixed(1)} V relative to GND.`] : null)
+          : this.dropout
+            ? [`Low headroom (Vin−GND=${(vi - vg).toFixed(2)} V): Vout drops to ${this.vout.toFixed(2)} V.`]
+            : null;
+        this.infos = (this.active && !this.dropout)
+          ? [`Regulating ${(part.props.vreg || 5.0).toFixed(1)} V (Iout ≈ ${(this.iload * 1000).toFixed(1)} mA)`]
+          : null;
+      } else {
+        const [adj, vout, vin] = nets;
+        const vo = vout >= 0 && ok(V[vout]) ? V[vout] : NaN;
+        const va = adj >= 0 && ok(V[adj]) ? V[adj] : 0;
+        this.vout = ok(vo) ? vo : 0;
+        this.warning = null;
+        this.notes = !this.active
+          ? (vin >= 0 && vout >= 0 ? ['LM317 off — connect IN ≥ 3.3 V above ADJ.'] : null)
+          : this.dropout ? [`LM317 in dropout: Vout = ${this.vout.toFixed(2)} V`] : null;
+        this.infos = (this.active && !this.dropout)
+          ? [`Vout = ${this.vout.toFixed(2)} V (Vout−Vadj = ${(this.vout - va).toFixed(2)} V)`]
+          : null;
+      }
+    },
+  };
+}
+
+/**
+ * Optocoupler (PC817, DIP-4). Pins: [A, K, E, C].
+ * Input IR LED triggers electrically isolated output NPN phototransistor without crossing ground domains.
+ */
+export function optocoupler(nets, part) {
+  const vf = 1.2, rf = 15, vceSat = 0.15, rsat = 12;
+  return {
+    analog: true,
+    ledOn: false,
+    outState: 'off',
+    ifwd: 0,
+    ic: 0,
+    vce: 0,
+    reset() { this.ledOn = false; this.outState = 'off'; this.ifwd = 0; this.ic = 0; },
+    adopt(o) { this.ledOn = !!o.ledOn; this.outState = o.outState || 'off'; this.ifwd = o.ifwd || 0; this.ic = o.ic || 0; },
+    stamp(S) {
+      const [a, k, e, c] = nets;
+      if (this.ledOn) S.vdrop(a, k, vf, rf); else S.G(a, k, OPEN, false);
+      if (this.outState === 'off') S.G(c, e, OPEN, false);
+      else if (this.outState === 'sat') S.vdrop(c, e, vceSat, rsat);
+      else {
+        const ctr = part.props.ctr || 1.0;
+        const geff = Math.max(OPEN, Math.min(0.1, (ctr * Math.max(0, this.ifwd)) / Math.max(0.15, this.vce || 1)));
+        S.G(c, e, geff, false);
+      }
+    },
+    update(V) {
+      const [a, k, e, c] = nets;
+      const ctr = part.props.ctr || 1.0;
+      const vd = (a >= 0 && k >= 0 && ok(V[a]) && ok(V[k])) ? (V[a] - V[k]) : 0;
+      const ifwdCalc = (vd - vf) / rf;
+      const nextLed = this.ledOn ? (ifwdCalc > 5e-7) : (vd > vf);
+      this.ifwd = nextLed ? Math.max(0, ifwdCalc) : 0;
+
+      let nextOut = 'off', icNew = 0;
+      const vce = (c >= 0 && e >= 0 && ok(V[c]) && ok(V[e])) ? (V[c] - V[e]) : 0;
+      this.vce = vce;
+      if (nextLed && vce > -0.2) {
+        const icTarget = ctr * this.ifwd;
+        const icAvail = Math.max(0, (vce - vceSat) / rsat);
+        if (vce <= vceSat || icTarget >= icAvail) { nextOut = 'sat'; icNew = icAvail; }
+        else { nextOut = 'active'; icNew = icTarget; }
+      }
+      const changed = nextLed !== this.ledOn || nextOut !== this.outState;
+      this.ledOn = nextLed;
+      this.outState = nextOut;
+      this.ic = icNew;
+      return changed;
+    },
+    commit() {
+      this.warning = this.ifwd > 0.06 ? `PC817 input LED over-current (${(this.ifwd * 1000).toFixed(1)} mA > 60 mA) — add a series resistor.` : null;
+      this.notes = this.ledOn
+        ? [`Isolated link ON: If = ${(this.ifwd * 1000).toFixed(1)} mA → output ${this.outState} (Ic ≈ ${(this.ic * 1000).toFixed(1)} mA)`]
+        : null;
+    },
+  };
+}
+
+function formatDmmDisplay(mode, val, liveBlocked) {
+  if (liveBlocked) return 'LIVE V!';
+  if (mode === 'dcv') {
+    if (!Number.isFinite(val)) return '---- V';
+    return Math.abs(val) < 1 ? `${(val * 1000).toFixed(1)} mV` : `${val.toFixed(2)} V`;
+  }
+  if (mode === 'dca') {
+    if (!Number.isFinite(val)) return '---- mA';
+    return Math.abs(val) >= 1 ? `${val.toFixed(2)} A` : `${(val * 1000).toFixed(1)} mA`;
+  }
+  if (!Number.isFinite(val)) return 'OL';
+  if (val < 999.95) return `${val.toFixed(1)} Ω`;
+  if (val < 999950) return `${(val / 1e3).toFixed(2)} kΩ`;
+  return `${(val / 1e6).toFixed(2)} MΩ`;
+}
+
+/**
+ * Handheld Digital Multimeter (DMM). Pins: [RED (+), BLK (COM)].
+ * Supports differential DCV (10 MΩ), inline DCA (0.1 Ω shunt), unpowered OHM, and < 50 Ω Continuity Beep.
+ */
+export function multimeter(nets, part) {
+  return {
+    mode: part.props.mode || 'dcv',
+    value: NaN,
+    display: '---- V',
+    liveBlocked: false,
+    beep: false,
+    reset() {
+      this.mode = part.props.mode || 'dcv';
+      this.value = NaN;
+      this.display = formatDmmDisplay(this.mode, NaN, false);
+      this.liveBlocked = false;
+      this.beep = false;
+    },
+    adopt(o) {
+      if (o) {
+        this.value = o.value;
+        this.display = o.display || this.display;
+        this.liveBlocked = !!o.liveBlocked;
+        this.beep = !!o.beep;
+      }
+    },
+    stamp(S) {
+      const [p, n] = nets;
+      const mode = part.props.mode || 'dcv';
+      if (mode === 'dcv') S.G(p, n, 1e-7, false);
+      else if (mode === 'dca') S.G(p, n, 1 / 0.1, false);
+      else S.G(p, n, OPEN, false);
+    },
+    commit(V, dt, e) {
+      const [p, n] = nets;
+      const mode = part.props.mode || 'dcv';
+      this.mode = mode;
+      if (part.props.hold) {
+        this.beep = false;
+        return;
+      }
+      this.warning = null;
+      this.liveBlocked = false;
+      this.beep = false;
+      const bothOk = p >= 0 && n >= 0 && ok(V[p]) && ok(V[n]);
+      if (mode === 'dcv') {
+        this.value = bothOk ? (V[p] - V[n]) : NaN;
+      } else if (mode === 'dca') {
+        this.value = bothOk ? (V[p] - V[n]) / 0.1 : NaN;
+        if (Number.isFinite(this.value) && Math.abs(this.value) > 2.0) {
+          this.warning = `DMM over-current (${Math.abs(this.value).toFixed(2)} A > 2 A fused limit).`;
+        }
+      } else {
+        const res = e && e.measureOhms ? e.measureOhms(p, n) : { live: false, ohms: Infinity };
+        if (res.live) {
+          this.liveBlocked = true;
+          this.value = NaN;
+          this.warning = 'Disconnect circuit power before measuring resistance / continuity (LIVE V!).';
+        } else {
+          this.value = res.ohms;
+          this.beep = mode === 'cont' && Number.isFinite(res.ohms) && res.ohms < 50;
+        }
+      }
+      this.display = formatDmmDisplay(mode, this.value, this.liveBlocked);
+      this.notes = null;
+      this.infos = this.liveBlocked ? null : [`DMM (${mode.toUpperCase()}): ${this.display}`];
+    },
+  };
+}
+
 

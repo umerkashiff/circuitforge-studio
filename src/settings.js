@@ -35,8 +35,8 @@ export const DEFAULTS = {
   sound: true,
   volume: 0.6,
   defaultSpeed: 1,
-  groqKey: '',
-  aiModel: 'openai/gpt-oss-120b',
+  geminiKey: '',
+  aiModel: 'gemini-3.5-flash-lite',
   aiMode: 'auto',             // auto | build | guide
 };
 
@@ -51,6 +51,14 @@ export class Settings {
     if (localStorage.getItem('cf.autocolor') === '0' && saved.autoColor === undefined) saved.autoColor = false;
     if (saved.wireStates === false && !saved.wireStyle) saved.wireStyle = 'off';
     delete saved.wireStates;
+    // Migrate previously saved Gemini key out of legacy key slot and clear stale non-Gemini model defaults
+    if (!saved.geminiKey && typeof saved.groqKey === 'string' && /^(AIza|AQ\.)/.test(saved.groqKey.trim())) {
+      saved.geminiKey = saved.groqKey.trim();
+    }
+    delete saved.groqKey;
+    if (saved.aiModel && !/^(?:models\/)?gemini/i.test(String(saved.aiModel))) {
+      delete saved.aiModel;
+    }
     this.v = { ...DEFAULTS, ...saved };
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => this.apply());
   }

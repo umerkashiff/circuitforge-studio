@@ -18,8 +18,12 @@ const REF_PREFIX = {
   capacitor: 'C',
   inductor: 'L',
   diode: 'D',
+  zener: 'D',
   npn: 'Q',
+  pnp: 'Q',
   jfet: 'Q',
+  nmos: 'Q',
+  pmos: 'Q',
   led: 'LED',
   'wokwi-rgb-led': 'LED',
   seg7: 'DS',
@@ -45,9 +49,16 @@ const REF_PREFIX = {
   'power-supply': 'PSU',
   funcgen: 'FG',
   oscilloscope: 'OSC',
+  multimeter: 'DMM',
   'wokwi-logic-analyzer': 'LA',
   'trainer-board': 'TB',
   ne555: 'U',
+  pc817: 'U',
+  lm7805: 'U',
+  lm317: 'U',
+  lm741: 'U',
+  lm358: 'U',
+  lm393: 'U',
   uno: 'U',
   nano: 'U',
   esp32: 'U',
@@ -185,14 +196,28 @@ export function formatPartValue(part) {
   const def = getDef(t, true);
   if (t === 'resistor') return fmtEng(p.ohms ?? 220, 'Ω');
   if (t === 'pot' || t === 'wokwi-slide-potentiometer') return fmtEng(p.ohms ?? 10000, 'Ω');
-  if (t === 'capacitor') return fmtCapUf(p.uf ?? 10);
+  if (t === 'capacitor') return fmtCapUf(p.uf ?? 10) + (p.kind === 'ceramic' ? ' NP' : '');
   if (t === 'inductor') {
     const mh = +(p.mh ?? 10);
     return mh < 1 ? `${Math.round(mh * 1000)} µH` : `${mh} mH`;
   }
   if (t === 'diode') return p.model || '1N4148';
+  if (t === 'zener') return `${p.vz ?? 5.1} V`;
   if (t === 'npn') return p.model || '2N3904';
+  if (t === 'pnp') return p.model || '2N3906';
   if (t === 'jfet') return p.model || '2N5484';
+  if (t === 'nmos') return p.model || '2N7000';
+  if (t === 'pmos') return p.model || 'BS250';
+  if (t === 'lm7805') return `${(+p.vreg || 5).toFixed(1)} V`;
+  if (t === 'lm317') return 'LM317';
+  if (t === 'pc817') return 'PC817';
+  if (t === 'lm741') return 'LM741';
+  if (t === 'lm358') return 'LM358';
+  if (t === 'lm393') return 'LM393';
+  if (t === 'multimeter') {
+    const m = p.mode || 'dcv';
+    return m === 'dca' ? 'DC mA' : m === 'ohm' ? 'OHM' : m === 'cont' ? 'CONT' : 'DC V';
+  }
   if (t === 'led') {
     const col = String(p.color || 'red');
     return col.charAt(0).toUpperCase() + col.slice(1) + ' LED';

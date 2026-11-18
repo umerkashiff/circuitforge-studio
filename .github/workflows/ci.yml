@@ -1,0 +1,47 @@
+name: CI Tests & Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Analog engine & instruments suite
+        run: node tools/test_analog_instruments.mjs
+
+      - name: Export, schematic & SPICE suite
+        run: node tools/test_export_system.mjs
+
+      - name: Regression suite (F1-F10)
+        run: node tools/regression_runner.mjs
+
+      - name: Tier 1 MCU & I2C suite
+        run: node tools/test_tier1.mjs
+
+      - name: AI Copilot automated unit suite
+        run: node scratch/test_ai_copilot.mjs
+
+      - name: Daily AI eval offline dry-run
+        run: node tools/daily_ai_eval.mjs --dry-run

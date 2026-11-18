@@ -39,17 +39,35 @@ class UnionFind {
 
 export const key = (x, y) => x + ',' + y;
 
-/** Stamp collector handed to devices. Net index -1 means "not connected". */
+/** Stamp collector handed to devices. Net index -1 means "not connected", -2 means reference ground (0 V). */
 class Stamps {
   constructor() { this.reset(); }
   reset() {
     this.g = [];      // [a, b, g]   conductance between nets (b = -2 for ground)
+    this.pg = [];     // [a, b, g]   DC-passive conductance edges used by ohmmeter probe
     this.i = [];      // [a, b, i]   current i flowing a -> b through the device
+    this.vc = [];     // [outP, outN, ctrlP, ctrlN, gm] dependent VCCS entries (outP -> outN)
     this.anchors = [];
     this.roots = [];  // nets directly tied to a voltage source
   }
-  G(a, b, g) { if (a >= 0 && b >= 0 && a !== b) this.g.push(a, b, g); }
+  G(a, b, g, dcPassive = true) {
+    if (a >= 0 && b >= 0 && a !== b) {
+      this.g.push(a, b, g);
+      if (dcPassive) this.pg.push(a, b, g);
+    }
+  }
+  /** Record a DC-passive conductance for ohmmeter probing without altering active MNA stamps. */
+  P(a, b, g) {
+    if (a >= 0 && b >= 0 && a !== b) this.pg.push(a, b, g);
+  }
   I(a, b, i) { if (a >= 0 || b >= 0) this.i.push(a, b, i); }
+  /** Voltage-controlled current source: pushes I = gm * (V[ctrlP] - V[ctrlN]) from outP -> outN. */
+  vccs(outP, outN, ctrlP, ctrlN, gm) {
+    if ((outP < 0 && outP !== -2) || (outN < 0 && outN !== -2)) return;
+    if ((ctrlP < 0 && ctrlP !== -2) || (ctrlN < 0 && ctrlN !== -2)) return;
+    if (outP === outN || ctrlP === ctrlN || !gm) return;
+    this.vc.push(outP, outN, ctrlP, ctrlN, gm);
+  }
   /** Norton source from ground: drives net a towards V through resistance R. */
   src(a, V, R) {
     if (a < 0) return;
@@ -61,7 +79,7 @@ class Stamps {
   /** Two-terminal source (battery, diode drop): Va - Vb -> V through R. */
   vdrop(a, b, V, R) {
     const g = 1 / R;
-    this.G(a, b, g);
+    this.G(a, b, g, false);
     this.I(a, b, -V * g);
   }
   anchor(a) { if (a >= 0) this.anchors.push(a); }
@@ -154,6 +172,7 @@ export class Engine {
     this.timeDependent = false;
     this.hasMcu = false;
     this.hasCap = false;
+    this.hasInd = false;
     this.resistorNets = new Set();   // nets touching a resistor — lets LEDs tell "no resistor" from "resistor too small"
 
     // Track nets with wire endpoints or shared across >1 part so optional clocks (e.g. trainer CLK) don't idle-spin the solver.
@@ -183,6 +202,7 @@ export class Engine {
         device.type = p.type;
         device.part = p;
         if (p.type === 'capacitor') this.hasCap = true;
+        if (p.type === 'inductor') this.hasInd = true;
         if (device.rt !== undefined) this.hasMcu = true;
         if (device.timeDependent) this.timeDependent = true;
         this.devices.push(device);
@@ -267,6 +287,15 @@ export class Engine {
         const ra = find(a), rb = find(b);
         if (ra !== rb) parent[rb] = ra;
       }
+    }
+    const vc = S.vc;
+    for (let k = 0; k < vc.length; k += 5) {
+      const a = vc[k], b = vc[k + 1], cp = vc[k + 2], cn = vc[k + 3];
+      let first = -1;
+      if (a >= 0) { touched[a] = 1; first = find(a); }
+      if (b >= 0) { touched[b] = 1; if (first < 0) first = find(b); else { const r = find(b); if (r !== first) parent[r] = first; } }
+      if (cp >= 0) { touched[cp] = 1; if (first < 0) first = find(cp); else { const r = find(cp); if (r !== first) parent[r] = first; } }
+      if (cn >= 0) { touched[cn] = 1; if (first < 0) first = find(cn); else { const r = find(cn); if (r !== first) parent[r] = first; } }
     }
     for (const r of S.roots) isRoot[find(r)] = 1;
 
@@ -355,6 +384,35 @@ export class Engine {
         else if (rb >= 0) rootToMat.get(rb).z[local[b]] += i;
       }
     }
+    for (let k = 0; k < vc.length; k += 5) {
+      const a = vc[k], b = vc[k + 1], cp = vc[k + 2], cn = vc[k + 3], gm = vc[k + 4];
+      const ref = a >= 0 ? a : b >= 0 ? b : cp >= 0 ? cp : cn;
+      if (ref < 0) continue;
+      const r = islandOf[ref];
+      if (r === -2) {
+        if (a >= 0) {
+          if (cp === a) diag1[a] += gm;
+          if (cn === a) diag1[a] -= gm;
+        }
+        if (b >= 0) {
+          if (cp === b) diag1[b] -= gm;
+          if (cn === b) diag1[b] += gm;
+        }
+        continue;
+      }
+      const M = rootToMat.get(r);
+      const m = M.m, A = M.A;
+      const ia = a >= 0 ? local[a] : -1, ib = b >= 0 ? local[b] : -1;
+      const icp = cp >= 0 ? local[cp] : -1, icn = cn >= 0 ? local[cn] : -1;
+      if (ia >= 0) {
+        if (icp >= 0) A[ia * m + icp] += gm;
+        if (icn >= 0) A[ia * m + icn] -= gm;
+      }
+      if (ib >= 0) {
+        if (icp >= 0) A[ib * m + icp] -= gm;
+        if (icn >= 0) A[ib * m + icn] += gm;
+      }
+    }
 
     const defined = this.defined;
     defined.fill(0);
@@ -415,12 +473,70 @@ export class Engine {
     this.time += dt;
   }
 
-  /** Time step that resolves the fastest RC constant and clock in the circuit. */
+  /** Time step that resolves the fastest RC/RL constant and clock in the circuit. */
   suggestDt() {
-    let dt = (this.hasMcu || this.hasCap) ? 5e-4 : 5e-3;
+    let dt = (this.hasMcu || this.hasCap || this.hasInd) ? 5e-4 : 5e-3;
     if (Number.isFinite(this.minTau)) dt = Math.min(dt, this.minTau / 20);
     if (this.maxHz > 0) dt = Math.min(dt, 1 / (40 * this.maxHz));
     return Math.max(2e-6, dt);
+  }
+
+  /**
+   * Measure equivalent DC passive resistance between netA and netB using recorded S.pg edges.
+   * Refuses if either probed net carries > 0.35 V relative to ground or each other.
+   */
+  measureOhms(netA, netB) {
+    if (netA < 0 || netB < 0) return { live: false, ohms: Infinity };
+    const va = this.V[netA], vb = this.V[netB];
+    const liveA = Number.isFinite(va) && Math.abs(va) > 0.35;
+    const liveB = Number.isFinite(vb) && Math.abs(vb) > 0.35;
+    const diff = (Number.isFinite(va) && Number.isFinite(vb)) ? Math.abs(va - vb) : 0;
+    if (liveA || liveB || diff > 0.35) return { live: true, ohms: NaN };
+    if (netA === netB) return { live: false, ohms: 0 };
+
+    const pg = this.S.pg;
+    const adj = new Map();
+    const edges = [];
+    for (let k = 0; k < pg.length; k += 3) {
+      const a = pg[k], b = pg[k + 1], g = pg[k + 2];
+      if (a < 0 || b < 0 || a === b || !(g > 1e-8)) continue;
+      edges.push(a, b, g);
+      let la = adj.get(a); if (!la) { la = []; adj.set(a, la); } la.push(b);
+      let lb = adj.get(b); if (!lb) { lb = []; adj.set(b, lb); } lb.push(a);
+    }
+    const idxMap = new Map([[netA, 0]]);
+    const queue = [netA];
+    for (let h = 0; h < queue.length; h++) {
+      const nbrs = adj.get(queue[h]);
+      if (!nbrs) continue;
+      for (const v of nbrs) {
+        if (!idxMap.has(v)) { idxMap.set(v, queue.length); queue.push(v); }
+      }
+    }
+    if (!idxMap.has(netB)) return { live: false, ohms: Infinity };
+
+    const m = queue.length;
+    const A = new Float64Array(m * m);
+    const z = new Float64Array(m);
+    const x = new Float64Array(m);
+    for (let i = 0; i < m; i++) A[i * m + i] = 1e-14;
+    for (let k = 0; k < edges.length; k += 3) {
+      const ia = idxMap.get(edges[k]), ib = idxMap.get(edges[k + 1]);
+      if (ia === undefined || ib === undefined) continue;
+      const g = edges[k + 2];
+      A[ia * m + ia] += g;
+      A[ib * m + ib] += g;
+      A[ia * m + ib] -= g;
+      A[ib * m + ia] -= g;
+    }
+    // Pin V[netB] = 0 and inject +1 A at netA so V[netA] equals R_eq directly.
+    const ib = idxMap.get(netB);
+    for (let j = 0; j < m; j++) A[ib * m + j] = 0;
+    A[ib * m + ib] = 1;
+    z[0] = 1;
+    gaussSolve(A, z, m, x);
+    const r = x[0];
+    return { live: false, ohms: (Number.isFinite(r) && r >= 0) ? r : Infinity };
   }
 
   collectWarnings() {

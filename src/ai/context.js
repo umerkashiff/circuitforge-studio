@@ -1,6 +1,6 @@
 /**
  * CircuitForge AI Context Serializer & Token-Efficient Part Catalog Builder.
- * Fits comfortably inside Groq Free Tier TPM limits (~1.2k-2k input tokens) while
+ * Keeps prompts compact within strict token budgets while
  * providing exact pinouts & prop schemas for all relevant components on-demand.
  */
 import { allDefs, getDef } from '../parts/registry.js';
@@ -58,7 +58,11 @@ const KEYWORD_MATCHERS = [
   [/\b(stm32|blue\s*pill)\b/i, ['bluepill']],
   [/\b(sketch|serial\.begin|digitalwrite|analogread)\b/i, ['uno']],
   [/\b(oled|lcd|display|screen|matrix|grid|name|text|scroll|message|pixel|draw|letter|word|bar\s*graph|led\s*bar|segment\s*bar|buzzers?|p[ie]+zo|beeper|sounder|horn|siren|relay|rgb)\b/i, ['uno', 'board-ssd1306', 'lcd16x2', 'wokwi-lcd1602', 'bargraph', 'buzzer', 'wokwi-relay-module', 'wokwi-rgb-led']],
-  [/\b(transistor|npn|bjt|darling\w*|2n3904|2n2222|bc547|jfet|diode|1n4148|1n400[17]|rectifier|pot|trimpot|pot[a-z]*met[a-z]*|vr|slide|dip|tact\w*|push\s*button\w*|momenta\w*|trainer|logic\s*an)\b/i, ['npn', 'jfet', 'diode', 'pot', 'slide', 'dip4', 'dip8', 'tactile', 'trainer-board', 'wokwi-logic-analyzer']],
+  [/\b(transistor|npn|pnp|bjt|darling\w*|2n390[46]|2n2222|bc5[45]7|jfet|mosfet|nmos|pmos|2n7000|irf540|bs250|zener|schottky|1n5819|diode|1n4148|1n400[17]|rectifier|pot|trimpot|pot[a-z]*met[a-z]*|vr|slide|dip|tact\w*|push\s*button\w*|momenta\w*|trainer|logic\s*an)\b/i, ['npn', 'pnp', 'jfet', 'nmos', 'pmos', 'diode', 'zener', 'pot', 'slide', 'dip4', 'dip8', 'tactile', 'trainer-board', 'wokwi-logic-analyzer']],
+  [/\b(op[-\s]?amp|opamp|lm-?741|lm-?358|lm-?393|comparator|follower|invert\w*\s+amp|non[-\s]?invert|schmitt\s+trig|active\s+filter|integrat)\b/i, ['lm741', 'lm358', 'lm393']],
+  [/\b(regulat\w*|7805|lm-?7805|lm-?317|opto(?:coupler|isolator)?|pc-?817|galvanic|isolat)\b/i, ['lm7805', 'lm317', 'pc817']],
+  [/\b(dmm|multimeter|continuity|ohmmeter|ammeter|voltmeter)\b/i, ['multimeter']],
+  [/\b(ceramic|non[-\s]?polar\w*|ac\s+coupl\w*|flyback|rl|lc\s+filt\w*)\b/i, ['capacitor', 'inductor', 'diode']],
   [/\b(mpu[-\s]?6050|bmp[-\s]?180|ds1307|joystick|thumbstick|gamep[a]?d|rtc|baro)\b/i, ['wokwi-mpu6050', 'wokwi-bmp180', 'wokwi-ds1307', 'wokwi-analog-joystick']],
 ];
 
@@ -94,7 +98,18 @@ const PART_HINTS = {
   dip4: ' // active 5V/0V drivers S1..S4 (do NOT wire +5V/GND to S1..S4)',
   dip8: ' // active 5V/0V drivers S1..S8 (do NOT wire +5V/GND to S1..S8)',
   ne555: ' // Astable: R1(+->DIS), R2(DIS->THR), THR-TRIG, C(THR->-), RESET->+. Monostable: R(+->DIS), DIS-THR, C(THR->-), input->TRIG',
-  inductor: ' // 2-pin DC wire passive: connect in SERIES with resistor+LED, never directly across +5V/GND or gate OUT->GND',
+  inductor: ' // Reactive coil (V=L*dI/dt, Rs=0.5Ω): creates RL/LC transients & flyback spikes; pair with flyback diode when switching',
+  zener: ' // Clamps reverse V(K-A) at Vz via series current-limiting resistor',
+  pnp: ' // High-side switch: E->"+", C->load->"-", pull B low via R (< Ve-0.7V) to conduct',
+  nmos: ' // Unified pins G,D,S: S->"-", D->load->"+", G > Vth turns on with low Rds(on)',
+  pmos: ' // Unified pins G,D,S: S->"+", D->load->"-", pull G below S by >|Vth| to turn on',
+  lm7805: ' // Pins IN,GND,OUT: feed IN >= Vreg+2V for steady regulated OUT',
+  lm317: ' // Pins ADJ,OUT,IN: R1(OUT->ADJ, ~240Ω) + R2(ADJ->GND) sets Vout=1.25*(1+R2/R1)',
+  pc817: ' // Isolated DIP-4 A,K,E,C: drive LED (A->K via R) to switch separate ground phototransistor (C->E)',
+  lm741: ' // DIP-8 op-amp: power V+(7) & V-(4) (>=4.5V span); supports negative feedback followers & amplifiers',
+  lm358: ' // Dual single-supply DIP-8 op-amp: power V+(8) & V-(4); outputs swing down to V-(0.05V)',
+  lm393: ' // Dual open-collector comparator: add pull-up R from OUT to VCC',
+  multimeter: ' // Wire + & - across differential nodes (dcv), inline in branch (dca), or across unpowered R (ohm/cont)',
   ic4013: ' // CMOS power: VDD->"+", VSS->"-"',
   ic4017: ' // CMOS power: VDD->"+", VSS->"-"',
   ic7483: ' // Tie C0->"-" for A+B',
@@ -166,10 +181,10 @@ export function buildPartsCatalogPrompt(queryText = '', app = null) {
 
   return [
     `TYPES: ${indexList}`,
-    'SCHEMAS (use EXACT type & pin names):',
+    'SCHEMAS (exact type & pin names):',
     ...detailLines,
     ...recipes,
-    'BOARDS: mini(17c), half(30c,+/-), full(63c,+/-). RAILS: "+"(+5V), "-"(GND).',
+    'BOARDS: mini(17c),half(30c,+/-),full(63c,+/-). RAILS:"+"(+5V),"-"(GND).',
     mcuNote,
   ].filter(Boolean).join('\n');
 }
@@ -189,7 +204,7 @@ function pointLabel(app, x, y, stripPins = null) {
   return `${x},${y}`;
 }
 
-/** Serialize live circuit topology cleanly within a strict character/token budget for Groq 8k TPM. */
+/** Serialize live circuit topology cleanly within a strict character/token budget. */
 export function serializeCircuitState(app, { maxChars = 4800 } = {}) {
   const c = app.circuit;
   const eng = app.engine;
@@ -293,6 +308,8 @@ export function serializeCircuitState(app, { maxChars = 4800 } = {}) {
       };
     } else if (p.type === 'funcgen' && dev) {
       out.readings = { on: Boolean(p.props.power), wave: p.props.wave, hz: +(dev.instHz || p.props.hz || 10).toFixed(2), vpp: +p.props.vpp };
+    } else if (p.type === 'multimeter' && dev) {
+      out.readings = { mode: dev.mode, display: dev.display, liveBlocked: Boolean(dev.liveBlocked), beep: Boolean(dev.beep) };
     } else if (def.mcu && dev?.rt) {
       out.mcu = { err: dev.rt.error || null, serial: dev.rt.serial.slice(-8).map(l => l.text).join('') };
       if (dev.rt.notes?.length) out.mcu.notes = dev.rt.notes.slice(0, 4);
@@ -377,7 +394,7 @@ export function serializeCircuitState(app, { maxChars = 4800 } = {}) {
   return summary;
 }
 
-/** Build the complete system instruction for Groq depending on mode & prompt context. */
+/** Build the complete system instruction for Gemini depending on mode & prompt context. */
 export function buildSystemPrompt({ mode = 'auto', query = '', app = null } = {}) {
   const modeRule = mode === 'build'
     ? 'MODE=BUILD: Return intent="build" with parts/connections (or removeWires/updates/remove) for hardware requests; for unrelated chat return intent="analyze" with NO parts/connections.'
@@ -389,10 +406,10 @@ export function buildSystemPrompt({ mode = 'auto', query = '', app = null } = {}
     'You are CircuitForge AI, an expert circuit assistant in CircuitForge Studio.',
     modeRule,
     'RULES:',
-    '1. Output MINIFIED SINGLE-LINE STRICT JSON ONLY. Never invent (x,y) coords; use unique `["A.pin","B.pin"]`, `"+"`/`"-"`, or chains `["-","U1.3A","U1.3B",...]`. Omit empty props/updates/remove/steps and keep "reply" <=2 sentences in build mode. LARGE BUILDS (>20 wires or multi-phase): include ALL requested parts/chips/LEDs in Stage 1 (NEVER reduce requested counts!), wire <=18 connections with "more":true, and auto-continuation finishes remaining wires until "more":false.',
-    '2. POWER: Rails "+"/"-" require BOTH `"vcc"` wired `["V1.1","+"]` AND `"gnd"` wired `["G1.1","-"]` (or power-supply/MCU). Note: IC VCC/VDD->"+" and GND/VSS->"-" auto-wire when rails are powered (you can omit IC power pins to save tokens!). Tie unused IC gate inputs to "-" or "+"; tie ne555 RESET->"+", 7483/74283 C0->"-", 7493/7490 resets R0(1)&R0(2)->"-" and QA->CKB; NEVER short two outputs or a switch/clock OUT to +5V/GND.',
-    '3. DISPLAYS & PATTERNS: Use 220-470Ω series resistors on LEDs (7447 is active-LOW -> seg7 common:"anode"). For >25 LEDs or text/names (e.g. "Umer" 9x9) use `uno` + `board-ssd1306` OLED (or lcd16x2). For <=25 discrete LED patterns (e.g. 3x3/5x5 smiley), use `led` with 0-indexed `row`,`col`, wire lit LEDs via 220Ω to `"+"`/`"-"`, and tie unlit LEDs both pins to `"-"`. For NAND-only logic use ONLY ic7400/7410/7420.',
-    '4. WORKSPACE: Inspect CIRCUIT_STATE! For existing-circuit edits/fixes/sketch-updates/removals ALWAYS set `"clearExisting":false` using exact existing `id`s and `updates` (NEVER overwrite with `clearExisting:true` + just an MCU!). Deleting an LED also removes its resistor & orphan wires. For incomplete circuits in "analyze", briefly assess what works, bugs/unwired pins, and next steps.',
+    '1. Output MINIFIED SINGLE-LINE STRICT JSON ONLY. Never invent (x,y) coords; use `["A.pin","B.pin"]`, `"+"`/`"-"`, or chains `["-","U1.3A","U1.3B",...]`. Omit empty fields; keep build "reply" <=2 sentences. LARGE BUILDS (>20 wires): list ALL requested parts in Stage 1 (NEVER cut requested counts!), wire <=18 links with "more":true until "more":false.',
+    '2. POWER: Rails "+"/"-" require BOTH `"vcc"` `["V1.1","+"]` & `"gnd"` `["G1.1","-"]` (or power-supply/MCU). IC power auto-wires when rails are powered. Tie unused gate inputs to "-"/"+"; ne555 RESET->"+", 7483/74283 C0->"-", 7493/7490 resets->"-", QA->CKB; NEVER short two outputs or switch/clock OUT to rails.',
+    '3. DISPLAYS: Use 220-470Ω R on LEDs (7447 active-LOW -> seg7 common:"anode"). Text/>25 LEDs: `uno`+`board-ssd1306` OLED/lcd16x2. <=25 LED pattern: `led` with 0-indexed `row`,`col`, wire lit LEDs via R, tie dark LEDs to "-". NAND-only: ic7400/7410/7420 only.',
+    '4. WORKSPACE: Inspect CIRCUIT_STATE! Existing edits MUST set `"clearExisting":false` using exact `id`s & `updates` (NEVER `clearExisting:true` + solo MCU). Keep incomplete "analyze" concise.',
     'SCHEMA: {"intent":"analyze"|"build"|"guide","plan":"brief plan","reply":"markdown","more":false,"clearExisting":true,"board":"half","parts":[{"ref":"U1","type":"ic7400","props":{}}],"connections":[["V1.1","+"],["G1.1","-"]],"removeWires":[],"updates":[],"remove":[],"probes":[{"at":"U1.OUT","name":"OUT"}],"steps":[{"kind":"part","ref":"U1","desc":"..."}]}',
     buildPartsCatalogPrompt(query, app),
   ].join('\n');

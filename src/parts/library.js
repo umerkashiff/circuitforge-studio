@@ -663,15 +663,88 @@ register({
   },
   device: (part, nets) => dev.resistor(nets, part),
 });
+function drawTo92(g, env, model, sub, accent, pinNames) {
+  lead(g, 0, -0.65, 0, 0); lead(g, 1, -0.65, 1, 0); lead(g, 2, -0.65, 2, 0);
+  shadow(g, 6, 2, 0.28);
+  const cx = 1 * U, cy = -1.65 * U, rx = 1.25 * U;
+  g.beginPath();
+  g.arc(cx, cy, rx, Math.PI, 0, false);
+  g.lineTo(cx + rx, cy + 0.3 * U);
+  g.lineTo(cx - rx, cy + 0.3 * U);
+  g.closePath();
+  g.fillStyle = lin(g, cx - rx, 0, cx + rx, 0, [[0, '#33373e'], [0.4, '#1e2025'], [1, '#111215']]);
+  g.fill();
+  noShadow(g);
+  g.fillStyle = '#25282e';
+  g.fillRect(cx - rx + 2, cy + 0.05 * U, (rx - 1) * 2, 0.32 * U);
+  if (accent) { g.fillStyle = accent; g.fillRect(cx - rx + 2, cy + 0.33 * U, (rx - 1) * 2, 2); }
+  text(g, env, model, cx, cy - 0.2 * U, { size: 6.5, color: '#e2e8f0', weight: 700, font: MONO });
+  text(g, env, sub, cx, cy + 0.21 * U, { size: 5, color: accent || '#94a3b8', weight: 700, font: MONO });
+  pinNames.forEach((n, i) => text(g, env, n, i * U, -0.32 * U, { size: 5.5, color: '#8e96a3', weight: 700, font: MONO }));
+}
+
+function drawTo220(g, env, model, sub, pinNames, tabColor = '#b7bfc9') {
+  lead(g, 0, -0.8, 0, 0); lead(g, 1, -0.8, 1, 0); lead(g, 2, -0.8, 2, 0);
+  // Metal heatsink tab
+  shadow(g, 6, 2, 0.25);
+  rr(g, -0.35 * U, -3.7 * U, 2.7 * U, 1.1 * U, 3);
+  g.fillStyle = lin(g, 0, -3.7 * U, 0, -2.6 * U, [[0, '#d8dee6'], [1, tabColor]]); g.fill();
+  noShadow(g);
+  g.fillStyle = '#1e2228';
+  g.beginPath(); g.arc(1 * U, -3.22 * U, 0.24 * U, 0, TAU); g.fill();
+  // Molded epoxy body
+  shadow(g, 5, 2, 0.28);
+  rr(g, -0.42 * U, -2.65 * U, 2.84 * U, 1.85 * U, 2);
+  g.fillStyle = lin(g, 0, -2.65 * U, 0, -0.8 * U, [[0, '#2e3239'], [1, '#181a1e']]); g.fill();
+  noShadow(g);
+  text(g, env, model, 1 * U, -1.95 * U, { size: 7.5, color: '#f1f5f9', weight: 800, font: MONO });
+  text(g, env, sub, 1 * U, -1.3 * U, { size: 5.5, color: '#94a3b8', weight: 700, font: MONO });
+  pinNames.forEach((n, i) => text(g, env, n, i * U, -0.38 * U, { size: 5.5, color: '#8e96a3', weight: 700, font: MONO }));
+}
+
 register({
-  type: 'capacitor', name: 'Capacitor', cat: 'Passives', desc: 'Electrolytic capacitor. Longer leg (+) on the left; the stripe marks −.',
-  defaults: { uf: 10, vmax: 16 },
-  fields: [{ key: 'uf', label: 'Capacitance', kind: 'select', options: [0.1, 1, 10, 47, 100, 470, 1000].map(v => [v, fmtFarads(v)]), custom: { unit: 'µF', min: 0.001, max: 10000 } },
-    { key: 'vmax', label: 'Voltage rating', kind: 'select', options: [[6.3, '6.3 V'], [10, '10 V'], [16, '16 V'], [25, '25 V'], [50, '50 V']] }],
-  pins: () => [{ x: 0, y: 0, name: '+' }, { x: 1, y: 0, name: '−' }],
+  type: 'capacitor', name: 'Capacitor', cat: 'Passives', desc: 'Electrolytic (polarized) or Ceramic/Film (non-polarized for AC).',
+  defaults: { kind: 'electrolytic', uf: 10, vmax: 16 },
+  fields: [
+    { key: 'kind', label: 'Type', kind: 'select', options: [['electrolytic', 'Electrolytic (polarized)'], ['ceramic', 'Ceramic / Film (non-polarized)']] },
+    { key: 'uf', label: 'Capacitance', kind: 'select', options: [0.01, 0.022, 0.047, 0.1, 1, 10, 47, 100, 470, 1000].map(v => [v, fmtFarads(v)]), custom: { unit: 'µF', min: 0.0001, max: 10000 } },
+    { key: 'vmax', label: 'Voltage rating', kind: 'select', options: [[6.3, '6.3 V'], [10, '10 V'], [16, '16 V'], [25, '25 V'], [50, '50 V'], [100, '100 V']] },
+  ],
+  variants: [
+    { name: 'Electrolytic Capacitor (10 µF)', props: { kind: 'electrolytic', uf: 10, vmax: 16 } },
+    { name: 'Ceramic Capacitor (100 nF)', props: { kind: 'ceramic', uf: 0.1, vmax: 50 } },
+    { name: 'Ceramic Capacitor (22 nF)', props: { kind: 'ceramic', uf: 0.022, vmax: 50 } },
+  ],
+  pins: (p) => p && p.kind === 'ceramic' ? [{ x: 0, y: 0, name: '1' }, { x: 1, y: 0, name: '2' }] : [{ x: 0, y: 0, name: '+' }, { x: 1, y: 0, name: '−' }],
   bounds: () => [-0.4, -3.1, 1.4, 0.3],
   draw(g, part, env) {
     lead(g, 0, -0.7, 0, 0); lead(g, 1, -0.7, 1, 0);
+    const ceramic = part.props.kind === 'ceramic';
+    if (ceramic) {
+      shadow(g, 5, 2, 0.25);
+      g.beginPath();
+      g.ellipse(0.5 * U, -1.75 * U, 0.86 * U, 1.02 * U, 0, 0, TAU);
+      g.fillStyle = lin(g, -0.3 * U, -2.7 * U, 1.3 * U, -0.8 * U, [[0, '#f3b749'], [0.55, '#d98a1c'], [1, '#a85f0a']]);
+      g.fill();
+      noShadow(g);
+      g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 1; g.stroke();
+      const cd = env.dev;
+      if (cd && !part.props.damaged) {
+        const lvl = Math.min(1, Math.abs(cd.vc) / 5);
+        g.fillStyle = `rgba(100,210,255,${(0.18 * lvl).toFixed(2)})`;
+        g.beginPath(); g.ellipse(0.5 * U, -1.75 * U, 0.78 * U, 0.92 * U, 0, 0, TAU); g.fill();
+      }
+      text(g, env, fmtFarads(part.props.uf), 0.5 * U, -1.9 * U, { size: 6.2, color: '#2b1602', weight: 800, font: MONO });
+      text(g, env, 'NP ' + (part.props.vmax || 50) + 'V', 0.5 * U, -1.35 * U, { size: 5.0, color: '#4a2906', weight: 700, font: MONO });
+      if (cd && !part.props.damaged && Math.abs(cd.vc) > 0.01) {
+        text(g, env, `${cd.vc.toFixed(2)} V`, 0.5 * U, -3.15 * U, { size: 7.5, color: '#0a84ff', weight: 700, font: MONO });
+      }
+      if (part.props.damaged) {
+        g.fillStyle = 'rgba(20,16,12,0.75)';
+        g.beginPath(); g.ellipse(0.5 * U, -1.75 * U, 0.5 * U, 0.5 * U, 0, 0, TAU); g.fill();
+      }
+      return;
+    }
     shadow(g, 6, 2, 0.28);
     rr(g, -0.35 * U, -3 * U, 1.7 * U, 2.35 * U, 5);
     g.fillStyle = lin(g, -0.35 * U, 0, 1.35 * U, 0, [[0, '#1b3a6b'], [0.45, '#2f5ea8'], [1, '#162f57']]); g.fill();
@@ -718,31 +791,73 @@ register({
   device: (part, nets) => dev.capacitor(nets, part),
 });
 register({
-  type: 'diode', name: 'Diode', cat: 'Passives', desc: 'Current flows from anode (left) to the striped cathode (right).',
+  type: 'diode', name: 'Diode', cat: 'Passives', desc: 'Current flows from anode (left) to the striped cathode (right). Includes fast Schottky models.',
   defaults: { model: '1N4148' },
-  fields: [{ key: 'model', label: 'Model', kind: 'select', options: [['1N4148', '1N4148 signal'], ['1N4001', '1N4001 rectifier (50 V)'], ['1N4007', '1N4007 rectifier (1000 V)']] }],
+  fields: [{ key: 'model', label: 'Model', kind: 'select', options: [
+    ['1N4148', '1N4148 signal (Vf ≈ 0.62 V)'],
+    ['1N4001', '1N4001 rectifier (50 V)'],
+    ['1N4007', '1N4007 rectifier (1000 V)'],
+    ['1N5819', '1N5819 Schottky (1 A, Vf ≈ 0.25 V)'],
+    ['BAT85', 'BAT85 Schottky (0.2 A, Vf ≈ 0.30 V)'],
+  ] }],
   variants: [
     { name: '1N4148 Diode', props: { model: '1N4148' } },
     { name: '1N4001 Diode', props: { model: '1N4001' } },
     { name: '1N4007 Diode', props: { model: '1N4007' } },
+    { name: '1N5819 Schottky Diode', props: { model: '1N5819' } },
+    { name: 'BAT85 Schottky Diode', props: { model: 'BAT85' } },
   ],
   pins: () => [{ x: 0, y: 0, name: 'Anode' }, { x: 4, y: 0, name: 'Cathode' }],
   bounds: () => [-0.2, -0.45, 4.2, 0.45],
   draw(g, part, env) {
     lead(g, 0, 0, 4, 0);
-    const glass = part.props.model === '1N4148';
+    const m = part.props.model || '1N4148';
+    const glass = m === '1N4148';
+    const schottky = m === '1N5819' || m === 'BAT85';
     const x0 = 1.2 * U, w = 1.6 * U, h = glass ? 0.5 * U : 0.62 * U;
     shadow(g, 4, 1.5, 0.25);
-    rr(g, x0, -h / 2, w, h, glass ? h / 2 : 2);
-    g.fillStyle = glass ? 'rgba(230,120,60,0.9)' : '#26282c'; g.fill();
+    rr(g, x0, -h / 2, w, h, (glass || m === 'BAT85') ? h / 2 : 2);
+    g.fillStyle = glass ? 'rgba(230,120,60,0.9)' : schottky ? '#1e3a5f' : '#26282c'; g.fill();
     noShadow(g);
-    g.fillStyle = glass ? '#1a1a1a' : '#d1d5db';
+    g.fillStyle = glass ? '#1a1a1a' : schottky ? '#f59e0b' : '#d1d5db';
     g.fillRect(x0 + w - 7, -h / 2, 4, h);
     if (!glass) {
-      text(g, env, part.props.model || '1N4007', x0 + w / 2 - 2, 0, { size: 5.5, color: '#c3c8cf', weight: 700, font: MONO });
+      text(g, env, m, x0 + w / 2 - 2, 0, { size: 5.5, color: schottky ? '#fde68a' : '#c3c8cf', weight: 700, font: MONO });
     }
   },
-  device: (part, nets) => dev.diodes([[nets[0], nets[1], part.props.model && part.props.model.startsWith('1N400') ? 0.7 : 0.62, part.props.model && part.props.model.startsWith('1N400') ? 0.05 : 0.6]]),
+  device: (part, nets) => {
+    const m = part.props.model || '1N4148';
+    const vf = m === '1N5819' ? 0.25 : m === 'BAT85' ? 0.30 : m.startsWith('1N400') ? 0.70 : 0.62;
+    const rs = (m === '1N5819' || m.startsWith('1N400')) ? 0.05 : 0.6;
+    return dev.diodes([[nets[0], nets[1], vf, rs]]);
+  },
+});
+
+register({
+  type: 'zener', name: 'Zener Diode', cat: 'Passives', desc: 'Reverse breakdown voltage clamp / regulator diode. Anode on left, black cathode stripe on right.',
+  defaults: { vz: 5.1, pmax: 0.5 },
+  fields: [
+    { key: 'vz', label: 'Breakdown (Vz)', kind: 'select', options: [[3.3, '3.3 V (1N4728A)'], [4.7, '4.7 V (1N4732A)'], [5.1, '5.1 V (1N4733A)'], [9.1, '9.1 V (1N4739A)'], [12, '12 V (1N4742A)']] },
+  ],
+  variants: [
+    { name: 'Zener 5.1 V (1N4733A)', props: { vz: 5.1, pmax: 0.5 } },
+    { name: 'Zener 3.3 V (1N4728A)', props: { vz: 3.3, pmax: 0.5 } },
+    { name: 'Zener 12 V (1N4742A)', props: { vz: 12, pmax: 0.5 } },
+  ],
+  pins: () => [{ x: 0, y: 0, name: 'Anode' }, { x: 4, y: 0, name: 'Cathode' }],
+  bounds: () => [-0.2, -0.5, 4.2, 0.5],
+  draw(g, part, env) {
+    lead(g, 0, 0, 4, 0);
+    const x0 = 1.2 * U, w = 1.6 * U, h = 0.54 * U;
+    shadow(g, 4, 1.5, 0.25);
+    rr(g, x0, -h / 2, w, h, h / 2);
+    g.fillStyle = lin(g, 0, -h / 2, 0, h / 2, [[0, '#ef4444'], [0.55, '#b91c1c'], [1, '#7f1d1d']]); g.fill();
+    noShadow(g);
+    g.fillStyle = '#111827';
+    g.fillRect(x0 + w - 7, -h / 2, 4.5, h);
+    text(g, env, `${part.props.vz || 5.1}V`, x0 + w / 2 - 2, 0, { size: 5.8, color: '#fef2f2', weight: 800, font: MONO });
+  },
+  device: (part, nets) => dev.zener(nets, part),
 });
 
 register({
@@ -758,27 +873,25 @@ register({
   ],
   pins: () => [{ x: 0, y: 0, name: 'E (Emitter)' }, { x: 1, y: 0, name: 'B (Base)' }, { x: 2, y: 0, name: 'C (Collector)' }],
   bounds: () => [-0.4, -2.8, 2.4, 0.3],
-  draw(g, part, env) {
-    lead(g, 0, -0.65, 0, 0); lead(g, 1, -0.65, 1, 0); lead(g, 2, -0.65, 2, 0);
-    shadow(g, 6, 2, 0.28);
-    const cx = 1 * U, cy = -1.65 * U, rx = 1.25 * U;
-    g.beginPath();
-    g.arc(cx, cy, rx, Math.PI, 0, false);
-    g.lineTo(cx + rx, cy + 0.3 * U);
-    g.lineTo(cx - rx, cy + 0.3 * U);
-    g.closePath();
-    g.fillStyle = lin(g, cx - rx, 0, cx + rx, 0, [[0, '#33373e'], [0.4, '#1e2025'], [1, '#111215']]);
-    g.fill();
-    noShadow(g);
-    g.fillStyle = '#25282e';
-    g.fillRect(cx - rx + 2, cy + 0.05 * U, (rx - 1) * 2, 0.32 * U);
-    text(g, env, part.props.model || '2N3904', cx, cy - 0.2 * U, { size: 6.5, color: '#e2e8f0', weight: 700, font: MONO });
-    text(g, env, 'NPN', cx, cy + 0.24 * U, { size: 5, color: '#94a3b8', weight: 600, font: MONO });
-    text(g, env, 'E', 0, -0.32 * U, { size: 5.5, color: '#8e96a3', weight: 700, font: MONO });
-    text(g, env, 'B', 1 * U, -0.32 * U, { size: 5.5, color: '#8e96a3', weight: 700, font: MONO });
-    text(g, env, 'C', 2 * U, -0.32 * U, { size: 5.5, color: '#8e96a3', weight: 700, font: MONO });
-  },
+  draw: (g, part, env) => drawTo92(g, env, part.props.model || '2N3904', 'NPN', null, ['E', 'B', 'C']),
   device: (part, nets) => dev.bjtNpn(nets, part),
+});
+
+register({
+  type: 'pnp', name: 'PNP Transistor', cat: 'Passives', desc: 'General-purpose PNP BJT (2N3906) for high-side switching. Pin 1: Emitter, Pin 2: Base, Pin 3: Collector.',
+  defaults: { model: '2N3906', beta: 150 },
+  fields: [
+    { key: 'model', label: 'Model', kind: 'select', options: [['2N3906', '2N3906 (general-purpose PNP)'], ['2N2907', '2N2907 (high-current PNP)'], ['BC557', 'BC557 (low-noise PNP)']] },
+    { key: 'beta', label: 'Current Gain (hFE)', kind: 'select', options: [[100, '100'], [150, '150'], [200, '200'], [300, '300']] },
+  ],
+  variants: [
+    { name: '2N3906 PNP', props: { model: '2N3906', beta: 150 } },
+    { name: 'BC557 PNP', props: { model: 'BC557', beta: 200 } },
+  ],
+  pins: () => [{ x: 0, y: 0, name: 'E (Emitter)' }, { x: 1, y: 0, name: 'B (Base)' }, { x: 2, y: 0, name: 'C (Collector)' }],
+  bounds: () => [-0.4, -2.8, 2.4, 0.3],
+  draw: (g, part, env) => drawTo92(g, env, part.props.model || '2N3906', 'PNP', '#60a5fa', ['E', 'B', 'C']),
+  device: (part, nets) => dev.bjtPnp(nets, part),
 });
 
 register({
@@ -793,35 +906,74 @@ register({
   ],
   pins: () => [{ x: 0, y: 0, name: 'D (Drain)' }, { x: 1, y: 0, name: 'S (Source)' }, { x: 2, y: 0, name: 'G (Gate)' }],
   bounds: () => [-0.4, -2.8, 2.4, 0.3],
-  draw(g, part, env) {
-    lead(g, 0, -0.65, 0, 0); lead(g, 1, -0.65, 1, 0); lead(g, 2, -0.65, 2, 0);
-    shadow(g, 6, 2, 0.28);
-    const cx = 1 * U, cy = -1.65 * U, rx = 1.25 * U;
-    g.beginPath();
-    g.arc(cx, cy, rx, Math.PI, 0, false);
-    g.lineTo(cx + rx, cy + 0.3 * U);
-    g.lineTo(cx - rx, cy + 0.3 * U);
-    g.closePath();
-    g.fillStyle = lin(g, cx - rx, 0, cx + rx, 0, [[0, '#33373e'], [0.4, '#1e2025'], [1, '#111215']]);
-    g.fill();
-    noShadow(g);
-    g.fillStyle = '#25282e';
-    g.fillRect(cx - rx + 2, cy + 0.05 * U, (rx - 1) * 2, 0.32 * U);
-    text(g, env, part.props.model || '2N5484', cx, cy - 0.2 * U, { size: 6.5, color: '#e2e8f0', weight: 700, font: MONO });
-    text(g, env, 'JFET', cx, cy + 0.24 * U, { size: 5, color: '#94a3b8', weight: 600, font: MONO });
-    text(g, env, 'D', 0, -0.32 * U, { size: 5.5, color: '#8e96a3', weight: 700, font: MONO });
-    text(g, env, 'S', 1 * U, -0.32 * U, { size: 5.5, color: '#8e96a3', weight: 700, font: MONO });
-    text(g, env, 'G', 2 * U, -0.32 * U, { size: 5.5, color: '#8e96a3', weight: 700, font: MONO });
-  },
+  draw: (g, part, env) => drawTo92(g, env, part.props.model || '2N5484', 'JFET', null, ['D', 'S', 'G']),
   device: (part, nets) => dev.jfetN(nets, part),
 });
+
+const MOSFET_SPECS = {
+  '2N7000': { vth: 2.0, kp: 0.18, rdson: 1.8 },
+  IRF540: { vth: 3.2, kp: 2.0, rdson: 0.08 },
+  BS250: { vth: 2.2, kp: 0.15, rdson: 4.5 },
+  IRF9540: { vth: 3.5, kp: 1.5, rdson: 0.2 },
+};
+
 register({
-  type: 'inductor', name: 'Inductor', cat: 'Passives', desc: 'Axial inductor. Behaves as a wire in DC.',
-  defaults: { mh: 10 },
-  fields: [{ key: 'mh', label: 'Inductance', kind: 'select', options: [[0.1, '100 µH'], [1, '1 mH'], [10, '10 mH'], [100, '100 mH']] }],
+  type: 'nmos', name: 'N-Channel MOSFET', cat: 'Passives', desc: 'Enhancement N-MOSFET switch (pinout unified left-to-right: Gate, Drain, Source).',
+  defaults: { model: '2N7000', vth: 2.0, kp: 0.18, rdson: 1.8 },
+  fields: [
+    { key: 'model', label: 'Model', kind: 'select', options: [['2N7000', '2N7000 (small-signal, Vth 2.0V)'], ['IRF540', 'IRF540 (power 33A, 77mΩ)']] },
+  ],
+  variants: [
+    { name: '2N7000 N-MOSFET', props: { model: '2N7000', vth: 2.0, kp: 0.18, rdson: 1.8 } },
+    { name: 'IRF540 Power N-MOSFET', props: { model: 'IRF540', vth: 3.2, kp: 2.0, rdson: 0.08 } },
+  ],
+  pins: () => [{ x: 0, y: 0, name: 'G (Gate)' }, { x: 1, y: 0, name: 'D (Drain)' }, { x: 2, y: 0, name: 'S (Source)' }],
+  bounds: () => [-0.5, -3.9, 2.5, 0.3],
+  draw: (g, part, env) => (part.props.model === 'IRF540'
+    ? drawTo220(g, env, 'IRF540', 'N-MOS', ['G', 'D', 'S'])
+    : drawTo92(g, env, part.props.model || '2N7000', 'N-MOS', '#34d399', ['G', 'D', 'S'])),
+  device: (part, nets) => {
+    const spec = MOSFET_SPECS[part.props.model] || MOSFET_SPECS['2N7000'];
+    return dev.mosfet(nets, { ...part, props: { ...spec, ...part.props, ...spec } }, false);
+  },
+});
+
+register({
+  type: 'pmos', name: 'P-Channel MOSFET', cat: 'Passives', desc: 'Enhancement P-MOSFET high-side switch (pinout unified left-to-right: Gate, Drain, Source).',
+  defaults: { model: 'BS250', vth: 2.2, kp: 0.15, rdson: 4.5 },
+  fields: [
+    { key: 'model', label: 'Model', kind: 'select', options: [['BS250', 'BS250 (small-signal, Vth −2.2V)'], ['IRF9540', 'IRF9540 (power −23A, 0.2Ω)']] },
+  ],
+  variants: [
+    { name: 'BS250 P-MOSFET', props: { model: 'BS250', vth: 2.2, kp: 0.15, rdson: 4.5 } },
+    { name: 'IRF9540 Power P-MOSFET', props: { model: 'IRF9540', vth: 3.5, kp: 1.5, rdson: 0.2 } },
+  ],
+  pins: () => [{ x: 0, y: 0, name: 'G (Gate)' }, { x: 1, y: 0, name: 'D (Drain)' }, { x: 2, y: 0, name: 'S (Source)' }],
+  bounds: () => [-0.5, -3.9, 2.5, 0.3],
+  draw: (g, part, env) => (part.props.model === 'IRF9540'
+    ? drawTo220(g, env, 'IRF9540', 'P-MOS', ['G', 'D', 'S'])
+    : drawTo92(g, env, part.props.model || 'BS250', 'P-MOS', '#fb923c', ['G', 'D', 'S'])),
+  device: (part, nets) => {
+    const spec = MOSFET_SPECS[part.props.model] || MOSFET_SPECS.BS250;
+    return dev.mosfet(nets, { ...part, props: { ...spec, ...part.props, ...spec } }, true);
+  },
+});
+
+register({
+  type: 'inductor', name: 'Inductor', cat: 'Passives', desc: 'Reactive coil inductor (V = L·dI/dt) with winding ESR. Produces RL/LC transients and inductive kickback.',
+  defaults: { mh: 10, rs: 0.5 },
+  fields: [
+    { key: 'mh', label: 'Inductance', kind: 'select', options: [[0.1, '100 µH'], [0.47, '470 µH'], [1, '1 mH'], [10, '10 mH'], [47, '47 mH'], [100, '100 mH']], custom: { unit: 'mH', min: 0.01, max: 10000 } },
+    { key: 'rs', label: 'Winding ESR', kind: 'select', options: [[0.5, '0.5 Ω (thick coil)'], [2, '2 Ω (standard)'], [10, '10 Ω (choke)']] },
+  ],
+  variants: [
+    { name: 'Inductor 1 mH', props: { mh: 1, rs: 0.5 } },
+    { name: 'Inductor 10 mH', props: { mh: 10, rs: 0.5 } },
+    { name: 'Inductor 100 mH', props: { mh: 100, rs: 2 } },
+  ],
   pins: () => [{ x: 0, y: 0, name: '1' }, { x: 4, y: 0, name: '2' }],
-  bounds: () => [-0.2, -0.5, 4.2, 0.5],
-  draw(g) {
+  bounds: () => [-0.2, -0.75, 4.2, 0.55],
+  draw(g, part, env) {
     lead(g, 0, 0, 4, 0);
     const h = 0.72 * U;
     shadow(g, 4, 1.5, 0.25);
@@ -830,8 +982,77 @@ register({
     noShadow(g);
     g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 1;
     for (let k = 0; k < 7; k++) { const x = (1.2 + k * 0.27) * U; g.beginPath(); g.moveTo(x, -h / 2 + 1); g.lineTo(x + 3, h / 2 - 1); g.stroke(); }
+    const mh = part.props.mh || 10;
+    const lbl = mh >= 1 ? `${+mh.toFixed(2)}mH` : `${Math.round(mh * 1000)}µH`;
+    text(g, env, lbl, 2 * U, 0, { size: 5.8, color: '#f0fdf4', weight: 800, font: MONO });
+    const d = env.dev;
+    if (d && Math.abs(d.i) > 2e-4) {
+      const ma = d.i * 1000;
+      const fwd = d.i >= 0;
+      text(g, env, `${fwd ? '→' : '←'} ${Math.abs(ma) >= 1000 ? (Math.abs(d.i)).toFixed(2) + ' A' : Math.abs(ma).toFixed(1) + ' mA'}`, 2 * U, -0.62 * U, { size: 7, color: '#34d399', weight: 700, font: MONO });
+    }
   },
-  links: () => [[0, 1]],
+  device: (part, nets) => dev.inductor(nets, part),
+});
+
+register({
+  type: 'pc817', name: 'PC817 Optocoupler', short: 'PC817', cat: 'Passives', desc: 'Galvanically isolated IR LED + phototransistor in DIP-4. Switches separate ground domains safely.',
+  ic: { n: 4, pins: ['A', 'K', 'E', 'C'] },
+  pins: () => dipPins(4).map((p, i) => ({ ...p, name: ['A (Anode)', 'K (Cathode)', 'E (Emitter)', 'C (Collector)'][i] })),
+  bounds: () => [-0.6, -3.2, 1.6, 0.2],
+  draw: (g, part, env) => drawDip(g, env, 4, 'PC817', 'OPTO', ['A', 'K', 'E', 'C']),
+  device: (part, nets) => dev.optocoupler(nets, part),
+});
+
+register({
+  type: 'lm7805', name: '7805 Voltage Regulator', short: '7805', cat: 'Power', desc: 'Fixed linear positive regulator (TO-220). Connect IN (≥ Vout + 2 V), GND, and regulated OUT (3.3 V / 5 V / 9 V / 12 V).',
+  defaults: { vreg: 5.0 },
+  fields: [{ key: 'vreg', label: 'Regulated Voltage', kind: 'select', options: [[3.3, '3.3 V (7803 / LD1117)'], [5.0, '5.0 V (LM7805)'], [9.0, '9.0 V (LM7809)'], [12.0, '12.0 V (LM7812)']] }],
+  variants: [
+    { name: 'LM7805 (5 V)', props: { vreg: 5.0 } },
+    { name: 'LM7809 (9 V)', props: { vreg: 9.0 } },
+    { name: 'LM7812 (12 V)', props: { vreg: 12.0 } },
+  ],
+  pins: () => [{ x: 0, y: 0, name: 'IN' }, { x: 1, y: 0, name: 'GND' }, { x: 2, y: 0, name: 'OUT' }],
+  bounds: () => [-0.5, -3.9, 2.5, 0.3],
+  draw: (g, part, env) => drawTo220(g, env, `78${String(Math.round(part.props.vreg || 5)).padStart(2, '0')}`, `${(part.props.vreg || 5).toFixed(1)}V REG`, ['IN', 'GND', 'OUT']),
+  device: (part, nets) => dev.regulator(nets, part),
+});
+
+register({
+  type: 'lm317', name: 'LM317 Adjustable Regulator', short: 'LM317', cat: 'Power', desc: 'Adjustable 1.25–37 V positive linear regulator (TO-220). Pins left-to-right: ADJ, OUT, IN.',
+  pins: () => [{ x: 0, y: 0, name: 'ADJ' }, { x: 1, y: 0, name: 'OUT' }, { x: 2, y: 0, name: 'IN' }],
+  bounds: () => [-0.5, -3.9, 2.5, 0.3],
+  draw: (g, part, env) => drawTo220(g, env, 'LM317', 'ADJ REG', ['ADJ', 'OUT', 'IN']),
+  device: (part, nets) => dev.regulator(nets, part),
+});
+
+// ------------------------------------------------ Op-Amps & Comparators ----
+register({
+  type: 'lm741', name: 'LM741 Op-Amp', short: 'LM741', cat: 'Op-Amps & Comparators', desc: 'Classic general-purpose single operational amplifier · DIP-8.',
+  ic: { n: 8, pins: ['OFF1', 'IN-', 'IN+', 'V-', 'OFF2', 'OUT', 'V+', 'NC'], vcc: 7, gnd: 4 },
+  pins: () => dipPins(8).map((p, i) => ({ ...p, name: ['OFF1', 'IN−', 'IN+', 'V−', 'OFF2', 'OUT', 'V+', 'NC'][i] })),
+  bounds: () => [-0.6, -3.2, 3.6, 0.2],
+  draw: (g, part, env) => drawDip(g, env, 8, 'LM741', 'OP-AMP', ['OF1', 'IN-', 'IN+', 'V-', 'OF2', 'OUT', 'V+', 'NC']),
+  device: (part, nets) => dev.opamp(nets, part, 1),
+});
+
+register({
+  type: 'lm358', name: 'LM358 Dual Op-Amp', short: 'LM358', cat: 'Op-Amps & Comparators', desc: 'Dual single-supply operational amplifier (swings down to GND) · DIP-8.',
+  ic: { n: 8, pins: ['1OUT', '1IN-', '1IN+', 'V-', '2IN+', '2IN-', '2OUT', 'V+'], vcc: 8, gnd: 4 },
+  pins: () => dipPins(8).map((p, i) => ({ ...p, name: ['1OUT', '1IN−', '1IN+', 'GND/V−', '2IN+', '2IN−', '2OUT', 'VCC/V+'][i] })),
+  bounds: () => [-0.6, -3.2, 3.6, 0.2],
+  draw: (g, part, env) => drawDip(g, env, 8, 'LM358', '2×OPAMP', ['1O', '1-', '1+', 'GND', '2+', '2-', '2O', 'VCC']),
+  device: (part, nets) => dev.opamp(nets, part, 2),
+});
+
+register({
+  type: 'lm393', name: 'LM393 Dual Comparator', short: 'LM393', cat: 'Op-Amps & Comparators', desc: 'Dual open-collector voltage comparator (add pull-up resistor to VCC on output) · DIP-8.',
+  ic: { n: 8, pins: ['1OUT', '1IN-', '1IN+', 'GND', '2IN+', '2IN-', '2OUT', 'VCC'], vcc: 8, gnd: 4 },
+  pins: () => dipPins(8).map((p, i) => ({ ...p, name: ['1OUT', '1IN−', '1IN+', 'GND', '2IN+', '2IN−', '2OUT', 'VCC'][i] })),
+  bounds: () => [-0.6, -3.2, 3.6, 0.2],
+  draw: (g, part, env) => drawDip(g, env, 8, 'LM393', '2×COMP', ['1O', '1-', '1+', 'GND', '2+', '2-', '2O', 'VCC']),
+  device: (part, nets) => dev.comparator(nets),
 });
 
 register({
@@ -2811,6 +3032,116 @@ register({
     if (part.ui) part.ui._dev = d;
     return d;
   },
+});
+
+register({
+  type: 'multimeter', name: 'Digital Multimeter', short: 'DMM', cat: 'Instruments',
+  desc: 'Handheld DMM: wire RED (+) and BLK (COM) probes to measure DC V, inline DC mA, unpowered Ω resistance, or < 50 Ω continuity beep.',
+  defaults: { mode: 'dcv', hold: false },
+  fields: [
+    { key: 'mode', label: 'Dial Mode', kind: 'select', options: [['dcv', 'DC Volts (V)'], ['dca', 'DC Current (mA / A, 0.1 Ω shunt)'], ['ohm', 'Resistance (Ω — power off)'], ['cont', 'Continuity ♪ (< 50 Ω beep)']] },
+    { key: 'hold', label: 'Data Hold', kind: 'select', options: [[false, 'Live Reading'], [true, 'HOLD (Frozen)']] },
+  ],
+  pins: () => [{ x: 1, y: 0, name: '+' }, { x: 4, y: 0, name: '−' }],
+  bounds: () => [-0.7, -6.5, 5.7, 0.4],
+  draw(g, part, env) {
+    const p = part.props;
+    const d = env.dev;
+    const mode = p.mode || 'dcv';
+
+    // Short internal probe sockets down to breadboard pins
+    g.strokeStyle = '#dc2626'; g.lineWidth = 3.2; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(1 * U, -0.7 * U); g.lineTo(1 * U, 0); g.stroke();
+    g.strokeStyle = '#1e293b';
+    g.beginPath(); g.moveTo(4 * U, -0.7 * U); g.lineTo(4 * U, 0); g.stroke();
+    pinPad(g, 1, 0); pinPad(g, 4, 0);
+
+    // Outer yellow rugged holster
+    shadow(g, 8, 3, 0.32);
+    rr(g, -0.6 * U, -6.35 * U, 6.2 * U, 5.75 * U, 9);
+    g.fillStyle = lin(g, 0, -6.35 * U, 0, -0.6 * U, [[0, '#facc15'], [0.6, '#eab308'], [1, '#ca8a04']]);
+    g.fill();
+    noShadow(g);
+    // Dark charcoal front faceplate
+    rr(g, -0.35 * U, -6.08 * U, 5.7 * U, 5.2 * U, 6);
+    g.fillStyle = lin(g, 0, -6.08 * U, 0, -0.88 * U, [[0, '#334155'], [0.3, '#1e293b'], [1, '#0f172a']]);
+    g.fill();
+
+    // Header + PANEL button
+    text(g, env, 'DMM · TRUE RMS', 1.15 * U, -5.72 * U, { size: 7, color: '#facc15', weight: 800, font: MONO });
+    rr(g, 2.85 * U, -5.98 * U, 2.25 * U, 0.52 * U, 3);
+    g.fillStyle = '#1e3a5f'; g.fill();
+    g.strokeStyle = '#38bdf8'; g.lineWidth = 1; g.stroke();
+    text(g, env, 'PANEL ↗', 3.97 * U, -5.72 * U, { size: 6.5, color: '#e0f2fe', weight: 800, font: MONO });
+
+    // Backlit LCD Screen
+    rr(g, -0.15 * U, -5.25 * U, 5.3 * U, 2.15 * U, 4);
+    g.fillStyle = d && d.liveBlocked ? '#fecaca' : (d && d.beep ? '#d9f99d' : '#c6d5b2');
+    g.fill();
+    g.strokeStyle = '#0f172a'; g.lineWidth = 1.5; g.stroke();
+
+    const modeBadge = mode === 'dcv' ? 'DC V' : mode === 'dca' ? 'DC mA' : mode === 'ohm' ? 'OHM Ω' : 'CONT ♪';
+    text(g, env, modeBadge, 0.85 * U, -4.92 * U, { size: 6.5, color: '#1e293b', weight: 800, font: MONO });
+    if (p.hold) {
+      rr(g, 3.65 * U, -5.12 * U, 1.3 * U, 0.36 * U, 2);
+      g.fillStyle = '#0f172a'; g.fill();
+      text(g, env, 'HOLD', 4.3 * U, -4.93 * U, { size: 6, color: '#facc15', weight: 800, font: MONO });
+    }
+    const readout = d ? d.display : (mode === 'dcv' ? '---- V' : mode === 'dca' ? '---- mA' : 'OL');
+    text(g, env, readout, 2.5 * U, -3.95 * U, {
+      size: readout.length > 8 ? 11.5 : 14,
+      color: d && d.liveBlocked ? '#991b1b' : '#0f172a',
+      weight: 800,
+      font: MONO,
+    });
+
+    // Mode selector pills: V | mA | Ω | ♪
+    const btns = [['dcv', 'V', 0.45], ['dca', 'mA', 1.80], ['ohm', 'Ω', 3.15], ['cont', '♪', 4.50]];
+    for (const [key, lbl, bx] of btns) {
+      const on = mode === key;
+      rr(g, (bx - 0.56) * U, -2.74 * U, 1.12 * U, 0.72 * U, 3.5);
+      g.fillStyle = on ? '#facc15' : '#334155'; g.fill();
+      g.strokeStyle = on ? '#fde047' : '#475569'; g.lineWidth = 1; g.stroke();
+      text(g, env, lbl, bx * U, -2.38 * U, { size: 8.5, color: on ? '#0f172a' : '#e2e8f0', weight: 800, font: MONO });
+    }
+
+    // Bottom jacks (+ RED, - BLK) + HOLD button
+    g.fillStyle = '#dc2626'; g.beginPath(); g.arc(1 * U, -1.25 * U, 0.32 * U, 0, TAU); g.fill();
+    g.fillStyle = '#0f172a'; g.beginPath(); g.arc(1 * U, -1.25 * U, 0.14 * U, 0, TAU); g.fill();
+    text(g, env, '+', 0.35 * U, -1.25 * U, { size: 8, color: '#f87171', weight: 800, font: MONO });
+
+    rr(g, 1.75 * U, -1.56 * U, 1.5 * U, 0.6 * U, 3);
+    g.fillStyle = p.hold ? '#38bdf8' : '#334155'; g.fill();
+    text(g, env, 'HOLD', 2.5 * U, -1.26 * U, { size: 6.5, color: p.hold ? '#0f172a' : '#e2e8f0', weight: 800, font: MONO });
+
+    g.fillStyle = '#111827'; g.beginPath(); g.arc(4 * U, -1.25 * U, 0.32 * U, 0, TAU); g.fill();
+    g.strokeStyle = '#64748b'; g.lineWidth = 1; g.stroke();
+    g.fillStyle = '#020617'; g.beginPath(); g.arc(4 * U, -1.25 * U, 0.14 * U, 0, TAU); g.fill();
+    text(g, env, '−', 4.65 * U, -1.25 * U, { size: 8, color: '#cbd5e1', weight: 800, font: MONO });
+  },
+  control(part, l) {
+    if (l.x >= 2.75 && l.x <= 5.25 && l.y >= -6.2 && l.y <= -5.35) return 'inst:panel';
+    if (l.y >= -2.85 && l.y <= -1.9) {
+      if (Math.abs(l.x - 0.45) <= 0.62) return 'inst:mode:dcv';
+      if (Math.abs(l.x - 1.80) <= 0.62) return 'inst:mode:dca';
+      if (Math.abs(l.x - 3.15) <= 0.62) return 'inst:mode:ohm';
+      if (Math.abs(l.x - 4.50) <= 0.62) return 'inst:mode:cont';
+    }
+    if (Math.abs(l.x - 2.5) <= 0.85 && Math.abs(l.y + 1.25) <= 0.4) return 'inst:hold';
+    return null;
+  },
+  click(part, ctrl) {
+    if (ctrl && ctrl.startsWith('inst:mode:')) {
+      part.props.mode = ctrl.slice('inst:mode:'.length);
+      return true;
+    }
+    if (ctrl === 'inst:hold') {
+      part.props.hold = !part.props.hold;
+      return true;
+    }
+    return false;
+  },
+  device: (part, nets) => dev.multimeter(nets, part),
 });
 
 // ---------------------------------------------------------------- Notes ----

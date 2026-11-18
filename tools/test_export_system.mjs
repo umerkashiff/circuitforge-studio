@@ -778,6 +778,69 @@ test('P4.7', 'Trainer Board, seg7 & Oscilloscope internal link dedup + active-ne
   return `Trainer 164->${tbSym.pins.length} pins, 0 self-loops, ${data.nets.length} nets, Bargraph L->R & OLED T/B verified`;
 });
 
+test('P4.8', 'New analog parts, op-amps, comparators, regulators, optocoupler & DMM emit GRID=20 schematics and SPICE cards', () => {
+  const c = new Circuit();
+  c.name = 'Analog Showcase';
+  c.boards.push(new Board('half', 0, 0));
+  const cCer = new Part('capacitor', 2, 12, 0, { kind: 'ceramic', uf: 0.1, vmax: 50 });
+  const ind = new Part('inductor', 6, 12, 0, { mh: 10, rs: 0.5 });
+  const zen = new Part('zener', 12, 12, 0, { vz: 5.1 });
+  const sch = new Part('diode', 18, 12, 0, { model: '1N5819' });
+  const pnp = new Part('pnp', 2, 15, 0, { model: '2N3906' });
+  const nmos = new Part('nmos', 6, 15, 0, { model: '2N7000' });
+  const pmos = new Part('pmos', 10, 15, 0, { model: 'BS250' });
+  const u78 = new Part('lm7805', 14, 15);
+  const u317 = new Part('lm317', 18, 15);
+  const opto = new Part('pc817', 22, 12);
+  const u741 = new Part('lm741', 10, 22);
+  const u358 = new Part('lm358', 18, 22);
+  const u393 = new Part('lm393', 26, 22);
+  const dmm = new Part('multimeter', 36, 4);
+  const vcc = new Part('vcc', 2, 1);
+  const gnd = new Part('gnd', 4, 2);
+  c.parts.push(vcc, gnd, cCer, ind, zen, sch, pnp, nmos, pmos, u78, u317, opto, u741, u358, u393, dmm);
+  c.wires.push(
+    new Wire(vcc.worldPins()[0], u78.worldPins()[0]),
+    new Wire(gnd.worldPins()[0], u78.worldPins()[1]),
+    new Wire(u78.worldPins()[2], u358.worldPins()[7]),
+    new Wire(gnd.worldPins()[0], u358.worldPins()[3]),
+    new Wire(u358.worldPins()[2], vcc.worldPins()[0]),
+    new Wire(u358.worldPins()[0], u358.worldPins()[1]),
+    new Wire(u393.worldPins()[2], vcc.worldPins()[0]),
+    new Wire(u393.worldPins()[1], gnd.worldPins()[0]),
+    new Wire(u393.worldPins()[0], dmm.worldPins()[0]),
+    new Wire(gnd.worldPins()[0], dmm.worldPins()[1]),
+    new Wire(cCer.worldPins()[0], ind.worldPins()[0]),
+    new Wire(ind.worldPins()[1], gnd.worldPins()[0]),
+    new Wire(zen.worldPins()[0], gnd.worldPins()[0]),
+    new Wire(zen.worldPins()[1], u78.worldPins()[2]),
+  );
+  ensureDesignators(c);
+
+  const eng = new Engine();
+  eng.build(c);
+  eng.step(1e-4);
+
+  const data = extractCircuitData(c, eng);
+  const spice = toSpiceNetlist(data);
+  assert.ok(/Q_Q1\s/.test(spice) && /M_Q/.test(spice) && /X_U/.test(spice) && /^L\d+\s/m.test(spice), 'SPICE emits BJT, MOSFET, Subckt & Inductor cards');
+
+  for (const viewMode of ['functional', 'package']) {
+    const res = renderSchematicSVG(c, eng, null, { viewMode, standard: 'ieee', hideUnwired: false });
+    assert.ok(!/NaN|Infinity|undefined/.test(res.svg), `No NaN/undefined in ${viewMode} schematic`);
+    for (const sym of res.layout.symbols) {
+      for (const p of sym.pins) {
+        const px = sym.x + p.lx, py = sym.y + p.ly;
+        assert.equal(px % SCH_GRID, 0, `${sym.ref}.${p.name} x=${px} not on GRID=20`);
+        assert.equal(py % SCH_GRID, 0, `${sym.ref}.${p.name} y=${py} not on GRID=20`);
+      }
+    }
+  }
+  const opSym = renderSchematicSVG(c, eng, null, { viewMode: 'functional' }).layout.symbols.find(s => s.type === 'lm358');
+  assert.ok(opSym && /polygon/.test(opSym.renderSVG('ieee', { fill: '#fff', stroke: '#000', pin: '#000', ref: '#000', sub: '#666', num: '#666' }, true)), 'LM358 renders triangular op-amp symbol');
+  return 'All 13 new types aligned to GRID=20 across functional & package views + SPICE verified';
+});
+
 let failed = 0;
 for (const r of results) {
   console.log(`${r.pass ? 'PASS' : 'FAIL'} [${r.id}] ${r.name} -> ${r.info}`);

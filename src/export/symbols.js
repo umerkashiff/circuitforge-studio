@@ -376,6 +376,77 @@ export function buildSchematicSymbols(data, opts = {}) {
         }
         continue;
       }
+      if (part.type === 'lm741' || part.type === 'lm358' || part.type === 'lm393') {
+        const isComp = part.type === 'lm393';
+        const isDual = part.type !== 'lm741';
+        const vpIdx = isDual ? 7 : 6, vnIdx = 3;
+        const unitDefs = isDual
+          ? [{ inP: 2, inN: 1, out: 0 }, { inP: 4, inN: 5, out: 6 }]
+          : [{ inP: 2, inN: 1, out: 5 }];
+        const isWiredPin = (idx) => {
+          const pin = part.pins[idx];
+          return !!(pin && (pin.wired ?? (pin.netName && pin.net >= 0)));
+        };
+        let activeUnits = unitDefs.map((u, i) => ({ u, i })).filter(({ u }) => isWiredPin(u.inP) || isWiredPin(u.inN) || isWiredPin(u.out));
+        const unused = unitDefs.map((u, i) => ({ u, i })).filter(({ u }) => !isWiredPin(u.inP) && !isWiredPin(u.inN) && !isWiredPin(u.out));
+        if (!activeUnits.length) activeUnits = [{ u: unitDefs[0], i: 0 }];
+        else if (unused.length && isDual) {
+          unusedNotes.push(`Unused ${part.ref} (${part.shortName}): ${unused.map(x => part.ref + String.fromCharCode(65 + x.i)).join(', ')}`);
+        }
+        for (const { u, i } of activeUnits) {
+          const unitRef = isDual ? `${part.ref}${String.fromCharCode(65 + i)}` : part.ref;
+          const pins = [
+            { ...part.pins[u.inP], partPinIndex: u.inP, lx: 0, ly: 20, side: 'L', isPower: false },
+            { ...part.pins[u.inN], partPinIndex: u.inN, lx: 0, ly: 60, side: 'L', isPower: false },
+            { ...part.pins[u.out], partPinIndex: u.out, lx: 100, ly: 40, side: 'R', isPower: false },
+          ];
+          const attachPower = i === 0;
+          if (attachPower && (!opts.hideUnwired || isWiredPin(vpIdx))) {
+            pins.push({ ...part.pins[vpIdx], partPinIndex: vpIdx, lx: 40, ly: 0, side: 'T', isPower: true });
+          }
+          if (attachPower && (!opts.hideUnwired || isWiredPin(vnIdx))) {
+            pins.push({ ...part.pins[vnIdx], partPinIndex: vnIdx, lx: 40, ly: 80, side: 'B', isPower: true });
+          }
+          symbols.push({
+            schId: `${part.id}:u${i}`, partId: part.id, unit: i, ref: unitRef, value: part.shortName, type: part.type,
+            w: 100, h: 80, pins, showValue, bodyBox: { x0: 18, y0: 10, x1: 82, y1: 70 },
+            renderSVG(std, pal, showNums) {
+              const out = [
+                `<polygon points="20,12 80,40 20,68" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.8" stroke-linejoin="round"/>`,
+                `<line x1="0" y1="20" x2="20" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`,
+                `<line x1="0" y1="60" x2="20" y2="60" stroke="${pal.pin}" stroke-width="1.6"/>`,
+                `<line x1="80" y1="40" x2="100" y2="40" stroke="${pal.pin}" stroke-width="1.6"/>`,
+                `<text x="27" y="24" font-size="11" font-weight="800" fill="${pal.stroke}">+</text>`,
+                `<text x="27" y="63" font-size="12" font-weight="800" fill="${pal.stroke}">−</text>`,
+                `<text x="64" y="19" font-size="10.5" font-weight="700" fill="${pal.ref}">${esc(unitRef)}</text>`,
+                showValue ? `<text x="64" y="67" font-size="9" fill="${pal.sub}">${esc(part.shortName)}</text>` : '',
+              ];
+              if (isComp) {
+                // IEEE open-collector diamond + pull-down underline bar
+                out.push(`<polygon points="62,36 66,40 62,44 58,40" fill="none" stroke="${pal.stroke}" stroke-width="1.3"/>`);
+                out.push(`<line x1="58" y1="46" x2="66" y2="46" stroke="${pal.stroke}" stroke-width="1.3"/>`);
+              }
+              if (showNums) {
+                out.push(`<text x="12" y="16" font-size="8.5" fill="${pal.sub}">${part.pins[u.inP].num}</text>`);
+                out.push(`<text x="12" y="56" font-size="8.5" fill="${pal.sub}">${part.pins[u.inN].num}</text>`);
+                out.push(`<text x="86" y="36" font-size="8.5" fill="${pal.sub}">${part.pins[u.out].num}</text>`);
+              }
+              if (attachPower) {
+                if (!opts.hideUnwired || isWiredPin(vpIdx)) {
+                  out.push(`<line x1="40" y1="0" x2="40" y2="21.3" stroke="${pal.pin}" stroke-width="1.4"/>`);
+                  out.push(`<text x="45" y="12" font-size="8.5" fill="${pal.sub}">${part.pins[vpIdx].num}</text>`);
+                }
+                if (!opts.hideUnwired || isWiredPin(vnIdx)) {
+                  out.push(`<line x1="40" y1="58.7" x2="40" y2="80" stroke="${pal.pin}" stroke-width="1.4"/>`);
+                  out.push(`<text x="45" y="75" font-size="8.5" fill="${pal.sub}">${part.pins[vnIdx].num}</text>`);
+                }
+              }
+              return out.join('\n');
+            },
+          });
+        }
+        continue;
+      }
       if (meta && meta.kind === 'msi') {
         const neg = new Set(meta.negated || []);
         const clk = new Set(meta.clocks || []);
@@ -421,7 +492,7 @@ export function buildSchematicSymbols(data, opts = {}) {
     }
 
     // 4. Discrete 2-pin components (w=80, h=40, pins L(0,20), R(80,20))
-    if (['resistor', 'capacitor', 'inductor', 'diode', 'led', 'slide', 'buzzer', 'battery'].includes(part.type)) {
+    if (['resistor', 'capacitor', 'inductor', 'diode', 'zener', 'led', 'slide', 'buzzer', 'battery'].includes(part.type)) {
       const w = 80, h = 40;
       const pins = [
         { ...part.pins[0], partPinIndex: 0, lx: 0, ly: 20, side: 'L', isPower: part.type === 'battery' ? false : isPowerPinName(part.pins[0].name) },
@@ -433,7 +504,7 @@ export function buildSchematicSymbols(data, opts = {}) {
         renderSVG(std, pal) {
           const t = part.type;
           const out = [];
-          const refY = t === 'led' ? 1 : 5, valY = 39;
+          const refY = t === 'led' ? 1 : 5, valY = t === 'battery' ? 42 : 39;
           out.push(`<text x="40" y="${refY}" font-size="10.5" font-weight="700" text-anchor="middle" fill="${pal.ref}">${esc(part.ref)}</text>`);
           if (showValue && part.value) out.push(`<text x="40" y="${valY}" font-size="9.5" text-anchor="middle" fill="${pal.sub}">${esc(part.value)}</text>`);
 
@@ -446,12 +517,19 @@ export function buildSchematicSymbols(data, opts = {}) {
               out.push(`<path d="M 0 20 L 20 20 L 23 13 L 29 27 L 35 13 L 41 27 L 47 13 L 53 27 L 57 20 L 80 20" fill="none" stroke="${pal.stroke}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>`);
             }
           } else if (t === 'capacitor') {
-            out.push(`<line x1="0" y1="20" x2="36" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`);
-            out.push(`<line x1="36" y1="10" x2="36" y2="30" stroke="${pal.stroke}" stroke-width="2.2"/>`);
-            out.push(`<text x="27" y="13" font-size="10" font-weight="700" fill="${pal.stroke}">+</text>`);
-            if (std === 'iec') out.push(`<rect x="42" y="10" width="4" height="20" fill="${pal.stroke}"/>`);
-            else out.push(`<path d="M 46 10 Q 40 20 46 30" fill="none" stroke="${pal.stroke}" stroke-width="2.2"/>`);
-            out.push(`<line x1="44" y1="20" x2="80" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            if (part.props?.kind === 'ceramic') {
+              out.push(`<line x1="0" y1="20" x2="37" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`);
+              out.push(`<line x1="37" y1="10" x2="37" y2="30" stroke="${pal.stroke}" stroke-width="2.2"/>`);
+              out.push(`<line x1="43" y1="10" x2="43" y2="30" stroke="${pal.stroke}" stroke-width="2.2"/>`);
+              out.push(`<line x1="43" y1="20" x2="80" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            } else {
+              out.push(`<line x1="0" y1="20" x2="36" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`);
+              out.push(`<line x1="36" y1="10" x2="36" y2="30" stroke="${pal.stroke}" stroke-width="2.2"/>`);
+              out.push(`<text x="27" y="13" font-size="10" font-weight="700" fill="${pal.stroke}">+</text>`);
+              if (std === 'iec') out.push(`<rect x="42" y="10" width="4" height="20" fill="${pal.stroke}"/>`);
+              else out.push(`<path d="M 46 10 Q 40 20 46 30" fill="none" stroke="${pal.stroke}" stroke-width="2.2"/>`);
+              out.push(`<line x1="44" y1="20" x2="80" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            }
           } else if (t === 'inductor') {
             if (std === 'iec') {
               out.push(`<line x1="0" y1="20" x2="22" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`);
@@ -460,11 +538,18 @@ export function buildSchematicSymbols(data, opts = {}) {
             } else {
               out.push(`<path d="M 0 20 L 20 20 A 5 5 0 0 1 30 20 A 5 5 0 0 1 40 20 A 5 5 0 0 1 50 20 A 5 5 0 0 1 60 20 L 80 20" fill="none" stroke="${pal.stroke}" stroke-width="1.8"/>`);
             }
-          } else if (t === 'diode' || t === 'led') {
+          } else if (t === 'diode' || t === 'zener' || t === 'led') {
             const fill = t === 'led' ? '#ffedd5' : pal.fill;
+            const model = part.props?.model || '';
+            const isSchottky = t === 'diode' && (model === '1N5819' || model === 'BAT85');
             out.push(`<line x1="0" y1="20" x2="31" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`);
             out.push(`<polygon points="31,11 31,29 49,20" fill="${fill}" stroke="${pal.stroke}" stroke-width="1.8" stroke-linejoin="round"/>`);
             out.push(`<line x1="49" y1="11" x2="49" y2="29" stroke="${pal.stroke}" stroke-width="2.2"/>`);
+            if (t === 'zener') {
+              out.push(`<path d="M 53 8 L 49 11 L 49 29 L 45 32" fill="none" stroke="${pal.stroke}" stroke-width="1.8" stroke-linecap="round"/>`);
+            } else if (isSchottky) {
+              out.push(`<path d="M 53 15 L 53 11 L 49 11 M 45 25 L 45 29 L 49 29" fill="none" stroke="${pal.stroke}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`);
+            }
             out.push(`<line x1="49" y1="20" x2="80" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`);
             if (t === 'led') {
               out.push(`<path d="M 46 11 L 52 5 M 52 5 L 48 6 M 52 5 L 51 9 M 52 14 L 58 8 M 58 8 L 54 9 M 58 8 L 57 12" fill="none" stroke="${pal.stroke}" stroke-width="1.3" stroke-linecap="round"/>`);
@@ -528,32 +613,71 @@ export function buildSchematicSymbols(data, opts = {}) {
       continue;
     }
 
-    // 6. Transistors (`npn` & `jfet`) -> E/S Bottom(60,80), B/G Left(0,40), C/D Top(60,0)
-    if (part.type === 'npn' || part.type === 'jfet') {
+    // 6. Transistors (`npn`, `pnp`, `jfet`, `nmos`, `pmos`) -> Gate/Base L(0,40), Top(60,0), Bottom(60,80)
+    if (part.type === 'npn' || part.type === 'pnp' || part.type === 'jfet' || part.type === 'nmos' || part.type === 'pmos') {
       const w = 80, h = 80;
-      const isBjt = part.type === 'npn';
-      const baseIdx = isBjt ? 1 : 2, colIdx = isBjt ? 2 : 0, emIdx = isBjt ? 0 : 1;
+      const isBjt = part.type === 'npn' || part.type === 'pnp';
+      const isMos = part.type === 'nmos' || part.type === 'pmos';
+      let ctrlIdx, topIdx, botIdx;
+      if (isBjt) {
+        ctrlIdx = 1; // B
+        topIdx = part.type === 'pnp' ? 0 : 2; // PNP E on top, NPN C on top
+        botIdx = part.type === 'pnp' ? 2 : 0;
+      } else if (isMos) {
+        ctrlIdx = 0; // G
+        topIdx = part.type === 'pmos' ? 2 : 1; // PMOS S on top, NMOS D on top
+        botIdx = part.type === 'pmos' ? 1 : 2;
+      } else {
+        ctrlIdx = 2; topIdx = 0; botIdx = 1; // jfet
+      }
       const pins = [
-        { ...part.pins[baseIdx], partPinIndex: baseIdx, lx: 0, ly: 40, side: 'L', isPower: false },
-        { ...part.pins[colIdx], partPinIndex: colIdx, lx: 60, ly: 0, side: 'T', isPower: false },
-        { ...part.pins[emIdx], partPinIndex: emIdx, lx: 60, ly: 80, side: 'B', isPower: false },
+        { ...part.pins[ctrlIdx], partPinIndex: ctrlIdx, lx: 0, ly: 40, side: 'L', isPower: false },
+        { ...part.pins[topIdx], partPinIndex: topIdx, lx: 60, ly: 0, side: 'T', isPower: false },
+        { ...part.pins[botIdx], partPinIndex: botIdx, lx: 60, ly: 80, side: 'B', isPower: false },
       ];
       symbols.push({
         schId: part.id, partId: part.id, unit: null, ref: part.ref, value: part.value, type: part.type,
         w, h, pins, showValue, bodyBox: { x0: 18, y0: 14, x1: 68, y1: 66 },
         renderSVG(std, pal) {
-          const out = [
-            `<circle cx="44" cy="40" r="21" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.6"/>`,
-            `<line x1="0" y1="40" x2="36" y2="40" stroke="${pal.pin}" stroke-width="1.6"/>`,
-            `<line x1="36" y1="26" x2="36" y2="54" stroke="${pal.stroke}" stroke-width="2.4"/>`,
-            `<line x1="60" y1="0" x2="60" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`,
-            `<line x1="60" y1="60" x2="60" y2="80" stroke="${pal.pin}" stroke-width="1.6"/>`,
-          ];
+          const out = [`<circle cx="44" cy="40" r="21" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.6"/>`];
           if (isBjt) {
+            out.push(`<line x1="0" y1="40" x2="36" y2="40" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            out.push(`<line x1="36" y1="26" x2="36" y2="54" stroke="${pal.stroke}" stroke-width="2.4"/>`);
+            out.push(`<line x1="60" y1="0" x2="60" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            out.push(`<line x1="60" y1="60" x2="60" y2="80" stroke="${pal.pin}" stroke-width="1.6"/>`);
             out.push(`<line x1="36" y1="34" x2="60" y2="20" stroke="${pal.stroke}" stroke-width="1.8"/>`);
             out.push(`<line x1="36" y1="46" x2="60" y2="60" stroke="${pal.stroke}" stroke-width="1.8"/>`);
-            out.push(`<polygon points="57,58 49,57 53,51" fill="${pal.stroke}"/>`);
+            if (part.type === 'pnp') {
+              // Arrow points inward from top Emitter toward Base
+              out.push(`<polygon points="41,31 49,30 46,23" fill="${pal.stroke}"/>`);
+            } else {
+              // Arrow points outward toward bottom Emitter
+              out.push(`<polygon points="57,58 49,57 53,51" fill="${pal.stroke}"/>`);
+            }
+          } else if (isMos) {
+            out.push(`<line x1="0" y1="40" x2="32" y2="40" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            out.push(`<line x1="32" y1="24" x2="32" y2="56" stroke="${pal.stroke}" stroke-width="2"/>`);
+            out.push(`<line x1="38" y1="21" x2="38" y2="29" stroke="${pal.stroke}" stroke-width="2"/>`);
+            out.push(`<line x1="38" y1="36" x2="38" y2="44" stroke="${pal.stroke}" stroke-width="2"/>`);
+            out.push(`<line x1="38" y1="51" x2="38" y2="59" stroke="${pal.stroke}" stroke-width="2"/>`);
+            out.push(`<line x1="60" y1="0" x2="60" y2="25" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            out.push(`<line x1="38" y1="25" x2="60" y2="25" stroke="${pal.stroke}" stroke-width="1.6"/>`);
+            out.push(`<line x1="60" y1="80" x2="60" y2="55" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            out.push(`<line x1="38" y1="55" x2="60" y2="55" stroke="${pal.stroke}" stroke-width="1.6"/>`);
+            if (part.type === 'nmos') {
+              out.push(`<line x1="38" y1="40" x2="54" y2="40" stroke="${pal.stroke}" stroke-width="1.5"/>`);
+              out.push(`<line x1="54" y1="40" x2="54" y2="55" stroke="${pal.stroke}" stroke-width="1.5"/>`);
+              out.push(`<polygon points="39,40 46,36 46,44" fill="${pal.stroke}"/>`);
+            } else {
+              out.push(`<line x1="38" y1="40" x2="54" y2="40" stroke="${pal.stroke}" stroke-width="1.5"/>`);
+              out.push(`<line x1="54" y1="40" x2="54" y2="25" stroke="${pal.stroke}" stroke-width="1.5"/>`);
+              out.push(`<polygon points="52,40 45,36 45,44" fill="${pal.stroke}"/>`);
+            }
           } else {
+            out.push(`<line x1="0" y1="40" x2="36" y2="40" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            out.push(`<line x1="36" y1="26" x2="36" y2="54" stroke="${pal.stroke}" stroke-width="2.4"/>`);
+            out.push(`<line x1="60" y1="0" x2="60" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`);
+            out.push(`<line x1="60" y1="60" x2="60" y2="80" stroke="${pal.pin}" stroke-width="1.6"/>`);
             out.push(`<line x1="36" y1="30" x2="60" y2="30" stroke="${pal.stroke}" stroke-width="1.8"/>`);
             out.push(`<line x1="60" y1="20" x2="60" y2="30" stroke="${pal.stroke}" stroke-width="1.8"/>`);
             out.push(`<line x1="36" y1="50" x2="60" y2="50" stroke="${pal.stroke}" stroke-width="1.8"/>`);
@@ -563,6 +687,82 @@ export function buildSchematicSymbols(data, opts = {}) {
           out.push(`<text x="16" y="16" font-size="10.5" font-weight="700" text-anchor="end" fill="${pal.ref}">${esc(part.ref)}</text>`);
           if (showValue) out.push(`<text x="16" y="68" font-size="9.5" text-anchor="end" fill="${pal.sub}">${esc(part.value)}</text>`);
           return out.join('\n');
+        },
+      });
+      continue;
+    }
+
+    // 6b. Optocoupler (`pc817`) in functional mode: LED left + isolated phototransistor right
+    if (part.type === 'pc817' && viewMode === 'functional') {
+      const pins = [
+        { ...part.pins[0], partPinIndex: 0, lx: 0, ly: 20, side: 'L', isPower: false },
+        { ...part.pins[1], partPinIndex: 1, lx: 0, ly: 40, side: 'L', isPower: false },
+        { ...part.pins[3], partPinIndex: 3, lx: 100, ly: 20, side: 'R', isPower: false },
+        { ...part.pins[2], partPinIndex: 2, lx: 100, ly: 40, side: 'R', isPower: false },
+      ];
+      symbols.push({
+        schId: part.id, partId: part.id, unit: null, ref: part.ref, value: 'PC817', type: part.type,
+        w: 100, h: 60, pins, showValue, bodyBox: { x0: 14, y0: 4, x1: 86, y1: 56 },
+        renderSVG(std, pal, showNums) {
+          const out = [
+            `<rect x="16" y="6" width="68" height="48" rx="4" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.6"/>`,
+            `<line x1="50" y1="10" x2="50" y2="50" stroke="${pal.sub}" stroke-width="1.1" stroke-dasharray="3,3"/>`,
+            // Left IR LED
+            `<line x1="0" y1="20" x2="31" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`,
+            `<line x1="31" y1="20" x2="31" y2="24" stroke="${pal.stroke}" stroke-width="1.5"/>`,
+            `<polygon points="24,24 38,24 31,34" fill="#ffedd5" stroke="${pal.stroke}" stroke-width="1.4"/>`,
+            `<line x1="24" y1="34" x2="38" y2="34" stroke="${pal.stroke}" stroke-width="1.8"/>`,
+            `<line x1="31" y1="34" x2="31" y2="40" stroke="${pal.stroke}" stroke-width="1.5"/>`,
+            `<line x1="0" y1="40" x2="31" y2="40" stroke="${pal.pin}" stroke-width="1.6"/>`,
+            // Optical photon arrows
+            `<line x1="41" y1="25" x2="56" y2="25" stroke="${pal.stroke}" stroke-width="1.3"/><polygon points="58,25 53,22.5 53,27.5" fill="${pal.stroke}"/>`,
+            `<line x1="41" y1="34" x2="56" y2="34" stroke="${pal.stroke}" stroke-width="1.3"/><polygon points="58,34 53,31.5 53,36.5" fill="${pal.stroke}"/>`,
+            // Right phototransistor
+            `<line x1="65" y1="20" x2="65" y2="40" stroke="${pal.stroke}" stroke-width="2.2"/>`,
+            `<line x1="65" y1="26" x2="77" y2="20" stroke="${pal.stroke}" stroke-width="1.5"/>`,
+            `<line x1="77" y1="20" x2="100" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`,
+            `<line x1="65" y1="34" x2="77" y2="40" stroke="${pal.stroke}" stroke-width="1.5"/>`,
+            `<line x1="77" y1="40" x2="100" y2="40" stroke="${pal.pin}" stroke-width="1.6"/>`,
+            `<polygon points="75,39 69,39 72,34" fill="${pal.stroke}"/>`,
+            `<text x="50" y="3" font-size="10.5" font-weight="700" text-anchor="middle" fill="${pal.ref}">${esc(part.ref)}</text>`,
+            showValue ? `<text x="50" y="65" font-size="9.5" text-anchor="middle" fill="${pal.sub}">PC817</text>` : '',
+          ];
+          if (showNums) {
+            out.push(`<text x="10" y="16" font-size="8.5" fill="${pal.sub}">1</text>`);
+            out.push(`<text x="10" y="36" font-size="8.5" fill="${pal.sub}">2</text>`);
+            out.push(`<text x="90" y="16" font-size="8.5" text-anchor="end" fill="${pal.sub}">4</text>`);
+            out.push(`<text x="90" y="36" font-size="8.5" text-anchor="end" fill="${pal.sub}">3</text>`);
+          }
+          return out.join('\n');
+        },
+      });
+      continue;
+    }
+
+    // 6c. 3-pin Linear Regulators (`lm7805`, `lm317`)
+    if (part.type === 'lm7805' || part.type === 'lm317') {
+      const is317 = part.type === 'lm317';
+      const inIdx = is317 ? 2 : 0, botIdx = is317 ? 0 : 1, outIdx = is317 ? 1 : 2;
+      const pins = [
+        { ...part.pins[inIdx], partPinIndex: inIdx, lx: 0, ly: 40, side: 'L', isPower: false },
+        { ...part.pins[outIdx], partPinIndex: outIdx, lx: 120, ly: 40, side: 'R', isPower: false },
+        { ...part.pins[botIdx], partPinIndex: botIdx, lx: 60, ly: 80, side: 'B', isPower: false },
+      ];
+      symbols.push({
+        schId: part.id, partId: part.id, unit: null, ref: part.ref, value: part.value, type: part.type,
+        w: 120, h: 80, pins, showValue, bodyBox: { x0: 20, y0: 14, x1: 100, y1: 62 },
+        renderSVG(std, pal) {
+          return [
+            `<rect x="20" y="16" width="80" height="44" rx="4" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1.8"/>`,
+            `<line x1="0" y1="40" x2="20" y2="40" stroke="${pal.pin}" stroke-width="1.6"/>`,
+            `<line x1="100" y1="40" x2="120" y2="40" stroke="${pal.pin}" stroke-width="1.6"/>`,
+            `<line x1="60" y1="60" x2="60" y2="80" stroke="${pal.pin}" stroke-width="1.6"/>`,
+            `<text x="26" y="43" font-size="9.5" font-weight="700" fill="${pal.stroke}">IN</text>`,
+            `<text x="94" y="43" font-size="9.5" font-weight="700" text-anchor="end" fill="${pal.stroke}">OUT</text>`,
+            `<text x="60" y="55" font-size="9" font-weight="700" text-anchor="middle" fill="${pal.stroke}">${is317 ? 'ADJ' : 'GND'}</text>`,
+            `<text x="60" y="11" font-size="10.5" font-weight="700" text-anchor="middle" fill="${pal.ref}">${esc(part.ref)}</text>`,
+            `<text x="60" y="34" font-size="10.5" font-weight="800" text-anchor="middle" fill="${pal.stroke}">${is317 ? 'LM317' : esc(part.value)}</text>`,
+          ].join('\n');
         },
       });
       continue;
@@ -780,7 +980,7 @@ export function buildSchematicSymbols(data, opts = {}) {
 
     let leftList = [], rightList = [];
     const isSensorOrSource = def?.cat === 'Inputs' || part.type === 'trainer-board' || part.type === 'power-supply' || part.type === 'funcgen';
-    const isDisplayOrSink = def?.cat === 'Outputs' || part.type === 'oscilloscope' || part.type === 'wokwi-logic-analyzer';
+    const isDisplayOrSink = def?.cat === 'Outputs' || part.type === 'oscilloscope' || part.type === 'multimeter' || part.type === 'wokwi-logic-analyzer';
     if (part.type === 'funcgen') {
       for (const i of sigIndices) {
         if (/^(EXT|SWEEP)/i.test(candPins[i].name)) leftList.push(i);

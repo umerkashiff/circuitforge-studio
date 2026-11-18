@@ -1,10 +1,10 @@
 /**
  * Right-Sidebar AI Copilot UI Panel (Inspector → AI Copilot tab).
- * Renders live Groq model picker, hybrid key setup, active Guide checklist card,
+ * Renders live Gemini model picker, hybrid key setup, active Guide checklist card,
  * Markdown chat stream, starter chips, and 3-way Auto | Build | Guide composer.
  */
 import { getDef } from '../parts/registry.js';
-import { splitKeys, detectKeyProvider } from './client.js';
+import { splitKeys } from './client.js';
 
 const esc = (s) => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -73,18 +73,18 @@ export function mountAiPanel(ui, container) {
   container.innerHTML = `
     <div class="ai-head">
       <select class="input small ai-model-sel" id="ai-model-sel" title="AI model"></select>
-      <button class="icon-btn small ai-key-btn" id="ai-key-btn" title="API key (Gemini or Groq)">
+      <button class="icon-btn small ai-key-btn" id="ai-key-btn" title="Gemini API key">
         <span class="ai-key-dot" id="ai-key-dot"></span>🔑
       </button>
       <button class="text-btn small" id="ai-clear-btn" title="Clear chat">Clear</button>
     </div>
     <div class="ai-key-box" id="ai-key-box" hidden>
-      <div class="ai-key-title">AI API Key <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Gemini (250K TPM) ↗</a> · <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Groq ↗</a></div>
+      <div class="ai-key-title">Gemini API Key <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Get free key ↗</a></div>
       <div class="ai-key-row">
-        <input type="password" class="input small" id="ai-key-input" placeholder="AIza... / AQ.... (Gemini) or gsk_... (Groq)" autocomplete="off" spellcheck="false">
+        <input type="password" class="input small" id="ai-key-input" placeholder="AIza... or AQ.... (Google AI Studio)" autocomplete="off" spellcheck="false">
         <button class="btn primary small" id="ai-key-save">Save</button>
       </div>
-      <div class="ai-key-hint" id="ai-key-hint">Stored locally in your browser. Separate multiple keys with commas.</div>
+      <div class="ai-key-hint" id="ai-key-hint">Stored locally in your browser. Separate multiple Gemini keys with commas.</div>
     </div>
     <div class="ai-guide-card" id="ai-guide-card" hidden></div>
     <div class="ai-chat" id="ai-chat"></div>
@@ -279,17 +279,14 @@ export function mountAiPanel(ui, container) {
     keyDot.className = 'ai-key-dot ' + (okAuth ? 'on' : 'off');
     keyInp.value = ai.apiKey;
     keyBox.hidden = !keyDrawerOpen && okAuth;
-    const savedKeys = splitKeys(ai.apiKey);
-    const savedCount = savedKeys.length;
-    const provs = [...new Set(savedKeys.map(detectKeyProvider).filter(Boolean))];
-    const provLabel = provs.map(p => (p === 'gemini' ? 'Gemini' : 'Groq')).join(' + ');
+    const savedCount = splitKeys(ai.apiKey).length;
     keyHint.textContent = savedCount > 1
-      ? `${savedCount} keys saved (${provLabel}) — automatic quota & fallback routing active.`
+      ? `${savedCount} Gemini keys saved — automatic quota & fallback routing active.`
       : savedCount === 1
-        ? `Using personal ${provLabel} key in localStorage (comma-separate multiple Gemini/Groq keys to combine quotas).`
+        ? 'Using personal Gemini key in localStorage (comma-separate multiple Gemini keys to combine quotas).'
         : ai.hasServerKey
-          ? 'Connected via server AI proxy (or paste a personal Gemini/Groq key above).'
-          : 'Paste a free Google AI Studio key (AIza... / AQ....) or Groq key (gsk_...).';
+          ? 'Connected via server Gemini proxy (or paste a personal key above).'
+          : 'Paste a free Google AI Studio key (AIza... / AQ....).';
 
     const curMode = ai.mode;
     for (const btn of modePill.querySelectorAll('button')) {
@@ -331,7 +328,7 @@ export function mountAiPanel(ui, container) {
   });
   keySave.addEventListener('click', async () => {
     const v = keyInp.value.trim();
-    app.settings.set('groqKey', v);
+    app.settings.set('geminiKey', v);
     errorMsg = '';
     await ai.refreshModels();
     keyDrawerOpen = false;
