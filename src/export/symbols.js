@@ -14,7 +14,7 @@ function isPowerPinName(name) {
   return /^(VCC|VDD|V\+|5V|\+5V|3V3|VBUS|GND|VSS|−|SLAVE −|MASTER −|5V FIXED −|SLAVE GND|MASTER GND|COMP GND|TRIG GND|CH1 GND|CH2 GND|SYNC GND|OUT−)$/i.test(String(name || '').trim());
 }
 
-function pinSideMeta(partEntry, opts, icPins, leftIdx, rightIdx, topIdx = [], botIdx = []) {
+function pinSideMeta(partEntry, opts, icPins, leftIdx, rightIdx, topIdx = [], botIdx = [], boxTitle = '') {
   const wBoxPins = Math.max(leftIdx.length, rightIdx.length);
   const wHorizPins = Math.max(topIdx.length, botIdx.length);
   const stepY = 20;
@@ -24,9 +24,12 @@ function pinSideMeta(partEntry, opts, icPins, leftIdx, rightIdx, topIdx = [], bo
   const h = Math.max((topIdx.length || botIdx.length) ? 100 : 60, padTop + Math.max(0, wBoxPins - 1) * stepY + padBot);
   const lLen = Math.max(0, ...leftIdx.map(i => (icPins[i]?.name || '').length));
   const rLen = Math.max(0, ...rightIdx.map(i => (icPins[i]?.name || '').length));
+  const titleW = boxTitle ? String(boxTitle).length * 6.2 + 24 : 56;
   const topStartX = Math.max(60, Math.ceil((28 + lLen * 6.5) / 20) * 20);
-  const minWForPins = Math.max(100, wHorizPins ? topStartX + (wHorizPins - 1) * stepX + 40 + rLen * 6.5 : 100);
-  const sideReq = (leftIdx.length && rightIdx.length) ? (lLen + rLen) * 6.5 + 132 : Math.max(6, lLen, rLen) * 6.5 + 84;
+  const minWForPins = Math.max(100, wHorizPins ? topStartX + (wHorizPins - 1) * stepX + 44 + rLen * 6.5 : 100);
+  const sideReq = (leftIdx.length && rightIdx.length)
+    ? (lLen + rLen) * 6.5 + 48 + titleW
+    : Math.max(6, lLen, rLen) * 6.5 + 44 + titleW * 0.7;
   const w = Math.ceil(Math.max(minWForPins, sideReq) / 20) * 20;
 
   const pins = [];
@@ -61,7 +64,10 @@ function drawGenericBox(sym, pal, std, showPinNumbers, title, notch = false) {
     const mx = (x0 + x1) / 2;
     out.push(`<path d="M ${mx - 7} ${y0} A 7 7 0 0 0 ${mx + 7} ${y0}" fill="none" stroke="${pal.stroke}" stroke-width="1.3"/>`);
   }
-  out.push(`<text x="${(x0 + x1) / 2}" y="${(y0 + y1) / 2 + 3.5}" font-size="10" font-weight="700" text-anchor="middle" fill="${pal.label}">${esc(title)}</text>`);
+  const lNameMax = Math.max(0, ...sym.pins.filter(p => p.side === 'L').map(p => String(p.name || '').length));
+  const rNameMax = Math.max(0, ...sym.pins.filter(p => p.side === 'R').map(p => String(p.name || '').length));
+  const titleX = (x0 + (lNameMax ? lNameMax * 5.6 + 8 : 0) + x1 - (rNameMax ? rNameMax * 5.6 + 8 : 0)) / 2;
+  out.push(`<text x="${titleX.toFixed(1)}" y="${(y0 + y1) / 2 + 3.5}" font-size="10" font-weight="700" text-anchor="middle" fill="${pal.label}">${esc(title)}</text>`);
   out.push(`<text x="${x0}" y="${y0 - 5}" font-size="10.5" font-weight="700" fill="${pal.ref}">${esc(sym.ref)}</text>`);
   if (sym.showValue && sym.value && sym.value !== title) {
     out.push(`<text x="${x1}" y="${y0 - 5}" font-size="9.5" text-anchor="end" fill="${pal.sub}">${esc(sym.value)}</text>`);
@@ -156,7 +162,11 @@ function drawGateSymbol(sym, pal, std, showPinNumbers, kind, schmitt = false, oc
     if (showPinNumbers) parts.push(`<text x="${enP.lx + 5}" y="${enP.ly + 11}" font-size="8.5" font-family="'SF Mono', ui-monospace, monospace" fill="${pal.pinNum}">${enP.num}</text>`);
   }
 
-  parts.push(`<text x="${(gx0 + gx1) / 2}" y="${gy0 - 5}" font-size="10.5" font-weight="700" text-anchor="middle" fill="${pal.ref}">${esc(sym.ref)}</text>`);
+  if (enP) {
+    parts.push(`<text x="${gx1 - 2}" y="${gy0 - 5}" font-size="10.5" font-weight="700" text-anchor="end" fill="${pal.ref}">${esc(sym.ref)}</text>`);
+  } else {
+    parts.push(`<text x="${(gx0 + gx1) / 2}" y="${gy0 - 5}" font-size="10.5" font-weight="700" text-anchor="middle" fill="${pal.ref}">${esc(sym.ref)}</text>`);
+  }
   if (sym.showValue && sym.value) {
     parts.push(`<text x="${(gx0 + gx1) / 2}" y="${gy1 + 11}" font-size="9" text-anchor="middle" fill="${pal.sub}">${esc(sym.value)}</text>`);
   }
@@ -333,7 +343,7 @@ export function buildSchematicSymbols(data, opts = {}) {
         const enriched = part.pins.map((p, idx) => ({ ...p, clock: clk.has(idx + 1), inverted: neg.has(idx + 1) }));
         const top = ic.vcc ? [ic.vcc - 1] : [];
         const bot = ic.gnd ? [ic.gnd - 1] : [];
-        const box = pinSideMeta(part, opts, enriched, meta.left.map(n => n - 1), meta.right.map(n => n - 1), top, bot);
+        const box = pinSideMeta(part, opts, enriched, meta.left.map(n => n - 1), meta.right.map(n => n - 1), top, bot, `${ic.id} ${ic.name}`);
         symbols.push({
           schId: part.id, partId: part.id, unit: null, ref: part.ref, value: ic.id, type: part.type,
           w: box.w, h: box.h, pins: box.pins, showValue, bodyBox: { x0: 14, y0: 4, x1: box.w - 14, y1: box.h - 4 },
@@ -348,8 +358,8 @@ export function buildSchematicSymbols(data, opts = {}) {
       const n = part.pins.length, half = n / 2;
       const leftIdx = Array.from({ length: half }, (_, i) => i);
       const rightIdx = Array.from({ length: half }, (_, i) => n - 1 - i);
-      const box = pinSideMeta(part, opts, part.pins, leftIdx, rightIdx);
       const title = part.type === 'ne555' ? 'NE555' : (def?.ic?.id || part.shortName);
+      const box = pinSideMeta(part, opts, part.pins, leftIdx, rightIdx, [], [], title);
       symbols.push({
         schId: part.id, partId: part.id, unit: null, ref: part.ref, value: part.value, type: part.type,
         w: box.w, h: box.h, pins: box.pins, showValue, bodyBox: { x0: 14, y0: 4, x1: box.w - 14, y1: box.h - 4 },
@@ -384,7 +394,7 @@ export function buildSchematicSymbols(data, opts = {}) {
         renderSVG(std, pal) {
           const t = part.type;
           const out = [];
-          const refY = 6, valY = 39;
+          const refY = t === 'led' ? 1 : 5, valY = 39;
           out.push(`<text x="40" y="${refY}" font-size="10.5" font-weight="700" text-anchor="middle" fill="${pal.ref}">${esc(part.ref)}</text>`);
           if (showValue && part.value) out.push(`<text x="40" y="${valY}" font-size="9.5" text-anchor="middle" fill="${pal.sub}">${esc(part.value)}</text>`);
 
@@ -599,10 +609,10 @@ export function buildSchematicSymbols(data, opts = {}) {
       rightList = candPins.slice(half).map((_, i) => half + i);
     }
 
-    const box = pinSideMeta(part, opts, candPins, leftList, rightList);
+    const title = def?.mcu ? part.shortName : part.shortName;
+    const box = pinSideMeta(part, opts, candPins, leftList, rightList, [], [], title);
     // Keep original partPinIndex cleanly after candPins subsetting
     const remappedPins = box.pins.map(bp => ({ ...bp, partPinIndex: candPins[bp.partPinIndex].partPinIndex }));
-    const title = def?.mcu ? part.shortName : part.shortName;
     symbols.push({
       schId: part.id,
       partId: part.id,

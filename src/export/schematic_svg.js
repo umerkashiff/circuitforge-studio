@@ -124,20 +124,28 @@ export function renderSchematicSVG(circuit, engine = null, index = null, opts = 
   });
   const netMetaMap = new Map(layout.data.nets.map(n => [n.id, n]));
 
+  const noteLines = [...layout.unusedNotes];
+  const prunedSyms = layout.symbols.filter(s => s.prunedCount > 0);
+  if (prunedSyms.length) {
+    noteLines.push(`Note: Unwired pins hidden on ${prunedSyms.map(s => s.ref).join(', ')} (toggle in options)`);
+  }
+  const notesH = noteLines.length ? noteLines.length * 14 + 12 : 0;
+
   const pad = 44;
   const cb = layout.bounds;
   const minW = showTitleBlock ? 680 : 360;
   const minH = 340;
   const innerW = Math.max(minW, Math.ceil(cb.w + pad * 2));
-  const innerH = Math.max(minH, Math.ceil(cb.h + pad * 2));
+  const diagramH = Math.max(minH, Math.ceil(cb.h + pad * 2));
+  const innerH = diagramH + notesH;
   const framePad = showFrame ? 18 : 0;
   const footH = showTitleBlock ? 64 : 0;
   const totalW = innerW + framePad * 2;
   const totalH = innerH + framePad * 2 + footH;
 
-  // Center schematic graph neatly inside inner sheet area
+  // Center schematic graph strictly above dedicated notes strip
   const offX = framePad + (innerW - cb.w) / 2 - cb.x0;
-  const offY = framePad + (innerH - cb.h) / 2 - cb.y0;
+  const offY = framePad + (diagramH - cb.h) / 2 - cb.y0;
 
   // Group crossing hop coordinates per horizontal net
   const hopsByNetY = new Map();
@@ -162,11 +170,69 @@ export function renderSchematicSVG(circuit, engine = null, index = null, opts = 
   // Main schematic graph group translated cleanly
   out.push(`  <g class="sch-world" transform="translate(${offX.toFixed(1)}, ${offY.toFixed(1)})">`);
 
+  // Collision obstacles for net / voltage labels
+  const obsRects = [
+    ...layout.symbols.map(s => ({ x0: s.x - 6, y0: s.y - 18, x1: s.x + s.w + 6, y1: s.y + s.h + 14 })),
+    ...layout.powerPorts.map(pp => ({ x0: pp.x - 24, y0: pp.y - 34, x1: pp.x + 24, y1: pp.y + 36 })),
+    ...layout.netFlags.map(nf => ({ x0: nf.x - 45, y0: nf.y - 14, x1: nf.x + 45, y1: nf.y + 14 })),
+  ];
+  const allWireSegs = layout.segmentsByNet.flatMap(sn => sn.segs.map(s => ({ ...s, netId: sn.netId })));
+  const hitArea = (a, b) => {
+    const x0 = Math.max(a.x0, b.x0), y0 = Math.max(a.y0, b.y0), x1 = Math.min(a.x1, b.x1), y1 = Math.min(a.y1, b.y1);
+    return x1 > x0 && y1 > y0 ? (x1 - x0) * (y1 - y0) : 0;
+  };
+  const placeNetBadge = (segs, netId, lblTxt) => {
+    const bw = Math.max(24, lblTxt.length * 5.6 + 8), bh = 13;
+    const sorted = [...segs].sort((a, b) => Math.hypot(b.x2 - b.x1, b.y2 - b.y1) - Math.hypot(a.x2 - a.x1, a.y2 - a.y1));
+    const cands = [];
+    for (let si = 0; si < Math.min(4, sorted.length); si++) {
+      const s = sorted[si];
+      const len = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
+      if (len < 16) continue;
+      for (const t of [0.5, 0.34, 0.66, 0.2, 0.8]) {
+        const px = s.x1 + (s.x2 - s.x1) * t;
+        const py = s.y1 + (s.y2 - s.y1) * t;
+        const tPen = si * 12 + Math.abs(t - 0.5) * 8;
+        if (s.horiz) {
+          cands.push({ x: px, y: py - 7, ty: py - 10, anchor: 'middle', bias: tPen });
+          cands.push({ x: px, y: py + 11, ty: py + 8, anchor: 'middle', bias: tPen + 2 });
+        } else {
+          cands.push({ x: px + 6, y: py + 3, ty: py, anchor: 'start', bias: tPen + 3 });
+          cands.push({ x: px - 6, y: py + 3, ty: py, anchor: 'end', bias: tPen + 3.5 });
+        }
+      }
+    }
+    if (!cands.length && sorted[0]) {
+      const s = sorted[0];
+      cands.push({ x: (s.x1 + s.x2) / 2, y: (s.y1 + s.y2) / 2 - 7, ty: (s.y1 + s.y2) / 2 - 10, anchor: 'middle', bias: 0 });
+    }
+    let best = cands[0], bestScore = Infinity;
+    for (const c of cands) {
+      const rx0 = c.anchor === 'start' ? c.x - 2 : c.anchor === 'end' ? c.x - bw + 2 : c.x - bw / 2;
+      const rect = { x0: rx0, y0: c.ty - bh / 2, x1: rx0 + bw, y1: c.ty + bh / 2 };
+      let score = c.bias;
+      for (const o of obsRects) { const ov = hitArea(rect, o); if (ov > 0) score += 2000 + ov * 25; }
+      for (const ws of allWireSegs) {
+        if (ws.netId === netId) continue;
+        const wr = { x0: Math.min(ws.x1, ws.x2) - 2, y0: Math.min(ws.y1, ws.y2) - 2, x1: Math.max(ws.x1, ws.x2) + 2, y1: Math.max(ws.y1, ws.y2) + 2 };
+        const ov = hitArea(rect, wr);
+        if (ov > 0) score += 450 + ov * 8;
+      }
+      if (score < bestScore) { bestScore = score; best = { ...c, rect }; }
+    }
+    if (best) obsRects.push(best.rect);
+    return best;
+  };
+
   // 1. Wires with optional live voltages & crossing hops
   out.push('    <g class="sch-wires">');
   for (const segNet of layout.segmentsByNet) {
     const nm = netMetaMap.get(segNet.netId);
-    const strokeCol = theme === 'live' ? liveWireColor(nm, pal) : pal.wire;
+    const isGndSeg = segNet.kind === 'gnd';
+    const isPwrSeg = segNet.kind === 'power';
+    const strokeCol = theme === 'live'
+      ? liveWireColor(nm, pal)
+      : isGndSeg ? (pal.gnd || pal.wire) : isPwrSeg ? (pal.power || pal.wire) : pal.wire;
     const isFloat = theme === 'live' && (nm?.voltage === null || nm?.voltage === undefined);
     const dash = isFloat ? ' stroke-dasharray="4,3"' : '';
     for (const s of segNet.segs) {
@@ -190,15 +256,18 @@ export function renderSchematicSVG(circuit, engine = null, index = null, opts = 
       }
     }
 
-    // Net / Voltage label on longest horizontal segment
-    const userShow = showNetLabels && nm && (nm.userNamed || /^(CLK|SDA|SCL)/i.test(nm.name));
-    const liveShow = theme === 'live' && nm && nm.voltage !== null && nm.voltage !== undefined;
+    // Net / Voltage label placed through collision filter (skip redundant power trunk labels)
+    const skipPowerTxt = segNet.kind === 'power' || segNet.kind === 'gnd';
+    const userShow = !skipPowerTxt && showNetLabels && nm && (nm.userNamed || /^(CLK|SDA|SCL)/i.test(nm.name));
+    const liveShow = !skipPowerTxt && theme === 'live' && nm && nm.voltage !== null && nm.voltage !== undefined;
     if ((userShow || liveShow) && segNet.segs.length) {
-      const bestSeg = [...segNet.segs].sort((a, b) => Math.hypot(b.x2 - b.x1, b.y2 - b.y1) - Math.hypot(a.x2 - a.x1, a.y2 - a.y1))[0];
-      const mx = (bestSeg.x1 + bestSeg.x2) / 2;
-      const my = (bestSeg.y1 + bestSeg.y2) / 2 - 5;
       const lblTxt = userShow && liveShow ? `${nm.name} (${nm.voltage.toFixed(1)}V)` : userShow ? nm.name : `${nm.voltage.toFixed(2)}V`;
-      out.push(`      <text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" font-size="8.5" font-weight="700" font-family="'SF Mono', ui-monospace, monospace" text-anchor="middle" fill="${theme === 'live' ? strokeCol : pal.net}">${esc(lblTxt)}</text>`);
+      const pos = placeNetBadge(segNet.segs, segNet.netId, lblTxt);
+      if (pos) {
+        const r = pos.rect;
+        out.push(`      <rect x="${r.x0.toFixed(1)}" y="${r.y0.toFixed(1)}" width="${(r.x1 - r.x0).toFixed(1)}" height="${(r.y1 - r.y0).toFixed(1)}" rx="2.5" fill="${pal.bg}" fill-opacity="0.9"/>`);
+        out.push(`      <text x="${pos.x.toFixed(1)}" y="${pos.y.toFixed(1)}" font-size="8.5" font-weight="700" font-family="'SF Mono', ui-monospace, monospace" text-anchor="${pos.anchor}" fill="${theme === 'live' ? strokeCol : pal.net}">${esc(lblTxt)}</text>`);
+      }
     }
   }
   out.push('    </g>');
@@ -207,7 +276,7 @@ export function renderSchematicSVG(circuit, engine = null, index = null, opts = 
   out.push('    <g class="sch-junctions">');
   for (const j of layout.junctions) {
     const nm = netMetaMap.get(j.netId);
-    const col = theme === 'live' ? liveWireColor(nm, pal) : pal.wire;
+    const col = theme === 'live' ? liveWireColor(nm, pal) : j.kind === 'gnd' ? (pal.gnd || pal.wire) : j.kind === 'power' ? (pal.power || pal.wire) : pal.wire;
     out.push(`      <circle cx="${j.x}" cy="${j.y}" r="3.4" fill="${col}"/>`);
   }
   out.push('    </g>');
@@ -229,16 +298,11 @@ export function renderSchematicSVG(circuit, engine = null, index = null, opts = 
   out.push('    </g>');
   out.push('  </g>');
 
-  // 5. Optional sheet footer notes (unused gate units & pruned MCU pins)
-  const noteLines = [...layout.unusedNotes];
-  const prunedSyms = layout.symbols.filter(s => s.prunedCount > 0);
-  if (prunedSyms.length) {
-    noteLines.push(`Note: Unwired pins hidden on ${prunedSyms.map(s => s.ref).join(', ')} (toggle in options)`);
-  }
+  // 5. Dedicated sheet footer notes band (never overlaps schematic symbols/rails)
   if (noteLines.length) {
-    const nyBase = framePad + innerH - 10 - (noteLines.length - 1) * 13;
+    const nyBase = framePad + diagramH + 6;
     noteLines.forEach((ln, idx) => {
-      out.push(`  <text x="${framePad + 12}" y="${nyBase + idx * 13}" font-size="9.5" fill="${pal.sub}">${esc(ln)}</text>`);
+      out.push(`  <text x="${framePad + 12}" y="${nyBase + idx * 14}" font-size="9.5" fill="${pal.sub}">${esc(ln)}</text>`);
     });
   }
 
@@ -294,8 +358,11 @@ export function renderSchematicSVG(circuit, engine = null, index = null, opts = 
     }
 
     const sub = [meta.project, meta.author ? `By ${meta.author}` : ''].filter(Boolean).join(' · ') || 'CircuitForge Studio';
-    out.push(`  <text x="${tx + 12}" y="${fy + 20}" font-size="12.5" font-weight="700" fill="${pal.stroke}">${esc(layout.data.name)}</text>`);
-    out.push(`  <text x="${tx + 12}" y="${fy + 48}" font-size="10" fill="${pal.sub}">${esc(sub)}</text>`);
+    const rawName = String(layout.data.name || 'Untitled Circuit');
+    const dispName = rawName.length > 38 ? rawName.slice(0, 36) + '…' : rawName;
+    const dispSub = sub.length > 36 ? sub.slice(0, 34) + '…' : sub;
+    out.push(`  <text x="${tx + 12}" y="${fy + 20}" font-size="12.5" font-weight="700" fill="${pal.stroke}">${esc(dispName)}</text>`);
+    out.push(`  <text x="${tx + 12}" y="${fy + 48}" font-size="10" fill="${pal.sub}">${esc(dispSub)}</text>`);
     out.push(`  <text x="${framePad + innerW - 105}" y="${fy + 44}" font-size="9" font-family="'SF Mono', ui-monospace, monospace" fill="${pal.sub}">Rev ${esc(meta.revision || '1.0')}</text>`);
     out.push(`  <text x="${framePad + innerW - 105}" y="${fy + 56}" font-size="9" font-family="'SF Mono', ui-monospace, monospace" fill="${pal.sub}">${dateStr}</text>`);
   }

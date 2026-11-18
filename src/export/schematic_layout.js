@@ -295,35 +295,73 @@ export function computeSchematicLayout(circuit, engine = null, index = null, opt
     }
   }
 
-  // Position columns & rows on GRID = 20 with generous routing gutters
-  let curX = 120;
+  // Position columns & rows on GRID = 20 preserving clear margins for local power ports, flags & labels
+  const symPortsMeta = new Map();
+  for (const s of symbols) {
+    const info = { L: false, R: false, T: false, B: false, lf: false, rf: false };
+    for (const p of s.pins) {
+      if (p.net < 0 || !p.netName) continue;
+      const k = netKind(p.net);
+      if (powerStyle === 'symbols' && (k === 'power' || k === 'gnd')) info[p.side] = true;
+      else if (powerStyle !== 'rails' && useNetFlags) {
+        const list = symPinNets.get(p.net) || [];
+        const netCols = new Set(list.map(it => colOf.get(it.sym.schId)));
+        if (list.length >= 5 && netCols.size >= 3) {
+          if (p.side === 'L') info.lf = true;
+          if (p.side === 'R') info.rf = true;
+        }
+      }
+    }
+    symPortsMeta.set(s.schId, info);
+  }
+
+  let curX = 140;
   const startY = powerStyle === 'rails' ? 140 : 100;
   for (const c of colKeys) {
     const arr = colsMap.get(c);
     const maxW = Math.max(80, ...arr.map(s => s.w));
+    const maxLeft = Math.max(40, ...arr.map(s => (symPortsMeta.get(s.schId)?.lf ? 80 : symPortsMeta.get(s.schId)?.L ? 60 : 20)));
+    const maxRight = Math.max(40, ...arr.map(s => (symPortsMeta.get(s.schId)?.rf ? 80 : symPortsMeta.get(s.schId)?.R ? 60 : 20)));
+    if (c !== colKeys[0]) curX += Math.max(40, maxLeft - 20);
     let curY = startY;
     for (const s of arr) {
-      const topExtra = s.pins.some(p => p.side === 'T') ? 40 : 20;
-      const botExtra = s.pins.some(p => p.side === 'B') ? 40 : 20;
+      const pm = symPortsMeta.get(s.schId);
+      const topExtra = pm.T ? 60 : s.pins.some(p => p.side === 'T') ? 40 : 20;
+      const botExtra = pm.B ? 60 : s.pins.some(p => p.side === 'B') ? 40 : 20;
       curY += topExtra;
       s.x = snapG(curX + (maxW - s.w) / 2);
       s.y = snapG(curY);
-      // Honor persisted interactive schematic nudge if saved
       const orig = partOrigMap.get(s.partId);
       const saved = readSavedSch(orig, s.unit);
       if (saved) {
         s.x = snapG(saved.x);
         s.y = snapG(saved.y);
+        s._pinned = true;
       }
       curY += s.h + botExtra + 20;
     }
-    curX += snapG(maxW + 120);
+    curX += snapG(maxW + Math.max(120, 80 + maxRight));
   }
 
-  // Build world pin coords + classify nets into routed vs powerSymbols vs netFlags
+  // Push non-pinned symbols gently clear if a pinned manual drag overlaps a neighbor
+  const padBox = (s) => ({ x0: s.x - 20, y0: s.y - 20, x1: s.x + s.w + 20, y1: s.y + s.h + 20 });
+  const hitsBox = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+  const sortedForPush = [...symbols].sort((a, b) => (b._pinned ? 1 : 0) - (a._pinned ? 1 : 0) || a.y - b.y || a.x - b.x);
+  const placedBoxes = [];
+  for (const s of sortedForPush) {
+    if (!s._pinned) {
+      let guard = 0;
+      while (placedBoxes.some(b => hitsBox(padBox(s), b)) && guard++ < 40) {
+        s.y = snapG(s.y + 40);
+      }
+    }
+    placedBoxes.push(padBox(s));
+  }
+
+  // Build world pin coords + classify nets into routed vs consolidated powerSymbols vs netFlags
   const symWorldPin = (s, p) => ({ ...p, x: s.x + p.lx, y: s.y + p.ly, sym: s });
   const routedNetList = [];
-  const powerPorts = [];
+  const rawPowerPins = [];
   const netFlags = [];
 
   for (const [netId, list] of symPinNets) {
@@ -332,11 +370,11 @@ export function computeSchematicLayout(circuit, engine = null, index = null, opt
     const kind = netKind(netId);
     const netCols = new Set(list.map(it => colOf.get(it.sym.schId)));
 
-    // 1. Power / GND symbols mode -> crisp local VCC/GND stubs right on each connected pin
+    // 1. Power / GND symbols mode -> gather for per-side consolidation
     if (powerStyle === 'symbols' && (kind === 'power' || kind === 'gnd')) {
       for (const it of list) {
         const wp = symWorldPin(it.sym, it.pin);
-        powerPorts.push({
+        rawPowerPins.push({
           netId, netName: name, kind,
           x: wp.x, y: wp.y, side: wp.side,
           schId: it.sym.schId,
@@ -357,11 +395,49 @@ export function computeSchematicLayout(circuit, engine = null, index = null, opt
     routedNetList.push({ netId, name, kind, pins: list.map(it => symWorldPin(it.sym, it.pin)) });
   }
 
-  // Compute grid routing domain tightly wrapping all symbols + 8-cell gutter
+  // Consolidate adjacent same-side, same-net power/GND pins on each symbol via clean trunk bus + 1 shared symbol!
+  const powerPorts = [];
+  const powerTrunks = [];
+  const powerGroupMap = new Map();
+  for (const rp of rawPowerPins) {
+    const gk = `${rp.schId}|${rp.side}|${rp.netId}`;
+    if (!powerGroupMap.has(gk)) powerGroupMap.set(gk, []);
+    powerGroupMap.get(gk).push(rp);
+  }
+  for (const group of powerGroupMap.values()) {
+    if (group.length === 1) {
+      powerPorts.push(group[0]);
+      continue;
+    }
+    const { netId, netName, kind, side, schId } = group[0];
+    if (side === 'L' || side === 'R') {
+      const dir = side === 'L' ? -20 : 20;
+      const trunkX = snapG(group[0].x + dir);
+      const ys = group.map(p => p.y).sort((a, b) => a - b);
+      for (const p of group) powerTrunks.push({ netId, kind, netName, pts: [{ x: p.x, y: p.y }, { x: trunkX, y: p.y }] });
+      powerTrunks.push({ netId, kind, netName, pts: [{ x: trunkX, y: ys[0] }, { x: trunkX, y: ys[ys.length - 1] }] });
+      const portY = kind === 'gnd' ? ys[ys.length - 1] : ys[0];
+      powerPorts.push({ netId, netName, kind, x: trunkX, y: portY, side, schId });
+    } else {
+      const dir = side === 'T' ? -20 : 20;
+      const trunkY = snapG(group[0].y + dir);
+      const xs = group.map(p => p.x).sort((a, b) => a - b);
+      for (const p of group) powerTrunks.push({ netId, kind, netName, pts: [{ x: p.x, y: p.y }, { x: p.x, y: trunkY }] });
+      powerTrunks.push({ netId, kind, netName, pts: [{ x: xs[0], y: trunkY }, { x: xs[xs.length - 1], y: trunkY }] });
+      const portX = snapG((xs[0] + xs[xs.length - 1]) / 2);
+      powerPorts.push({ netId, netName, kind, x: portX, y: trunkY, side, schId });
+    }
+  }
+
+  // Compute grid routing domain tightly wrapping all symbols + power ports + generous gutter
   let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
   for (const s of symbols) {
-    bx0 = Math.min(bx0, s.x - 100); by0 = Math.min(by0, s.y - 100);
-    bx1 = Math.max(bx1, s.x + s.w + 100); by1 = Math.max(by1, s.y + s.h + 100);
+    bx0 = Math.min(bx0, s.x - 120); by0 = Math.min(by0, s.y - 120);
+    bx1 = Math.max(bx1, s.x + s.w + 120); by1 = Math.max(by1, s.y + s.h + 120);
+  }
+  for (const pp of powerPorts) {
+    bx0 = Math.min(bx0, pp.x - 60); by0 = Math.min(by0, pp.y - 60);
+    bx1 = Math.max(bx1, pp.x + 60); by1 = Math.max(by1, pp.y + 60);
   }
   if (!Number.isFinite(bx0)) { bx0 = 0; by0 = 0; bx1 = 480; by1 = 320; }
   const gx0 = Math.floor(bx0 / G), gy0 = Math.floor(by0 / G);
@@ -369,15 +445,27 @@ export function computeSchematicLayout(circuit, engine = null, index = null, opt
   const gW = gx1 - gx0 + 1, gH = gy1 - gy0 + 1;
   const cost = new Float32Array(gW * gH);
   const at = (x, y) => (y - gy0) * gW + (x - gx0);
+  const paintCostRect = (x0Px, y0Px, x1Px, y1Px, val) => {
+    const cx0 = Math.max(gx0, Math.ceil(x0Px / G)), cx1 = Math.min(gx1, Math.floor(x1Px / G));
+    const cy0 = Math.max(gy0, Math.ceil(y0Px / G)), cy1 = Math.min(gy1, Math.floor(y1Px / G));
+    for (let y = cy0; y <= cy1; y++) for (let x = cx0; x <= cx1; x++) cost[at(x, y)] += val;
+  };
 
   for (const s of symbols) {
     const b = s.bodyBox || { x0: 10, y0: 4, x1: s.w - 10, y1: s.h - 4 };
-    const sx0 = Math.ceil((s.x + b.x0) / G), sx1 = Math.floor((s.x + b.x1) / G);
-    const sy0 = Math.ceil((s.y + b.y0) / G), sy1 = Math.floor((s.y + b.y1) / G);
-    for (let y = Math.max(gy0, sy0); y <= Math.min(gy1, sy1); y++) {
-      for (let x = Math.max(gx0, sx0); x <= Math.min(gx1, sx1); x++) cost[at(x, y)] += BODY_COST;
-    }
-    // Pin entry points must always stay routable
+    paintCostRect(s.x + b.x0, s.y + b.y0 - 16, s.x + b.x1, s.y + b.y1, BODY_COST);
+  }
+  // Keep signal wires clear of power port geometry/text & net flag boxes
+  for (const pp of powerPorts) {
+    if (pp.kind === 'gnd') paintCostRect(pp.x - 16, pp.y + 4, pp.x + 16, pp.y + 36, BODY_COST * 0.45);
+    else paintCostRect(pp.x - 16, pp.y - 36, pp.x + 16, pp.y - 4, BODY_COST * 0.45);
+  }
+  for (const nf of netFlags) {
+    const dir = nf.side === 'L' ? -1 : 1;
+    paintCostRect(Math.min(nf.x, nf.x + dir * 60), nf.y - 12, Math.max(nf.x, nf.x + dir * 60), nf.y + 12, BODY_COST * 0.45);
+  }
+  // Pin entry points must always stay strictly routable
+  for (const s of symbols) {
     for (const p of s.pins) {
       const px = Math.round((s.x + p.lx) / G), py = Math.round((s.y + p.ly) / G);
       if (px >= gx0 && px <= gx1 && py >= gy0 && py <= gy1) cost[at(px, py)] = 0;
@@ -407,17 +495,52 @@ export function computeSchematicLayout(circuit, engine = null, index = null, opt
     }
   };
 
-  for (const rnet of routedNetList) {
+  // Paint consolidated power trunks onto adjacent edge deterrent before signal nets route
+  for (const pt of powerTrunks) {
+    registerPolylineEdges(pt.pts, otherEdges, otherNodes);
+  }
+
+  // Route short nets first so local loops stay tight and parallel buses spread cleanly into adjacent channels
+  const netSpan = (rn) => {
+    const xs = rn.pins.map(p => p.x), ys = rn.pins.map(p => p.y);
+    return (Math.max(...xs) - Math.min(...xs)) + (Math.max(...ys) - Math.min(...ys));
+  };
+  const orderedNets = [...routedNetList].sort((a, b) => netSpan(a) - netSpan(b) || a.pins.length - b.pins.length);
+
+  for (const rnet of orderedNets) {
     if (rnet.pins.length < 2) continue;
     if (powerStyle === 'rails' && (rnet.kind === 'power' || rnet.kind === 'gnd')) {
       const ry = rnet.kind === 'gnd' ? botRailY : topRailY;
-      const minX = Math.min(...rnet.pins.map(p => p.x));
-      const maxX = Math.max(...rnet.pins.map(p => p.x));
+      const goalY = Math.round(ry / G);
+      const gDir = rnet.kind === 'gnd' ? 3 : 1;
+      const sameNetEdges = new Set(), sameNetNodes = new Set();
+      const railXs = [];
       const polylines = [];
-      if (maxX > minX) polylines.push([{ x: minX, y: ry }, { x: maxX, y: ry }]);
       for (const p of rnet.pins) {
-        if (p.y !== ry) polylines.push([{ x: p.x, y: p.y }, { x: p.x, y: ry }]);
+        const px = Math.round(p.x / G), py = Math.round(p.y / G);
+        if (py === goalY) { railXs.push(p.x); continue; }
+        const pts = routeOrthogonal(
+          grid,
+          px, py, SIDE_DIR[p.side] ?? -1,
+          px, goalY, gDir,
+          sameNetEdges, sameNetNodes, otherEdges, otherNodes,
+        );
+        polylines.push(pts);
+        registerPolylineEdges(pts, sameNetEdges, sameNetNodes);
+        const endPt = pts[pts.length - 1];
+        if (endPt) railXs.push(endPt.x);
       }
+      if (railXs.length >= 2) {
+        const minX = Math.min(...railXs);
+        const maxX = Math.max(...railXs);
+        if (maxX > minX) {
+          const bar = [{ x: minX, y: ry }, { x: maxX, y: ry }];
+          polylines.unshift(bar);
+          registerPolylineEdges(bar, sameNetEdges, sameNetNodes);
+        }
+      }
+      for (const ek of sameNetEdges) otherEdges.add(ek);
+      for (const nk of sameNetNodes) otherNodes.add(nk);
       routes.push({ ...rnet, polylines });
       continue;
     }
@@ -451,13 +574,40 @@ export function computeSchematicLayout(circuit, engine = null, index = null, opt
 
     for (const ek of sameNetEdges) otherEdges.add(ek);
     for (const nk of sameNetNodes) otherNodes.add(nk);
+    // Lightly discourage parallel signal tracks from running right beside an existing wire corner
+    for (const poly of polylines) {
+      for (let k = 0; k < poly.length - 1; k++) {
+        const ax = Math.round(poly[k].x / G), ay = Math.round(poly[k].y / G);
+        const bx = Math.round(poly[k + 1].x / G), by = Math.round(poly[k + 1].y / G);
+        if (ax === bx) {
+          const yLo = Math.min(ay, by), yHi = Math.max(ay, by);
+          for (let y = yLo; y <= yHi; y++) {
+            for (const dx of [-1, 1]) {
+              const nx = ax + dx;
+              if (nx >= gx0 && nx <= gx1 && y >= gy0 && y <= gy1 && cost[at(nx, y)] < BODY_COST) cost[at(nx, y)] += ADJ_LANE;
+            }
+          }
+        }
+      }
+    }
     routes.push({ ...rnet, polylines });
+  }
+
+  // Add trunk junctions where multiple consolidated power pins tie together
+  const segSourceRoutes = [...routes];
+  if (powerTrunks.length) {
+    const trunkMap = new Map();
+    for (const tr of powerTrunks) {
+      if (!trunkMap.has(tr.netId)) trunkMap.set(tr.netId, { netId: tr.netId, name: tr.netName, kind: tr.kind, polylines: [] });
+      trunkMap.get(tr.netId).polylines.push(tr.pts);
+    }
+    for (const r of trunkMap.values()) segSourceRoutes.push(r);
   }
 
   // Compute Solder Junction Dots (where >=3 distinct segments meet on the same net) & Crossing Hops
   const segmentsByNet = [];
   const junctions = [];
-  for (const r of routes) {
+  for (const r of segSourceRoutes) {
     const segs = [];
     const ptDegree = new Map();
     const bump = (x, y) => {
@@ -522,8 +672,9 @@ export function computeSchematicLayout(circuit, engine = null, index = null, opt
   };
   for (const s of symbols) grow(s.x - 16, s.y - 24, s.x + s.w + 16, s.y + s.h + 24);
   for (const r of routes) for (const poly of r.polylines) for (const pt of poly) grow(pt.x - 10, pt.y - 10, pt.x + 10, pt.y + 10);
-  for (const pp of powerPorts) grow(pp.x - 24, pp.y - 30, pp.x + 24, pp.y + 30);
-  for (const nf of netFlags) grow(nf.x - 45, nf.y - 15, nf.x + 45, nf.y + 15);
+  for (const pp of powerPorts) grow(pp.x - 24, pp.y - 34, pp.x + 24, pp.y + 38);
+  for (const tr of powerTrunks) for (const pt of tr.pts) grow(pt.x - 10, pt.y - 10, pt.x + 10, pt.y + 10);
+  for (const nf of netFlags) grow(nf.x - 50, nf.y - 15, nf.x + 50, nf.y + 15);
   if (!Number.isFinite(minX)) { minX = 0; minY = 0; maxX = 480; maxY = 300; }
 
   return {
@@ -531,6 +682,7 @@ export function computeSchematicLayout(circuit, engine = null, index = null, opt
     symbols,
     unusedNotes,
     powerPorts,
+    powerTrunks,
     netFlags,
     routes,
     segmentsByNet,

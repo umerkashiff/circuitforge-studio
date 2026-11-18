@@ -32,8 +32,8 @@ export function computeExportBounds(circuit, labelMode = 'refs') {
   for (const w of circuit.wires || []) {
     for (const pt of w.path()) growPx(pt.x * P - 6, pt.y * P - 6, pt.x * P + 6, pt.y * P + 6);
   }
-  const { partLabels, wireLabels } = computeLabelPlacements(circuit, labelMode);
-  for (const it of [...partLabels, ...wireLabels]) {
+  const { partLabels, wireLabels, pinNumBoxes } = computeLabelPlacements(circuit, labelMode);
+  for (const it of [...partLabels, ...wireLabels, ...pinNumBoxes]) {
     growPx(it.x0 - 4, it.y0 - 4, it.x1 + 4, it.y1 + 4);
   }
   if (!Number.isFinite(x0)) return { x0: 0, y0: 0, x1: 600, y1: 400, w: 600, h: 400 };
@@ -53,7 +53,7 @@ function resolvePalette(app, background) {
 export function computeExportLayout(app, opts = {}) {
   const pad = opts.padding ?? 28;
   const bounds = computeExportBounds(app.circuit, opts.labelMode || 'off');
-  const minW = (opts.showTitleBlock || opts.showLegend) ? 540 : 120;
+  const minW = (opts.showTitleBlock && opts.showLegend) ? 620 : (opts.showTitleBlock || opts.showLegend) ? 540 : 120;
   const contentW = Math.max(minW, Math.ceil(bounds.w + pad * 2));
   const contentH = Math.ceil(bounds.h + pad * 2);
   const footerH = (opts.showTitleBlock || opts.showLegend) ? 62 : 0;
@@ -155,7 +155,7 @@ export function renderBreadboardCanvas(app, opts = {}) {
       drawCanvasLegend(g, fx + 14, footY + 14, stateMode, pal);
     }
     if (showTitleBlock) {
-      drawCanvasTitleBlock(g, fx + fw - 310, footY, 310, lay.footerH, app.circuit, pal);
+      drawCanvasTitleBlock(g, fx + fw - 290, footY, 290, lay.footerH, app.circuit, pal);
     }
   }
   g.restore();
@@ -176,14 +176,14 @@ function drawCanvasLegend(g, x, y, stateMode, pal) {
     : [['#e5484d', '+5V / Pos'], ['#2b2d31', 'GND / Neg'], ['#0a84ff', 'Signal']];
   let cx = x;
   const cy = y + 20;
-  g.font = '600 10px -apple-system, Inter, sans-serif';
+  g.font = '600 9.5px -apple-system, Inter, sans-serif';
   for (const [col, lbl] of items) {
     g.fillStyle = col;
-    g.beginPath(); g.roundRect(cx, cy - 2.5, 14, 5, 2.5); g.fill();
-    cx += 18;
+    g.beginPath(); g.roundRect(cx, cy - 2.5, 11, 5, 2.5); g.fill();
+    cx += 15;
     g.fillStyle = pal.fg;
     g.fillText(lbl, cx, cy + 0.5);
-    cx += g.measureText(lbl).width + 12;
+    cx += g.measureText(lbl).width + 10;
   }
   g.restore();
 }
@@ -202,7 +202,7 @@ function drawCanvasTitleBlock(g, x, y, w, h, circuit, pal) {
   const title = circuit.name || 'Untitled Circuit';
   g.font = '700 12.5px -apple-system, Inter, sans-serif';
   g.fillStyle = pal.fg;
-  g.fillText(title.slice(0, 34), x + 10, y + 16);
+  g.fillText(title, x + 10, y + 16, w - 20);
 
   const meta = circuit.meta || {};
   const subParts = [meta.project, meta.author ? `By ${meta.author}` : ''].filter(Boolean);
@@ -210,7 +210,7 @@ function drawCanvasTitleBlock(g, x, y, w, h, circuit, pal) {
   const sub = subParts.length ? subParts.join(' · ') : `${electricalCount} parts · ${(circuit.wires || []).length} wires`;
   g.font = '500 10px -apple-system, Inter, sans-serif';
   g.fillStyle = pal.sub;
-  g.fillText(sub.slice(0, 34), x + 10, y + 47);
+  g.fillText(sub, x + 10, y + 47, w - 108);
 
   const dateStr = new Date().toISOString().slice(0, 10);
   g.font = '600 9.5px "SF Mono", ui-monospace, Menlo, monospace';

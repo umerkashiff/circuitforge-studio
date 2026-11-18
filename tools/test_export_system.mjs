@@ -570,6 +570,117 @@ test('P4.3', 'End-to-end section count matches disabled toggles & zero NaN acros
   return 'Report toggles & SVG finiteness across embedded report document verified';
 });
 
+const boxesOverlapStrict = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+
+test('P4.4', 'Dense Breadboard Cluster Label Test: zero pill-to-pill, pill-to-pinNum, and wire-label overlaps in Full mode', () => {
+  const c = new Circuit(); c.name = 'Dense Counter Cluster';
+  c.boards.push(new Board('half', 0, 0));
+  c.parts.push(
+    new Part('vcc', 3, -3), new Part('gnd', 5, -3), new Part('clock', 9, -2, 0, { hz: 2 }),
+    new Part('ic7493', 10, 11), new Part('bargraph', 20, 11, 0, { color: 'yellow' }),
+    new Part('resistor', 20, 14, 1, { ohms: 330 }), new Part('resistor', 21, 14, 1, { ohms: 330 }),
+    new Part('resistor', 22, 14, 1, { ohms: 330 }), new Part('resistor', 23, 14, 1, { ohms: 330 }),
+  );
+  const wires = [
+    [12, 7, 23, 7, '#30a46c', 'QA'], [15, 6, 22, 6, '#30a46c', 'QB'],
+    [16, 5, 21, 5, '#30a46c', 'QC'], [13, 4, 20, 4, '#30a46c', 'QD'],
+    [9, -2, 10, 6, '#0a84ff', 'CLK'], [12, 5, 10, 14, '#ff8a00', 'LOOP'],
+  ];
+  for (const [x1, y1, x2, y2, col, lbl] of wires) {
+    const w = new Wire({ x: x1, y: y1 }, { x: x2, y: y2 }, col);
+    w.label = lbl;
+    c.wires.push(w);
+  }
+  ensureDesignators(c);
+
+  const placed = computeLabelPlacements(c, 'full');
+  const partBoxes = placed.partLabels;
+  const pinBoxes = placed.pinNumBoxes || [];
+  const wireBoxes = placed.wireLabels;
+
+  for (let i = 0; i < partBoxes.length; i++) {
+    for (let j = i + 1; j < partBoxes.length; j++) {
+      assert.ok(!boxesOverlapStrict(partBoxes[i], partBoxes[j]), `Part label pills ${i} & ${j} overlapped`);
+    }
+    for (let p = 0; p < pinBoxes.length; p++) {
+      assert.ok(!boxesOverlapStrict(partBoxes[i], pinBoxes[p]), `Part label ${i} overlapped DIP pin number ${p}`);
+    }
+  }
+  for (let i = 0; i < wireBoxes.length; i++) {
+    for (let j = i + 1; j < wireBoxes.length; j++) {
+      assert.ok(!boxesOverlapStrict(wireBoxes[i], wireBoxes[j]), `Wire labels ${i} & ${j} overlapped`);
+    }
+    for (let k = 0; k < partBoxes.length; k++) {
+      assert.ok(!boxesOverlapStrict(wireBoxes[i], partBoxes[k]), `Wire label ${i} overlapped part label ${k}`);
+    }
+    for (let p = 0; p < pinBoxes.length; p++) {
+      assert.ok(!boxesOverlapStrict(wireBoxes[i], pinBoxes[p]), `Wire label ${i} overlapped DIP pin number ${p}`);
+    }
+  }
+  return `${partBoxes.length} part pills, ${pinBoxes.length} DIP pin numbers, ${wireBoxes.length} wire badges placed with 0 collisions`;
+});
+
+test('P4.5', 'Schematic Consolidation, Manual Drag Push-Apart & Footer Notes Clearance', () => {
+  const c = new Circuit();
+  c.name = 'Very Long Schematic Title Exceeding Normal Box Boundaries For Ellipsis Check';
+  c.meta = { author: 'Ada Lovelace', project: 'Digital Logic Lab Very Long Project Name Verification', revision: '2.0', notes: 'Verify R0(1)/R0(2) consolidated GND trunk\nVerify footer clears lowest routed net.' };
+  c.boards.push(new Board('half', 0, 0));
+  c.parts.push(
+    new Part('vcc', 3, -3), new Part('gnd', 5, -3), new Part('clock', 9, -2, 0, { hz: 2 }),
+    new Part('uno', 0, -24, 0, { code: 'void setup(){}' }),
+    new Part('ic7493', 10, 11), new Part('bargraph', 20, 11, 0, { color: 'yellow' }),
+    new Part('resistor', 20, 14, 1, { ohms: 330 }), new Part('resistor', 21, 14, 1, { ohms: 330 }),
+    new Part('resistor', 22, 14, 1, { ohms: 330 }), new Part('resistor', 23, 14, 1, { ohms: 330 }),
+  );
+  const wires = [
+    [3, -3, 3, 1, '#e5484d'], [5, -3, 5, 2, '#2b2d31'], [31, 1, 31, 17, '#e5484d'], [30, 2, 30, 18, '#2b2d31'],
+    [14, 15, 14, 17, '#e5484d'], [14, 4, 14, 2, '#2b2d31'], [11, 15, 11, 18, '#2b2d31'], [12, 15, 12, 18, '#2b2d31'],
+    [12, 5, 10, 14, '#ff8a00'], [9, -2, 10, 6, '#0a84ff'], [12, 7, 23, 7, '#30a46c'], [15, 6, 22, 6, '#30a46c'],
+    [16, 5, 21, 5, '#30a46c'], [13, 4, 20, 4, '#30a46c'], [20, -24, 9, -2, '#8b5cf6'],
+  ];
+  for (const [x1, y1, x2, y2, col] of wires) c.wires.push(new Wire({ x: x1, y: y1 }, { x: x2, y: y2 }, col));
+  ensureDesignators(c);
+
+  const eng = new Engine();
+  eng.build(c);
+  eng.step(0.05);
+  const res = renderSchematicSVG(c, eng, null, { standard: 'ieee', powerStyle: 'symbols', theme: 'live' });
+  assert.ok((res.layout.powerTrunks || []).length > 0, 'Adjacent same-side 7493 GND pins consolidate into shared trunk');
+
+  const gndPortsOn7493 = res.layout.powerPorts.filter(p => p.kind === 'gnd' && res.layout.symbols.some(s => s.schId === p.schId && s.type === 'ic7493'));
+  const gndSidesOn7493 = new Set(gndPortsOn7493.map(p => p.side));
+  assert.equal(gndSidesOn7493.size, gndPortsOn7493.length, 'At most 1 consolidated GND symbol per side of 7493 (R0(1)+R0(2) share 1 L-side GND)');
+  assert.equal(gndPortsOn7493.filter(p => p.side === 'L').length, 1, '7493 R0(1) & R0(2) consolidate onto a single left-side GND symbol');
+
+  const symBoxes = res.layout.symbols.map(s => ({ x0: s.x, y0: s.y, x1: s.x + s.w, y1: s.y + s.h }));
+  for (let i = 0; i < symBoxes.length; i++) {
+    for (let j = i + 1; j < symBoxes.length; j++) {
+      assert.ok(!boxesOverlapStrict(symBoxes[i], symBoxes[j]), `Schematic symbols ${i} & ${j} overlapped`);
+    }
+  }
+
+  // Footer note text sits cleanly below schematic symbols and bottom power rail
+  const maxSymBottom = Math.max(...symBoxes.map(b => b.y1));
+  const noteMatch = [...res.svg.matchAll(/<text x="[^"]+" y="([^"]+)" font-size="9\.5" fill="[^"]+">Note: Unwired pins hidden/g)];
+  assert.equal(noteMatch.length, 1, 'Footer note renders in dedicated strip');
+  const noteSvgY = +noteMatch[0][1] - res.offY;
+  assert.ok(noteSvgY > maxSymBottom, `Footer note y (${noteSvgY}) sits below lowest schematic symbol (${maxSymBottom})`);
+
+  // Force overlapping manual drag via part.sch onto an unpinned symbol and verify push-apart resolves collision
+  const icSym = res.layout.symbols.find(s => s.type === 'ic7493');
+  const rParts = c.parts.filter(p => p.type === 'resistor');
+  rParts[0].sch = { x: icSym.x, y: icSym.y };
+  const dragged = computeSchematicLayout(c, null, null, { powerStyle: 'symbols' });
+  const dragBoxes = dragged.symbols.map(s => ({ x0: s.x, y0: s.y, x1: s.x + s.w, y1: s.y + s.h }));
+  for (let i = 0; i < dragBoxes.length; i++) {
+    for (let j = i + 1; j < dragBoxes.length; j++) {
+      assert.ok(!boxesOverlapStrict(dragBoxes[i], dragBoxes[j]), `Pinned/dragged symbols ${i} & ${j} overlapped after push-apart`);
+    }
+  }
+  assert.ok(!/NaN|Infinity|undefined/.test(res.svg));
+  return `${res.layout.powerTrunks.length} consolidated trunks, ${symBoxes.length} non-overlapping symbols, footer clearance & drag push-apart verified`;
+});
+
 let failed = 0;
 for (const r of results) {
   console.log(`${r.pass ? 'PASS' : 'FAIL'} [${r.id}] ${r.name} -> ${r.info}`);
