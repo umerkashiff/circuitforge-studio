@@ -1,31 +1,6 @@
 {
   "active": [
     {
-      "id": "autoreg_reg_guitar_fuzz",
-      "name": "Guitar Overdrive Diode Clipper (typos)",
-      "prompt": "bild an elektric guitar overdrive diode clipper fx circuit using func gen sinewav, coupling capcitor, resistor, 2 inverse 1n4148 rectifiers to clip peaks, and UT2062B cro scope",
-      "scopes": [],
-      "oracle": {
-        "minParts": 5,
-        "requireTypes": [
-          [
-            "funcgen"
-          ],
-          [
-            "oscilloscope"
-          ],
-          [
-            "diode"
-          ]
-        ],
-        "check": "scope_ac"
-      },
-      "signature": "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC*.CH",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-17",
-      "lastFailed": "2026-11-17"
-    },
-    {
       "id": "autoreg_reg_half_wave_rect",
       "name": "Half-Wave Diode Rectifier + Filter + Scope",
       "prompt": "build a half wave rectifier with a 1n4007 diode, function generator 100Hz sine input, load resistor and smoothing cap, plus oscilloscope across input and output",
@@ -47,34 +22,6 @@
       },
       "signature": "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC*.CH",
       "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-17",
-      "lastFailed": "2026-11-17"
-    },
-    {
-      "id": "autoreg_idea_mwl354p0_3",
-      "name": "Simple Audio Amplifier",
-      "prompt": "Can you design a basic audio amplifier circuit using a transistor? I want to drive a small speaker.",
-      "scopes": [],
-      "oracle": {
-        "minParts": 3,
-        "requireTypes": [
-          [
-            "npn"
-          ],
-          [
-            "resistor"
-          ],
-          [
-            "capacitor"
-          ],
-          [
-            "vcc"
-          ]
-        ],
-        "check": "buzzer_active"
-      },
-      "signature": "missing expected type (vcc)",
-      "tier": "T2_SILENT_DEAD",
       "firstFailed": "2026-11-17",
       "lastFailed": "2026-11-17"
     },
@@ -103,34 +50,6 @@
       },
       "signature": "missing expected type (vcc)",
       "tier": "T2_SILENT_DEAD",
-      "firstFailed": "2026-11-17",
-      "lastFailed": "2026-11-17"
-    },
-    {
-      "id": "autoreg_idea_mwl354p0_6",
-      "name": "Monostable Multivibrator",
-      "prompt": "I need a circuit that produces a single output pulse of a specific duration when triggered. A 555 timer in monostable mode would be perfect.",
-      "scopes": [],
-      "oracle": {
-        "minParts": 3,
-        "requireTypes": [
-          [
-            "ne555"
-          ],
-          [
-            "led"
-          ],
-          [
-            "button"
-          ],
-          [
-            "resistor"
-          ]
-        ],
-        "check": "led_active"
-      },
-      "signature": "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"B*.OUT\" directly to its destinat",
-      "tier": "T1_BUILD_FAIL",
       "firstFailed": "2026-11-17",
       "lastFailed": "2026-11-17"
     },
@@ -316,32 +235,6 @@
         "check": "led_active"
       },
       "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=<val>) — fix its resistor/driver wiring, check counter/gate inputs, and ensure",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-17",
-      "lastFailed": "2026-11-17"
-    },
-    {
-      "id": "autoreg_mut_chaser_v001",
-      "name": "Mutated chaser #1",
-      "prompt": "wrire a knight rider 8 led chaser using ne-555 clock chip, 4017 chip, and 8 glowing leds with 220ohm resiter",
-      "scopes": [],
-      "oracle": {
-        "minParts": 18,
-        "requireTypes": [
-          [
-            "ne555"
-          ],
-          [
-            "ic4017"
-          ],
-          [
-            "led"
-          ]
-        ],
-        "check": "led_multi",
-        "minActiveLeds": 4
-      },
-      "signature": "LED \"<ref>\" has an unconnected pin — wire Anode (via #–#Ω resistor) to its driver/signal and Cathode to \"-\".",
       "tier": "T1_BUILD_FAIL",
       "firstFailed": "2026-11-17",
       "lastFailed": "2026-11-17"
@@ -543,28 +436,6 @@
       "lastFailed": "2026-11-17"
     },
     {
-      "id": "autoreg_mut_bjt_driver_v002",
-      "name": "Mutated bjt_driver #2",
-      "prompt": "setup an 2n2222 common-emitter switch activated by tact button button through 10k resiter powering a led and piezo sounder",
-      "scopes": [],
-      "oracle": {
-        "minParts": 6,
-        "requireTypes": [
-          [
-            "npn"
-          ],
-          [
-            "led"
-          ]
-        ],
-        "check": "led_active"
-      },
-      "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=NC) — fix its resistor/driver wiring, check counter/gate inputs, and ensure se",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-17",
-      "lastFailed": "2026-11-17"
-    },
-    {
       "id": "autoreg_mut_rc_scope_v002",
       "name": "Mutated rc_scope #2",
       "prompt": "design a 1khz rc filter from sig gen through 1k resistors and 100nF capcitor measured on ut2062b cro scope",
@@ -646,5 +517,31 @@
       "lastFailed": "2026-11-17"
     }
   ],
-  "resolved": []
+  "resolved": [
+    {
+      "id": "autoreg_reg_guitar_fuzz",
+      "signature": "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC*.CH",
+      "resolvedAt": "2026-11-18"
+    },
+    {
+      "id": "autoreg_idea_mwl354p0_3",
+      "signature": "missing expected type (vcc)",
+      "resolvedAt": "2026-11-18"
+    },
+    {
+      "id": "autoreg_idea_mwl354p0_6",
+      "signature": "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"B*.OUT\" directly to its destinat",
+      "resolvedAt": "2026-11-18"
+    },
+    {
+      "id": "autoreg_mut_chaser_v001",
+      "signature": "LED \"<ref>\" has an unconnected pin — wire Anode (via #–#Ω resistor) to its driver/signal and Cathode to \"-\".",
+      "resolvedAt": "2026-11-18"
+    },
+    {
+      "id": "autoreg_mut_bjt_driver_v002",
+      "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=NC) — fix its resistor/driver wiring, check counter/gate inputs, and ensure se",
+      "resolvedAt": "2026-11-18"
+    }
+  ]
 }

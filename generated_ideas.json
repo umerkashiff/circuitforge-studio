@@ -303,5 +303,321 @@
       "check": "led_multi"
     },
     "createdAt": "2026-11-17"
+  },
+  {
+    "id": "idea_mwlik90s_0",
+    "bucket": "curriculum",
+    "name": "BJT Astable Multivibrator",
+    "prompt": "Can you build a classic two-transistor astable multivibrator using BJTs that alternately blinks two LEDs?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "npn"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-18"
+  },
+  {
+    "id": "idea_mwlik90s_1",
+    "bucket": "curriculum",
+    "name": "Push-Pull Audio Amplifier",
+    "prompt": "I need a simple class AB push-pull amplifier circuit using NPN and PNP transistors to drive a small buzzer or speaker from a function generator.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "npn"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "buzzer"
+        ]
+      ],
+      "check": "buzzer_active"
+    },
+    "createdAt": "2026-11-18"
+  },
+  {
+    "id": "idea_mwlik90s_2",
+    "bucket": "curriculum",
+    "name": "Schmitt Trigger Square Wave Generator",
+    "prompt": "Can we use a 7414 hex inverter with a Schmitt trigger input to make a simple square wave clock generator with an LED indicator?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7414"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-18"
+  },
+  {
+    "id": "idea_mwlik90s_3",
+    "bucket": "curriculum",
+    "name": "Priority Encoder Display",
+    "prompt": "Show me how a 74148 priority encoder can read inputs from buttons and output the binary code to a set of LEDs.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic74148"
+        ],
+        [
+          "button"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-18"
+  },
+  {
+    "id": "idea_mwlik90s_4",
+    "bucket": "curriculum",
+    "name": "4-Bit Ripple Carry Adder",
+    "prompt": "Let's build a 4-bit binary adder using the 7483 IC where dip switches set the inputs and LEDs show the sum.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7483"
+        ],
+        [
+          "dip8"
+        ],
+        [
+          "led"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-18"
+  },
+  {
+    "id": "idea_mwlik90s_5",
+    "bucket": "curriculum",
+    "name": "Shift Register LED Chaser",
+    "prompt": "Can you wire up a 74194 shift register with a clock and toggle switches to create a shift-left/shift-right LED chaser?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic74194"
+        ],
+        [
+          "clock"
+        ],
+        [
+          "toggle"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-18"
+  },
+  {
+    "id": "idea_mwlik90s_6",
+    "bucket": "curriculum",
+    "name": "Analog RC Low-Pass Filter",
+    "prompt": "I want to test a simple RC low-pass filter using the oscilloscope to measure phase shift and attenuation of a sine wave input.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "funcgen"
+        ],
+        [
+          "oscilloscope"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-18"
+  },
+  {
+    "id": "idea_mwlik90s_7",
+    "bucket": "curriculum",
+    "name": "Arduino Ultrasonic Distance Buzzer",
+    "prompt": "Write a quick Arduino sketch and wire an Uno with an active buzzer that sounds when an analog distance sensor detects an object too close.",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "buzzer"
+        ],
+        [
+          "pot"
+        ],
+        [
+          "vcc"
+        ]
+      ],
+      "check": "buzzer_active"
+    },
+    "createdAt": "2026-11-18"
+  },
+  {
+    "id": "idea_mwlik90s_8",
+    "bucket": "curriculum",
+    "name": "BCD Up-Down Counter",
+    "prompt": "Can you make a 74193 up-down binary counter circuit connected to a 7447 decoder and a 7-segment display to show counts?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic74193"
+        ],
+        [
+          "ic7447"
+        ],
+        [
+          "seg7"
+        ],
+        [
+          "clock"
+        ]
+      ],
+      "check": "seg7_active"
+    },
+    "createdAt": "2026-11-18"
+  },
+  {
+    "id": "idea_mwlik90s_9",
+    "bucket": "curriculum",
+    "name": "Multiplexer Data Selector",
+    "prompt": "Set up a 74151 8-input multiplexer with slide switches selecting which data line gets routed to an LED output indicator.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic74151"
+        ],
+        [
+          "slide"
+        ],
+        [
+          "led"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-18"
+  },
+  {
+    "id": "idea_mwlik90s_10",
+    "bucket": "curriculum",
+    "name": "555 Pulse Width Modulator",
+    "prompt": "Design a PWM controller using a 555 timer and a potentiometer to adjust the brightness of an LED.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ne555"
+        ],
+        [
+          "pot"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-18"
+  },
+  {
+    "id": "idea_mwlik90s_11",
+    "bucket": "curriculum",
+    "name": "Arduino RGB Color Mixer",
+    "prompt": "Can you hook up an Arduino Uno with three slide potentiometers to control the Red, Green, and Blue channels of a common-cathode RGB LED?",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "wokwi-rgb-led"
+        ],
+        [
+          "wokwi-slide-potentiometer"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-18"
   }
 ]
