@@ -7,6 +7,9 @@ import { COLOR_KEYS } from './editor.js';
 import { ACCENTS, BOARD_COLORS } from './settings.js';
 import { SCOPE_VDIV, SCOPE_TDIV, computeScopeWindow, measureChannelStats, fmtUnits } from './parts/library.js';
 import { mountAiPanel } from './ai/panel.js';
+import { isAnnotationType, isDuplicateRef, cleanRef, reannotateCircuit } from './export/designators.js';
+import { openExportStudio } from './export/modal.js';
+import { exportScopePNG } from './export/waveform_export.js';
 
 const SHOW_ABOUT = true; // Show About page content in Settings & brand logo click
 const $ = (s, r = document) => r.querySelector(s);
@@ -157,7 +160,7 @@ export class UI {
     $('#btn-redo').addEventListener('click', () => app.redo());
     $('#btn-open').addEventListener('click', () => app.openFile());
     $('#btn-save').addEventListener('click', () => app.saveFile());
-    $('#btn-png').addEventListener('click', () => app.exportPNG());
+    $('#btn-export').addEventListener('click', () => this.openExport('breadboard'));
     $('#btn-analyzer').addEventListener('click', () => this.toggleAnalyzer());
     $('#btn-theme').addEventListener('click', () => app.toggleTheme());
     $('#btn-panel').addEventListener('click', () => {
@@ -196,6 +199,25 @@ export class UI {
     for (const e of app.examples) ex.append(h('button', { class: 'menu-item', onclick: () => { this.closeMenus(); app.loadExample(e); } }, h('span', {}, e.name), h('span', { class: 'muted' }, e.sub)));
     $('#btn-examples').addEventListener('click', (e) => { e.stopPropagation(); ex.classList.toggle('open'); });
     $('#btn-new').addEventListener('click', () => app.newCircuit());
+    for (const b of document.querySelectorAll('#lbl-bar button[data-lbl]')) {
+      b.addEventListener('click', () => app.settings.set('labelMode', b.dataset.lbl));
+    }
+  }
+  cycleLabelMode() {
+    const order = ['off', 'refs', 'values', 'full'];
+    const labels = { off: 'Off', refs: 'Designators (R1, U1)', values: 'Refs + Values', full: 'Full Engineering' };
+    const cur = this.app.settings.get('labelMode') || 'off';
+    const next = order[(order.indexOf(cur) + 1) % order.length];
+    this.app.settings.set('labelMode', next);
+    this.toast(`Labels: ${labels[next]}`);
+  }
+  focusInspectorField(key) {
+    this.setInspectorTab('inspector');
+    const el = this.insp.querySelector(`[data-field="${key}"]`) || this.insp.querySelector('input, textarea, select');
+    if (el) { el.focus(); if (el.select) el.select(); }
+  }
+  openExport(tab = 'breadboard', dataView = 'bom') {
+    openExportStudio(this.app, tab, dataView);
   }
   syncToolbar() {
     const app = this.app;
@@ -215,6 +237,8 @@ export class UI {
     $('#zoom-label').textContent = Math.round(app.cam.z * 100) + '%';
     $('#btn-panel').classList.toggle('on', !document.body.classList.contains('no-inspector'));
     $('#btn-library').classList.toggle('on', !document.body.classList.contains('no-library'));
+    const lm = app.settings.get('labelMode') || 'off';
+    for (const b of document.querySelectorAll('#lbl-bar button[data-lbl]')) b.classList.toggle('on', b.dataset.lbl === lm);
   }
 
   bindPaneResizers() {
@@ -366,12 +390,28 @@ export class UI {
 
   inspectCircuit(body) {
     const app = this.app, c = app.circuit;
+    c.meta = c.meta || { author: '', project: '', revision: '1.0', notes: '' };
     body.append(h('div', { class: 'insp-head' }, h('div', {},
       h('div', { class: 'insp-title' }, c.name),
       h('div', { class: 'insp-sub' }, `${c.parts.length} parts · ${c.wires.length} wires · ${c.boards.length} board${c.boards.length === 1 ? '' : 's'}`))));
     const issues = h('div', { class: 'issues', id: 'issues' });
     body.append(h('div', { class: 'group' }, h('div', { class: 'group-label' }, 'Status'), issues));
     this.renderIssues();
+
+    const metaFld = (lbl, key, ph = '') => h('label', { class: 'field' }, h('span', {}, lbl), h('input', {
+      class: 'input', type: 'text', value: c.meta[key] || '', placeholder: ph,
+      onchange: (e) => { c.meta[key] = e.target.value.trim(); app.commit('Edit circuit info'); },
+    }));
+    body.append(h('div', { class: 'group' }, h('div', { class: 'group-label' }, 'Labels & Documentation'),
+      metaFld('Author', 'author', 'Your name'),
+      metaFld('Project', 'project', 'Course / lab title'),
+      metaFld('Revision', 'revision', '1.0'),
+      h('button', { class: 'btn wide', onclick: () => {
+        const changed = reannotateCircuit(c);
+        app.commit('Re-number parts');
+        this.toast(changed ? `Re-numbered ${changed} designator${changed === 1 ? '' : 's'}.` : 'All designators are already in order.');
+      } }, 'Auto-Number Parts (R1, U1…)')));
+
     body.append(h('div', { class: 'group' }, h('div', { class: 'group-label' }, 'How it works'),
       h('ul', { class: 'tips' },
         h('li', {}, h('b', {}, 'Add parts'), ' — drag from the library, or click one and click the board.'),
@@ -432,16 +472,40 @@ export class UI {
         if (!found) input.prepend(h('option', { value: String(val), selected: true }, `${val} ${f.custom.unit}`));
         input.append(h('option', { value: '__custom' }, 'Custom…'));
       }
+    } else if (f.kind === 'textarea') {
+      input = h('textarea', { class: 'input', rows: '2', onchange: (e) => set(e.target.value) });
+      input.value = val ?? '';
     } else {
       input = h('input', { class: 'input', type: 'text', value: val ?? '', onchange: (e) => set(e.target.value) });
     }
     return h('label', { class: 'field' }, h('span', {}, f.label), input);
   }
 
+  _refField(part) {
+    if (isAnnotationType(part.type)) return null;
+    const app = this.app;
+    return h('label', { class: 'field' }, h('span', {}, 'Designator'), h('input', {
+      class: 'input', type: 'text', 'data-field': 'ref', value: part.ref || '', placeholder: 'e.g. R1, U1',
+      onchange: (e) => {
+        const next = cleanRef(e.target.value);
+        if (!next) { e.target.value = part.ref || ''; return; }
+        if (isDuplicateRef(app.circuit, next, part.id)) {
+          this.toast(`“${next}” is already used by another part.`);
+          e.target.value = part.ref || '';
+          return;
+        }
+        part.ref = next;
+        app.commit('Rename designator');
+      },
+    }));
+  }
+
   inspectPart(body, part) {
     const def = getDef(part.type);
+    const titleTxt = def.ic ? `${def.short} ${def.name.replace(def.short, '').trim()}` : def.name;
+    const titleEl = h('div', { class: 'insp-title' }, part.ref ? h('span', { class: 'insp-ref' }, part.ref) : null, titleTxt);
     const head = h('div', { class: 'insp-head' }, h('div', { class: 'insp-thumb' }, thumb({ type: part.type, props: part.props }, 64, 48)),
-      h('div', {}, h('div', { class: 'insp-title' }, def.ic ? `${def.short} ${def.name.replace(def.short, '').trim()}` : def.name), h('div', { class: 'insp-sub' }, def.title || '')));
+      h('div', {}, titleEl, h('div', { class: 'insp-sub' }, def.title || '')));
     body.append(head);
     if (def.desc) body.append(h('p', { class: 'desc' }, def.desc));
     for (const w of this.app.allIssues().filter(w => w.part === part)) body.append(h('div', { class: 'issue ' + (w.level === 'error' ? 'err' : w.level === 'warn' ? 'warn' : 'note') }, h('i', { class: 'dot' }), h('div', {}, w.text)));
@@ -449,11 +513,14 @@ export class UI {
     if (def.mcu) return this.inspectBoardMcu(body, part, def);
     if (def.cat === 'Instruments') {
       body.append(h('div', { class: 'actions' },
-        h('button', { class: 'btn primary', onclick: () => this.openInstrumentWindow(part) }, 'Open Front Panel ↗')));
+        h('button', { class: 'btn primary', onclick: () => this.openInstrumentWindow(part) }, 'Open Front Panel ↗'),
+        part.type === 'oscilloscope' ? h('button', { class: 'btn', onclick: () => { exportScopePNG(this.app, part); this.toast('Exported Oscilloscope PNG'); } }, 'Export Capture') : null));
     }
-    if (def.fields) {
+    const rf = this._refField(part);
+    if (rf || def.fields) {
       const g = h('div', { class: 'group' });
-      for (const f of def.fields) g.append(this.field(part, f));
+      if (rf) g.append(rf);
+      for (const f of def.fields || []) g.append(this.field(part, f));
       body.append(g);
     }
     if (def.ic) body.append(this.pinout(part, def));
@@ -464,6 +531,8 @@ export class UI {
     const b = def.mcu;
     body.append(h('div', { class: 'actions' }, h('button', { class: 'btn primary', onclick: () => this.openCode(part) }, 'Open Code  ↵'),
       h('button', { class: 'btn', onclick: () => { this.app.resetSim(); } }, 'Restart')));
+    const rf = this._refField(part);
+    if (rf) body.append(h('div', { class: 'group' }, rf));
     const specs = h('div', { class: 'specs' });
     for (const [k, v] of b.specs || []) specs.append(h('div', { class: 'spec' }, h('span', {}, k), h('b', {}, v)));
     body.append(h('div', { class: 'group' }, h('div', { class: 'group-label' }, 'Board'), specs));
@@ -808,8 +877,8 @@ export class UI {
       ['Wiring', [['drag hole → hole', 'Draw a wire'], ['click, click…', 'Wire with your own bends'], ['⇧ while drawing', 'Straight / routed (opposite of setting)'], ['T', 'Tidy selected (or all) wires'], ['⇧T', 'Auto-route new wires on/off'], ['⌫ while drawing', 'Remove last bend'], ['Esc', 'Cancel']]],
       ['Wire colours', [['R', 'Red'], ['B / K', 'Black'], ['U', 'Blue'], ['G', 'Green'], ['Y', 'Yellow'], ['O', 'Orange'], ['P', 'Purple'], ['W', 'White'], ['1 – 8', 'Same, by number']]],
       ['Parts', [['E / ⇧E', 'Rotate ↻ / ↺'], ['⌥ drag', 'Duplicate while dragging'], ['⌘D', 'Duplicate'], ['⌘C ⌘X ⌘V', 'Copy, cut, paste'], ['← ↑ → ↓', 'Nudge (⇧ = 5 holes)'], ['⌫', 'Delete'], ['↵', 'Open code (boards)'], ['⌘A', 'Select all']]],
-      ['View', [['Ctrl-drag', 'Pan canvas'], ['Trackpad / Scroll', 'Zoom'], ['F or ⌘0', 'Fit to screen'], ['+ / −', 'Zoom'], ['L', 'Logic analyzer'], ['⌘K', 'AI Copilot'], ['/', 'Search parts']]],
-      ['File', [['⌘Z / ⇧⌘Z', 'Undo / redo'], ['⌘S', 'Save (or Upload in the code editor)'], ['⌘O', 'Open']]],
+      ['View', [['Ctrl-drag', 'Pan canvas'], ['Trackpad / Scroll', 'Zoom'], ['F or ⌘0', 'Fit to screen'], ['+ / −', 'Zoom'], ['⇧L', 'Cycle canvas labels'], ['L', 'Logic analyzer'], ['⌘K', 'AI Copilot'], ['/', 'Search parts']]],
+      ['File', [['⌘Z / ⇧⌘Z', 'Undo / redo'], ['⌘S', 'Save (or Upload in the code editor)'], ['⌘O', 'Open'], ['⌘E', 'Export Studio']]],
     ];
     const sheet = h('div', { class: 'sheet-back', onclick: (e) => { if (e.target === sheet) sheet.remove(); } },
       h('div', { class: 'sheet' }, h('div', { class: 'sheet-head' }, h('b', {}, 'Keyboard Shortcuts'), h('button', { class: 'icon-btn', onclick: () => sheet.remove() }, '✕')),
@@ -833,7 +902,7 @@ export class UI {
       dots[i] = dot;
       const el = h('button', { class: 'prow ' + special, title: `Pin ${i} · ${label}`, onclick: () => {
         const wp = part.worldPins()[i - 1];
-        this.app.addProbe(wp.x, wp.y, `${def.short}.${label}`);
+        this.app.addProbe(wp.x, wp.y, `${part.ref || def.short}.${label}`);
       } }, ...(side === 'l' ? [h('span', { class: 'pn' }, String(i)), h('span', { class: 'pl' }, label), dot] : [dot, h('span', { class: 'pl' }, label), h('span', { class: 'pn' }, String(i))]));
       return el;
     };
@@ -867,7 +936,11 @@ export class UI {
       if (!pt) return '—';
       return pt.hole ? (pt.hole.rail ? pt.hole.label : 'Hole ' + pt.hole.label) : pt.pins.length ? `${getDef(pt.pins[0].part.type).short || getDef(pt.pins[0].part.type).name} ${pt.pins[0].name}` : 'Junction';
     };
-    body.append(h('div', { class: 'insp-head' }, h('div', { class: 'insp-thumb wire', style: `--c:${wire.color}` }), h('div', {}, h('div', { class: 'insp-title' }, 'Jumper Wire'), h('div', { class: 'insp-sub' }, `${desc(wire.a)} → ${desc(wire.b)}`))));
+    body.append(h('div', { class: 'insp-head' }, h('div', { class: 'insp-thumb wire', style: `--c:${wire.color}` }), h('div', {}, h('div', { class: 'insp-title' }, wire.label ? `Wire · ${wire.label}` : 'Jumper Wire'), h('div', { class: 'insp-sub' }, `${desc(wire.a)} → ${desc(wire.b)}`))));
+    body.append(h('div', { class: 'group' }, h('label', { class: 'field' }, h('span', {}, 'Signal name'), h('input', {
+      class: 'input', type: 'text', 'data-field': 'wire-label', value: wire.label || '', placeholder: 'e.g. CLK, SDA, OUT',
+      onchange: (e) => { wire.label = e.target.value.trim(); app.commit('Edit wire label'); },
+    }))));
     const sw = h('div', { class: 'swatches big' });
     WIRE_COLORS.forEach((c) => sw.append(h('button', { class: 'swatch' + (c.hex === wire.color ? ' active' : ''), style: `--c:${c.hex}`, title: c.name, onclick: () => { wire.color = c.hex; app.commit('Wire color'); this.inspect(); } })));
     body.append(h('div', { class: 'group' }, h('div', { class: 'group-label' }, 'Color'), sw));
@@ -877,10 +950,11 @@ export class UI {
 
   inspectBoard(body, board) {
     const app = this.app;
-    body.append(h('div', { class: 'insp-head' }, h('div', { class: 'insp-thumb' }, thumb({ board: board.size }, 64, 48)), h('div', {}, h('div', { class: 'insp-title' }, 'Breadboard'), h('div', { class: 'insp-sub' }, BOARD_SIZES[board.size].label))));
+    body.append(h('div', { class: 'insp-head' }, h('div', { class: 'insp-thumb' }, thumb({ board: board.size }, 64, 48)), h('div', {}, h('div', { class: 'insp-title' }, board.label || 'Breadboard'), h('div', { class: 'insp-sub' }, BOARD_SIZES[board.size].label))));
     const sel = h('select', { class: 'input', onchange: (e) => { board.size = e.target.value; app.commit('Board size'); this.inspect(); } });
     for (const [k, v] of Object.entries(BOARD_SIZES)) sel.append(h('option', { value: k, selected: k === board.size }, v.label));
-    body.append(h('div', { class: 'group' }, h('label', { class: 'field' }, h('span', {}, 'Size'), sel)));
+    const lbl = h('input', { class: 'input', type: 'text', 'data-field': 'board-label', value: board.label || '', placeholder: 'e.g. Main Board', onchange: (e) => { board.label = e.target.value.trim(); app.commit('Rename board'); } });
+    body.append(h('div', { class: 'group' }, h('label', { class: 'field' }, h('span', {}, 'Name'), lbl), h('label', { class: 'field' }, h('span', {}, 'Size'), sel)));
     body.append(h('p', { class: 'desc' }, 'Each numbered column of five holes (a–e, f–j) is connected. The + and − rails run the full length. Drag the ⠿ grip to move the board with everything on it.'));
     body.append(h('div', { class: 'actions' }, h('button', { class: 'btn danger', onclick: () => app.editor.deleteSelection() }, 'Delete Board')));
   }
@@ -889,6 +963,7 @@ export class UI {
   buildAnalyzer() {
     this.an = { el: $('#analyzer'), cv: $('#an-canvas'), list: $('#an-list'), window: 2 };
     $('#an-close').addEventListener('click', () => this.toggleAnalyzer(false));
+    $('#an-export').addEventListener('click', () => this.openExport('data', 'analyzer'));
     $('#an-clear').addEventListener('click', () => { this.app.circuit.probes = []; this.app.commit('Clear probes'); this.renderProbes(); this.drawAnalyzer(); });
     $('#an-window').addEventListener('change', (e) => { this.an.window = +e.target.value; this.drawAnalyzer(); });
     this.an.list.addEventListener('scroll', () => this.drawAnalyzer());

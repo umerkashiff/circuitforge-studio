@@ -1,5 +1,7 @@
 import { P, ROW_LETTERS } from '../model.js';
 import { getDef } from '../parts/registry.js';
+import { isAnnotationType } from '../export/designators.js';
+import { drawLabelOverlays } from '../export/labels.js';
 
 const TAU = Math.PI * 2;
 
@@ -44,37 +46,72 @@ export class Renderer {
   accentA(a) { const n = parseInt(this.accent.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
   get theme() { return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'; }
 
-  draw() {
+  draw(opts = null) {
     const { g, app } = this;
-    const cam = app.cam, dark = this.theme === 'dark';
-    if (this._bgCache.dark !== dark) {
+    const cam = opts?.cam || app.cam;
+    const dark = opts?.dark !== undefined ? opts.dark : this.theme === 'dark';
+    const wPx = opts?.w ?? this.w;
+    const hPx = opts?.h ?? this.h;
+    const dpr = opts?.dpr ?? this.dpr;
+    if (!opts && this._bgCache.dark !== dark) {
       this._bgCache.dark = dark;
       this._bgCache.color = getComputedStyle(document.documentElement).getPropertyValue('--canvas').trim() || '#f2f2f4';
     }
-    g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    const bgColor = opts?.background !== undefined ? opts.background : this._bgCache.color;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.imageSmoothingEnabled = true;
     g.imageSmoothingQuality = 'high';
-    g.fillStyle = this._bgCache.color;
-    g.fillRect(0, 0, this.w, this.h);
-    this.drawGrid(dark);
+    if (bgColor === 'transparent') {
+      g.clearRect(0, 0, wPx, hPx);
+    } else {
+      g.fillStyle = bgColor;
+      g.fillRect(0, 0, wPx, hPx);
+    }
+    if (opts?.drawGrid !== false) this.drawGrid(dark, cam, wPx, hPx);
 
-    g.setTransform(this.dpr * cam.z, 0, 0, this.dpr * cam.z, this.dpr * cam.x, this.dpr * cam.y);
+    g.setTransform(dpr * cam.z, 0, 0, dpr * cam.z, dpr * cam.x, dpr * cam.y);
     const c = app.circuit, ed = app.editor, sim = app.engine;
-    const hoverNet = ed.hoverNet;
-    for (const b of c.boards) this.drawBoard(b, dark, ed.selection.has(b.id), hoverNet);
+    const hideSelection = Boolean(opts?.hideSelection);
+    const hoverNet = hideSelection ? -1 : ed.hoverNet;
+    const live = opts?.live !== undefined ? opts.live : app.mode === 'sim';
+    const env = { rot: 0, dev: null, dark, showPinLabels: cam.z > 1.25, chipText: app.settings.get('chipText') };
+
+    // 1. Background functional zones sit underneath boards and parts
+    for (const p of c.parts) {
+      if (p.type !== 'zone') continue;
+      env.dev = null;
+      this.drawPart(p, env, !hideSelection && ed.selection.has(p.id), opts);
+    }
+
+    for (const b of c.boards) this.drawBoard(b, dark, !hideSelection && ed.selection.has(b.id), hoverNet, live);
     if (hoverNet >= 0) this.drawNetHighlight(hoverNet);
 
-    const live = app.mode === 'sim';
-    const env = { rot: 0, dev: null, dark, showPinLabels: cam.z > 1.25, chipText: app.settings.get('chipText') };
+    // 2. Electrical parts & instruments
     for (const p of c.parts) {
+      if (isAnnotationType(p.type)) continue;
       const entry = sim.byPart.get(p.id);
       env.dev = live && entry ? entry.device : null;
-      this.drawPart(p, env, ed.selection.has(p.id));
+      this.drawPart(p, env, !hideSelection && ed.selection.has(p.id), opts);
     }
-    for (const w of c.wires) this.drawWire(w.path(), w.color, ed.selection.has(w.id), w);
-    this.drawWarnings();
-    this.drawEffects();
-    ed.drawOverlay(g, env);
+
+    for (const w of c.wires) this.drawWire(w.path(), w.color, !hideSelection && ed.selection.has(w.id), w, 1, live);
+
+    // 3. Foreground notes, net flags & callout pointers above wires
+    for (const p of c.parts) {
+      if (p.type === 'zone' || !isAnnotationType(p.type)) continue;
+      env.dev = null;
+      this.drawPart(p, env, !hideSelection && ed.selection.has(p.id), opts);
+    }
+
+    // 4. Auto-placed designator/value badges & wire signal pills
+    const labelMode = opts?.labelMode !== undefined ? opts.labelMode : app.settings.get('labelMode');
+    drawLabelOverlays(g, c, { labelMode, dark });
+
+    if (opts?.drawWarnings !== false) this.drawWarnings();
+    if (!opts) {
+      this.drawEffects();
+      ed.drawOverlay(g, env);
+    }
   }
 
   drawEffects() {
@@ -99,24 +136,24 @@ export class Renderer {
     }
   }
 
-  drawGrid(dark) {
+  drawGrid(dark, cam = this.app.cam, wPx = this.w, hPx = this.h) {
     const { g, app } = this;
-    const s = P * app.cam.z;
+    const s = P * cam.z;
     const mode = app.settings.get('canvas');
     if (s < 7 || mode === 'plain') return;
     if (mode === 'grid') {
       g.strokeStyle = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'; g.lineWidth = 1;
-      const gx = ((app.cam.x % s) + s) % s, gy = ((app.cam.y % s) + s) % s;
+      const gx = ((cam.x % s) + s) % s, gy = ((cam.y % s) + s) % s;
       g.beginPath();
-      for (let x = gx; x < this.w; x += s) { g.moveTo(Math.round(x) + 0.5, 0); g.lineTo(Math.round(x) + 0.5, this.h); }
-      for (let y = gy; y < this.h; y += s) { g.moveTo(0, Math.round(y) + 0.5); g.lineTo(this.w, Math.round(y) + 0.5); }
+      for (let x = gx; x < wPx; x += s) { g.moveTo(Math.round(x) + 0.5, 0); g.lineTo(Math.round(x) + 0.5, hPx); }
+      for (let y = gy; y < hPx; y += s) { g.moveTo(0, Math.round(y) + 0.5); g.lineTo(wPx, Math.round(y) + 0.5); }
       g.stroke();
       return;
     }
     g.fillStyle = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)';
-    const ox = ((app.cam.x % s) + s) % s, oy = ((app.cam.y % s) + s) % s;
+    const ox = ((cam.x % s) + s) % s, oy = ((cam.y % s) + s) % s;
     const r = Math.min(1.2, s / 16);
-    for (let x = ox; x < this.w; x += s) for (let y = oy; y < this.h; y += s) g.fillRect(x - r / 2, y - r / 2, r, r);
+    for (let x = ox; x < wPx; x += s) for (let y = oy; y < hPx; y += s) g.fillRect(x - r / 2, y - r / 2, r, r);
   }
 
   _getBoardSprite(b, dark, bc) {
@@ -190,7 +227,7 @@ export class Renderer {
     return entry;
   }
 
-  drawBoard(b, dark, selected, hoverNet) {
+  drawBoard(b, dark, selected, hoverNet, live = (this.app.mode === 'sim')) {
     const g = this.g;
     const x = b.x * P, y = b.y * P, w = b.w * P, h = b.h * P;
     const bc = this.app.settings.get('boardColor');
@@ -199,7 +236,7 @@ export class Renderer {
       g.drawImage(sprite.canvas, x - sprite.pad, y - sprite.pad, sprite.w, sprite.h);
       g.strokeStyle = selected ? this.accent : 'rgba(0,0,0,0.08)'; g.lineWidth = selected ? 2 : 1;
       g.beginPath(); g.roundRect(x, y, w, h, 10); g.stroke();
-      if (this.app.mode === 'sim' && this.app.settings.get('wireStyle') !== 'off') this.tintLiveStrips(b);
+      if (live && this.app.settings.get('wireStyle') !== 'off') this.tintLiveStrips(b);
     } else {
       g.save();
       g.shadowColor = 'rgba(20,25,35,0.16)'; g.shadowBlur = 24; g.shadowOffsetY = 8;
@@ -212,7 +249,7 @@ export class Renderer {
       const cy = (b.y + b.rowY(4) + 1.5) * P;
       g.fillStyle = blackBoard ? '#1f2024' : 'rgba(0,0,0,0.055)';
       g.fillRect(x + 6, cy - P * 0.55, w - 12, P * 1.1);
-      if (this.app.mode === 'sim' && this.app.settings.get('wireStyle') !== 'off') this.tintLiveStrips(b);
+      if (live && this.app.settings.get('wireStyle') !== 'off') this.tintLiveStrips(b);
       for (const hole of b.holes()) {
         const hx = hole.x * P, hy = hole.y * P;
         g.fillStyle = blackBoard ? '#55575e' : dark ? '#3a3b40' : '#4a4c52';
@@ -220,6 +257,14 @@ export class Renderer {
         g.fillStyle = blackBoard ? '#0b0b0c' : dark ? '#16171a' : '#26282c';
         g.fillRect(hx - 1.8, hy - 1.6, 3.6, 3.6);
       }
+    }
+    if (b.label) {
+      g.save();
+      g.font = '700 9.5px -apple-system, Inter, sans-serif';
+      g.fillStyle = dark ? '#9aa3af' : '#6e6e73';
+      g.textAlign = 'right'; g.textBaseline = 'bottom';
+      g.fillText(b.label, x + w - 8, y - 4);
+      g.restore();
     }
     // grip handle (drag the whole board from here)
     const gx = x + 8, gy = y + 8;
@@ -259,7 +304,7 @@ export class Renderer {
   }
 
   /** Jumper wire with rounded bends, shading and metal tips. */
-  drawWire(pts, color, selected, wire, alpha = 1) {
+  drawWire(pts, color, selected, wire, alpha = 1, live = (this.app.mode === 'sim')) {
     const g = this.g;
     if (pts.length < 2) return;
     g.save();
@@ -277,7 +322,7 @@ export class Renderer {
     };
     const sim = this.app.engine;
     const ww = this.app.settings.get('wireWidth');
-    const style = wire && this.app.mode === 'sim' ? this.app.settings.get('wireStyle') : 'off';
+    const style = wire && live ? this.app.settings.get('wireStyle') : 'off';
     let state = null;
     if (style !== 'off') {
       const v = sim.voltage(sim.netAt(pts[0].x, pts[0].y));

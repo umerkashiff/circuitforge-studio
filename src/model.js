@@ -3,6 +3,7 @@
  * (one unit = one 0.1" breadboard pitch); the view multiplies by P.
  */
 import { getDef } from './parts/registry.js';
+import { ensureDesignators } from './export/designators.js';
 
 export const P = 20; // pixels per grid unit at 100% zoom
 
@@ -21,8 +22,9 @@ export const BOARD_SIZES = {
 export const ROW_LETTERS = 'abcdefghij';
 
 export class Board {
-  constructor(size = 'half', x = 0, y = 0, id = newId('b')) {
+  constructor(size = 'half', x = 0, y = 0, id = newId('b'), label = '') {
     this.id = id; this.size = size; this.x = x; this.y = y;
+    this.label = label || '';
     this._cache = null;
   }
   get cols() { return BOARD_SIZES[this.size].cols; }
@@ -54,7 +56,11 @@ export class Board {
     return list;
   }
   contains(x, y) { return x >= this.x && x <= this.x + this.w && y >= this.y && y <= this.y + this.h; }
-  toJSON() { return { id: this.id, size: this.size, x: this.x, y: this.y }; }
+  toJSON() {
+    const o = { id: this.id, size: this.size, x: this.x, y: this.y };
+    if (this.label) o.label = this.label;
+    return o;
+  }
 }
 
 const ROT = [[1, 0, 0, 1], [0, -1, 1, 0], [-1, 0, 0, -1], [0, 1, -1, 0]];
@@ -64,8 +70,10 @@ export function rotPt(x, y, rot) {
 }
 
 export class Part {
-  constructor(type, x = 0, y = 0, rot = 0, props = null, id = newId('p')) {
+  constructor(type, x = 0, y = 0, rot = 0, props = null, id = newId('p'), ref = '', sch = null) {
     this.id = id; this.type = type; this.x = x; this.y = y; this.rot = rot;
+    this.ref = ref || '';
+    this.sch = sch ? structuredClone(sch) : null;
     const def = getDef(type);
     this.props = Object.assign({}, structuredClone(def.defaults || {}), props || {});
     this.ui = {}; // transient interaction state (pressed buttons etc.)
@@ -88,19 +96,30 @@ export class Part {
   }
   hit(wx, wy) {
     const l = this.toLocal(wx, wy);
+    if (this.def.hit) return this.def.hit(this, l);
     const b = this.def.bounds(this.props);
     return l.x >= b[0] && l.x <= b[2] && l.y >= b[1] && l.y <= b[3];
   }
-  toJSON() { return { id: this.id, type: this.type, x: this.x, y: this.y, rot: this.rot, props: this.props }; }
+  toJSON() {
+    const o = { id: this.id, type: this.type, x: this.x, y: this.y, rot: this.rot, props: this.props };
+    if (this.ref) o.ref = this.ref;
+    if (this.sch) o.sch = this.sch;
+    return o;
+  }
 }
 
 /** Wire end: fixed grid point, optionally attached to a part pin (follows the part). */
 export class Wire {
-  constructor(a, b, color = '#e5484d', pts = [], id = newId('w')) {
+  constructor(a, b, color = '#e5484d', pts = [], id = newId('w'), label = '') {
     this.id = id; this.a = { ...a }; this.b = { ...b }; this.color = color; this.pts = pts.map(p => ({ ...p }));
+    this.label = label || '';
   }
   path() { return [this.a, ...this.pts, this.b]; }
-  toJSON() { return { id: this.id, a: this.a, b: this.b, color: this.color, pts: this.pts }; }
+  toJSON() {
+    const o = { id: this.id, a: this.a, b: this.b, color: this.color, pts: this.pts };
+    if (this.label) o.label = this.label;
+    return o;
+  }
 }
 
 export class Circuit {
@@ -110,6 +129,7 @@ export class Circuit {
     this.parts = [];
     this.wires = [];
     this.probes = []; // { id, x, y, name, color }
+    this.meta = { author: '', project: '', revision: '1.0', notes: '' };
   }
   partById(id) { return this.parts.find(p => p.id === id); }
   /** Keep wire ends that are attached to pins in sync after parts move. */
@@ -125,22 +145,36 @@ export class Circuit {
     }
   }
   toJSON() {
-    return { app: 'circuitforge', version: 2, name: this.name,
+    const o = { app: 'circuitforge', version: 2, name: this.name,
       boards: this.boards.map(b => b.toJSON()), parts: this.parts.map(p => p.toJSON()),
       wires: this.wires.map(w => w.toJSON()), probes: this.probes };
+    const m = this.meta;
+    if (m && (m.author || m.project || m.notes || (m.revision && m.revision !== '1.0'))) {
+      o.meta = { ...m };
+    }
+    return o;
   }
   static fromJSON(o) {
     const c = new Circuit();
     c.name = o.name || 'Untitled Circuit';
-    for (const b of o.boards || []) { c.boards.push(new Board(b.size, b.x, b.y, b.id)); bumpIds(b.id); }
+    if (o.meta && typeof o.meta === 'object') {
+      c.meta = {
+        author: String(o.meta.author || ''),
+        project: String(o.meta.project || ''),
+        revision: String(o.meta.revision || '1.0'),
+        notes: String(o.meta.notes || ''),
+      };
+    }
+    for (const b of o.boards || []) { c.boards.push(new Board(b.size, b.x, b.y, b.id, b.label)); bumpIds(b.id); }
     for (const p of o.parts || []) {
       if (!getDef(p.type, true)) continue;
-      c.parts.push(new Part(p.type, p.x, p.y, p.rot, p.props, p.id)); bumpIds(p.id);
+      c.parts.push(new Part(p.type, p.x, p.y, p.rot, p.props, p.id, p.ref, p.sch)); bumpIds(p.id);
     }
-    for (const w of o.wires || []) { c.wires.push(new Wire(w.a, w.b, w.color, w.pts, w.id)); bumpIds(w.id); }
+    for (const w of o.wires || []) { c.wires.push(new Wire(w.a, w.b, w.color, w.pts, w.id, w.label)); bumpIds(w.id); }
     c.probes = (o.probes || []).map(p => ({ ...p }));
     for (const p of c.probes) bumpIds(p.id);
     c.syncWires();
+    ensureDesignators(c);
     return c;
   }
 }

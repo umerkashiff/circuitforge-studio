@@ -8,6 +8,7 @@ import { getDef, allDefs } from '../parts/registry.js';
 import { Engine, key } from '../sim/engine.js';
 import { route, tidy } from '../sim/router.js';
 import { WIRE_COLORS } from '../view/renderer.js';
+import { nextRef, ensureDesignators } from '../export/designators.js';
 import {
   verifyPromptConstraints,
   verifyFloatingIcInputs,
@@ -419,7 +420,8 @@ export function placePartSmart(app, spec, state) {
   const preferCol = Number.isFinite(spec._preferCol) ? spec._preferCol : null;
 
   const tryAt = (x, y, rot = 0) => {
-    const p = new Part(resolved.type, Math.round(x), Math.round(y), rot, resolved.props);
+    const ref = nextRef(app.circuit, resolved.type, spec.ref);
+    const p = new Part(resolved.type, Math.round(x), Math.round(y), rot, resolved.props, undefined, ref);
     if (!canPlaceCandidate(app, p)) return null;
     app.circuit.parts.push(p);
     app.reindex(true);
@@ -1549,8 +1551,11 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
       app.reindex(true);
     }
 
-    // Existing parts become directly addressable by ID
-    for (const p of app.circuit.parts) refMap.set(p.id, p);
+    // Existing parts become directly addressable by ID or Designator
+    for (const p of app.circuit.parts) {
+      refMap.set(p.id, p);
+      if (p.ref) { refMap.set(p.ref, p); refMap.set(p.ref.toUpperCase(), p); }
+    }
 
     // Apply part deletions (including manual hole wires directly attached to deleted pins)
     if (Array.isArray(plan.remove) && plan.remove.length) {
@@ -1987,6 +1992,7 @@ export function applyAiBuildPlan(app, plan, { commit = true, startSim = true, pr
       }
     }
 
+    ensureDesignators(app.circuit);
     const health = verifyCircuitHealth(app, refById, { prompt, incremental: !clear || allowIncomplete, allowIncomplete, strictHealth });
     if (!health.ok) {
       app.load(backup, true);

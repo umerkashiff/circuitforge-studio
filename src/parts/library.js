@@ -2814,14 +2814,212 @@ register({
 });
 
 // ---------------------------------------------------------------- Notes ----
+const NOTE_COLORS = [
+  ['auto', 'Theme default'], ['#0a84ff', 'Blue'], ['#30a46c', 'Green'],
+  ['#ff9f0a', 'Amber'], ['#e5484d', 'Red'], ['#8e4ec6', 'Purple'], ['#6e6e73', 'Graphite'],
+];
+function noteBoxMetrics(textStr, size) {
+  const lines = String(textStr || ' ').split('\n');
+  const maxLen = Math.max(1, ...lines.map(l => l.length));
+  const wU = Math.max(1.8, (maxLen * size * 0.56) / U + 0.7);
+  const lineH = (size * 1.28) / U;
+  const hU = Math.max(1.1, lines.length * lineH + 0.45);
+  return { lines, wU, hU, lineH };
+}
+function hexRgb(hex) {
+  const h = String(hex || '#0a84ff').replace('#', '');
+  const n = parseInt(h.length === 3 ? h.replace(/./g, c => c + c) : h, 16);
+  return Number.isFinite(n) ? [(n >> 16) & 255, (n >> 8) & 255, n & 255] : [10, 132, 255];
+}
+function calloutBoxRect(props) {
+  const { lines, wU, hU, lineH } = noteBoxMetrics(props.text || 'Note', 12);
+  const dx = Number.isFinite(+props.dx) ? +props.dx : 4;
+  const dy = Number.isFinite(+props.dy) ? +props.dy : -3;
+  return { lines, wU, hU, lineH, dx, dy, x0: dx - wU / 2, y0: dy - hU / 2, x1: dx + wU / 2, y1: dy + hU / 2 };
+}
+
 register({
-  type: 'label', name: 'Text Label', cat: 'Notes', desc: 'A note on the canvas. Double-click to edit.',
-  defaults: { text: 'Label', size: 14 },
-  fields: [{ key: 'text', label: 'Text', kind: 'text' }, { key: 'size', label: 'Size', kind: 'select', options: [[11, 'Small'], [14, 'Medium'], [20, 'Large'], [28, 'Title']] }],
+  type: 'label', name: 'Text Label', cat: 'Notes', desc: 'Multiline note or styled label badge. Edit text & style in the Inspector.',
+  defaults: { text: 'Label', size: 14, style: 'plain', color: 'auto', align: 'left' },
+  fields: [
+    { key: 'text', label: 'Text', kind: 'textarea' },
+    { key: 'size', label: 'Size', kind: 'select', options: [[11, 'Small'], [14, 'Medium'], [20, 'Large'], [28, 'Title']] },
+    { key: 'style', label: 'Style', kind: 'select', options: [['plain', 'Plain text'], ['badge', 'Tinted badge'], ['card', 'Note card']] },
+    { key: 'color', label: 'Color', kind: 'select', options: NOTE_COLORS },
+    { key: 'align', label: 'Align', kind: 'select', options: [['left', 'Left'], ['center', 'Center'], ['right', 'Right']] },
+  ],
   pins: () => [],
-  bounds: (p) => [0, -0.6 * (p.size / 14), Math.max(2, (p.text || '').length * p.size * 0.55 / U), 0.6 * (p.size / 14)],
+  bounds: (p) => {
+    const size = +(p.size || 14);
+    const { wU, hU } = noteBoxMetrics(p.text || 'Label', size);
+    const xOff = p.align === 'center' ? -wU / 2 : p.align === 'right' ? -wU : 0;
+    return [xOff - 0.15, -hU / 2 - 0.1, xOff + wU + 0.15, hU / 2 + 0.1];
+  },
   draw(g, part, env) {
-    text(g, env, part.props.text || ' ', 0, 0, { size: part.props.size, color: env.dark ? '#f2f2f7' : '#1d1d1f', weight: part.props.size >= 20 ? 700 : 500, align: 'left' });
+    const p = part.props;
+    const size = +(p.size || 14);
+    const isThumb = part.id === 'thumb';
+    const style = isThumb ? 'card' : (p.style || 'plain');
+    const align = p.align || 'left';
+    const colOpt = p.color && p.color !== 'auto' ? p.color : (env.dark ? '#f2f2f7' : '#1d1d1f');
+    const [r, gr, b] = hexRgb(p.color && p.color !== 'auto' ? p.color : '#0a84ff');
+    const { lines, wU, hU, lineH } = noteBoxMetrics(isThumb ? 'Note' : (p.text || ' '), size);
+    const xOff = align === 'center' ? -wU / 2 : align === 'right' ? -wU : 0;
+    const bx = xOff * U, by = (-hU / 2) * U, bw = wU * U, bh = hU * U;
+
+    if (style === 'badge') {
+      rr(g, bx, by, bw, bh, 6);
+      g.fillStyle = `rgba(${r},${gr},${b},${env.dark ? 0.22 : 0.12})`; g.fill();
+      g.strokeStyle = `rgba(${r},${gr},${b},0.55)`; g.lineWidth = 1.25; g.stroke();
+    } else if (style === 'card') {
+      shadow(g, 6, 2, 0.2);
+      rr(g, bx, by, bw, bh, 6);
+      g.fillStyle = env.dark ? '#23262e' : '#ffffff'; g.fill();
+      noShadow(g);
+      g.strokeStyle = `rgba(${r},${gr},${b},0.65)`; g.lineWidth = 1.4; g.stroke();
+      g.fillStyle = `rgb(${r},${gr},${b})`;
+      rr(g, bx + 1, by + 2, 3.2, bh - 4, 2); g.fill();
+    }
+
+    const startY = -((lines.length - 1) * lineH * U) / 2;
+    const tx = isThumb ? bx + bw / 2 : align === 'center' ? 0 : align === 'right' ? bx + bw - 0.35 * U : bx + 0.35 * U;
+    const fg = style === 'plain' ? colOpt : style === 'badge' ? (p.color && p.color !== 'auto' ? (env.dark ? '#f8fafc' : colOpt) : (env.dark ? '#f2f2f7' : '#1d1d1f')) : (env.dark ? '#f2f2f7' : '#1d1d1f');
+    lines.forEach((ln, i) => {
+      text(g, env, ln || ' ', tx, startY + i * lineH * U, {
+        size, color: fg, weight: size >= 20 || style === 'badge' ? 650 : 500, align: isThumb ? 'center' : align,
+      });
+    });
+  },
+});
+
+register({
+  type: 'netlabel', name: 'Net Flag', cat: 'Notes', desc: 'Plug onto any hole or pin to give its electrical net a signal name (e.g. CLK, SDA, OUT).',
+  allowSharedPin: true,
+  defaults: { text: 'CLK', color: '#0a84ff' },
+  fields: [
+    { key: 'text', label: 'Net name', kind: 'text' },
+    { key: 'color', label: 'Color', kind: 'select', options: NOTE_COLORS.filter(([c]) => c !== 'auto') },
+  ],
+  pins: () => [{ x: 0, y: 0, name: 'NET' }],
+  bounds: (p) => {
+    const len = Math.max(2, String(p.text || 'SIG').length);
+    const wU = Math.max(2.2, len * 0.42 + 1.0);
+    return [-0.35, -0.58, wU + 0.45, 0.58];
+  },
+  draw(g, part, env) {
+    const col = part.props.color && part.props.color !== 'auto' ? part.props.color : '#0a84ff';
+    const [r, gr, b] = hexRgb(col);
+    const txt = String(part.props.text || 'SIG').trim() || 'SIG';
+    const w = Math.max(2.1, txt.length * 0.42 + 0.95) * U;
+    const hh = 0.44 * U;
+    // Pin connection lead & solder dot
+    lead(g, 0, 0, 0.45, 0, 2);
+    g.fillStyle = col; g.beginPath(); g.arc(0, 0, 3.2, 0, TAU); g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 1; g.stroke();
+    // Pointed signal flag polygon
+    g.save();
+    shadow(g, 4, 1.5, 0.22);
+    g.beginPath();
+    g.moveTo(0.35 * U, 0);
+    g.lineTo(0.72 * U, -hh);
+    g.lineTo(0.35 * U + w, -hh);
+    g.lineTo(0.35 * U + w, hh);
+    g.lineTo(0.72 * U, hh);
+    g.closePath();
+    g.fillStyle = `rgb(${r},${gr},${b})`; g.fill();
+    noShadow(g);
+    g.strokeStyle = 'rgba(255,255,255,0.45)'; g.lineWidth = 1; g.stroke();
+    g.restore();
+    text(g, env, txt, 0.56 * U + w / 2, 0.5, { size: 9, color: '#ffffff', weight: 750, font: MONO });
+  },
+});
+
+register({
+  type: 'callout', name: 'Callout Pointer', cat: 'Notes', desc: 'Arrow pointer + note box to highlight a pin, rail, or part. Drag the tip handle to re-aim.',
+  defaults: { text: 'Note', dx: 4, dy: -3, color: '#0a84ff' },
+  fields: [
+    { key: 'text', label: 'Note', kind: 'textarea' },
+    { key: 'color', label: 'Color', kind: 'select', options: NOTE_COLORS.filter(([c]) => c !== 'auto') },
+  ],
+  pins: () => [],
+  bounds: (p) => {
+    const b = calloutBoxRect(p);
+    return [Math.min(-0.4, b.x0 - 0.15), Math.min(-0.4, b.y0 - 0.15), Math.max(0.4, b.x1 + 0.15), Math.max(0.4, b.y1 + 0.15)];
+  },
+  hit(part, l) {
+    if (Math.hypot(l.x, l.y) <= 0.75) return true;
+    const b = calloutBoxRect(part.props);
+    return l.x >= b.x0 - 0.25 && l.x <= b.x1 + 0.25 && l.y >= b.y0 - 0.25 && l.y <= b.y1 + 0.25;
+  },
+  draw(g, part, env) {
+    const col = part.props.color && part.props.color !== 'auto' ? part.props.color : '#0a84ff';
+    const [r, gr, b] = hexRgb(col);
+    const box = calloutBoxRect(part.props);
+    const tx = box.dx * U, ty = box.dy * U;
+    const ang = Math.atan2(ty, tx);
+
+    // Leader line & arrowhead pointing to (0,0)
+    g.save();
+    g.strokeStyle = col; g.lineWidth = 1.8; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(tx, ty); g.stroke();
+    g.fillStyle = col;
+    g.beginPath();
+    g.moveTo(0, 0);
+    g.lineTo(Math.cos(ang - 0.42) * 8, Math.sin(ang - 0.42) * 8);
+    g.lineTo(Math.cos(ang + 0.42) * 8, Math.sin(ang + 0.42) * 8);
+    g.closePath(); g.fill();
+    g.restore();
+
+    // Note card
+    const bx = box.x0 * U, by = box.y0 * U, bw = box.wU * U, bh = box.hU * U;
+    shadow(g, 6, 2, 0.22);
+    rr(g, bx, by, bw, bh, 7);
+    g.fillStyle = env.dark ? '#23262e' : '#ffffff'; g.fill();
+    noShadow(g);
+    g.strokeStyle = `rgba(${r},${gr},${b},0.85)`; g.lineWidth = 1.5; g.stroke();
+    const startY = ty - ((box.lines.length - 1) * box.lineH * U) / 2;
+    box.lines.forEach((ln, i) => {
+      text(g, env, ln || ' ', tx, startY + i * box.lineH * U, {
+        size: 11.5, color: env.dark ? '#f2f2f7' : '#1d1d1f', weight: 600,
+      });
+    });
+  },
+});
+
+register({
+  type: 'zone', name: 'Functional Zone', cat: 'Notes', desc: 'Translucent dashed container frame drawn behind parts to group stages (e.g. Clock Stage). Drag border to move or corner handle to resize.',
+  defaults: { title: 'Clock Stage', w: 14, h: 9, color: '#0a84ff' },
+  fields: [
+    { key: 'title', label: 'Title', kind: 'text' },
+    { key: 'color', label: 'Color', kind: 'select', options: NOTE_COLORS.filter(([c]) => c !== 'auto') },
+  ],
+  pins: () => [],
+  bounds: (p) => [0, -0.7, Math.max(6, +(p.w || 14)), Math.max(4, +(p.h || 9))],
+  hit(part, l) {
+    const w = Math.max(6, +(part.props.w || 14)), h = Math.max(4, +(part.props.h || 9));
+    // Hit only the title pill, outer border band, or resize handle so inside parts/holes stay clickable
+    if (l.x >= 0.2 && l.x <= w - 0.5 && l.y >= -0.95 && l.y <= 0.6) return true;
+    if (l.x < -0.5 || l.x > w + 0.5 || l.y < -0.5 || l.y > h + 0.5) return false;
+    return l.x <= 0.55 || l.x >= w - 0.55 || l.y <= 0.55 || l.y >= h - 0.55;
+  },
+  draw(g, part, env) {
+    const col = part.props.color && part.props.color !== 'auto' ? part.props.color : '#0a84ff';
+    const [r, gr, b] = hexRgb(col);
+    const wU = Math.max(6, +(part.props.w || 14)), hU = Math.max(4, +(part.props.h || 9));
+    const w = wU * U, h = hU * U;
+    g.save();
+    rr(g, 0, 0, w, h, 10);
+    g.fillStyle = `rgba(${r},${gr},${b},${env.dark ? 0.08 : 0.055})`; g.fill();
+    g.strokeStyle = `rgba(${r},${gr},${b},0.55)`; g.lineWidth = 1.6;
+    g.setLineDash([6, 4]); g.stroke(); g.setLineDash([]);
+    // Title pill on top-left border
+    const title = String(part.props.title || 'Zone');
+    const pw = Math.min(w - 16, Math.max(54, title.length * 6.8 + 18));
+    rr(g, 8, -10, pw, 20, 6);
+    g.fillStyle = env.dark ? '#1c1f26' : '#ffffff'; g.fill();
+    g.strokeStyle = `rgba(${r},${gr},${b},0.65)`; g.lineWidth = 1.25; g.stroke();
+    g.restore();
+    text(g, env, title, 8 + pw / 2, 0, { size: 10.5, color: col, weight: 700 });
   },
 });
 

@@ -334,4 +334,69 @@ for (const ic of IC_LIST) {
   ic.gnd = ic.gnd || n / 2;
 }
 
-export { IC_LIST };
+/**
+ * Schematic symbol & multi-unit pin decomposition metadata keyed by IC id.
+ * Lets the Schematic Engine split quad/hex gates & dual flip-flops into true
+ * individual IEEE/IEC symbols while mapping MSI chips left-inputs -> right-outputs.
+ */
+export const IC_SCHEMATIC = {
+  // Quad 2-input gates
+  '7400':  { kind: 'nand', units: QUAD_MAP.map(([a, b, y]) => ({ ins: [a, b], out: y })) },
+  '7402':  { kind: 'nor',  units: [[2, 3, 1], [5, 6, 4], [8, 9, 10], [11, 12, 13]].map(([a, b, y]) => ({ ins: [a, b], out: y })) },
+  '7404':  { kind: 'not',  units: HEX_MAP.map(([a, y]) => ({ ins: [a], out: y })) },
+  '7408':  { kind: 'and',  units: QUAD_MAP.map(([a, b, y]) => ({ ins: [a, b], out: y })) },
+  '7410':  { kind: 'nand', units: TRI_MAP.map(([ins, y]) => ({ ins, out: y })) },
+  '7411':  { kind: 'and',  units: TRI_MAP.map(([ins, y]) => ({ ins, out: y })) },
+  '7414':  { kind: 'not',  schmitt: true, units: HEX_MAP.map(([a, y]) => ({ ins: [a], out: y })) },
+  '7420':  { kind: 'nand', units: DUAL4_MAP.map(([ins, y]) => ({ ins, out: y })) },
+  '7421':  { kind: 'and',  units: DUAL4_MAP.map(([ins, y]) => ({ ins, out: y })) },
+  '7427':  { kind: 'nor',  units: TRI_MAP.map(([ins, y]) => ({ ins, out: y })) },
+  '7430':  { kind: 'nand', units: [{ ins: [1, 2, 3, 4, 5, 6, 11, 12], out: 8 }] },
+  '7432':  { kind: 'or',   units: QUAD_MAP.map(([a, b, y]) => ({ ins: [a, b], out: y })) },
+  '7486':  { kind: 'xor',  units: QUAD_MAP.map(([a, b, y]) => ({ ins: [a, b], out: y })) },
+  '74266': { kind: 'xnor', oc: true, units: [[1, 2, 3], [5, 6, 4], [8, 9, 10], [12, 13, 11]].map(([a, b, y]) => ({ ins: [a, b], out: y })) },
+
+  // Buffers (single-unit 3-state & octal blocks)
+  '74125': { kind: 'buf', oc: false, activeLowEn: true,  units: [[1, 2, 3], [4, 5, 6], [10, 9, 8], [13, 12, 11]].map(([en, a, y]) => ({ ins: [a], out: y, en })) },
+  '74126': { kind: 'buf', oc: false, activeLowEn: false, units: [[1, 2, 3], [4, 5, 6], [10, 9, 8], [13, 12, 11]].map(([en, a, y]) => ({ ins: [a], out: y, en })) },
+  '74240': { kind: 'msi', left: [1, 2, 4, 6, 8, 19, 11, 13, 15, 17], right: [18, 16, 14, 12, 9, 7, 5, 3], negated: [1, 19, 18, 16, 14, 12, 9, 7, 5, 3] },
+  '74244': { kind: 'msi', left: [1, 2, 4, 6, 8, 19, 11, 13, 15, 17], right: [18, 16, 14, 12, 9, 7, 5, 3], negated: [1, 19] },
+  '74245': { kind: 'msi', left: [1, 19, 2, 3, 4, 5, 6, 7, 8, 9], right: [18, 17, 16, 15, 14, 13, 12, 11], negated: [19] },
+  '74541': { kind: 'msi', left: [1, 19, 2, 3, 4, 5, 6, 7, 8, 9], right: [18, 17, 16, 15, 14, 13, 12, 11], negated: [1, 19] },
+
+  // Flip-flops & latches
+  '7474':  { kind: 'ff_d', units: [{ d: 2, clk: 3, pre: 4, clr: 1, q: 5, qn: 6, preInv: true, clrInv: true }, { d: 12, clk: 11, pre: 10, clr: 13, q: 9, qn: 8, preInv: true, clrInv: true }] },
+  '7473':  { kind: 'ff_jk', clkFall: true, units: [{ j: 14, clk: 1, k: 3, clr: 2, clrInv: true, q: 12, qn: 13 }, { j: 7, clk: 5, k: 10, clr: 6, clrInv: true, q: 9, qn: 8 }] },
+  '7476':  { kind: 'ff_jk', clkFall: true, units: [{ j: 4, clk: 1, k: 16, pre: 2, clr: 3, preInv: true, clrInv: true, q: 15, qn: 14 }, { j: 9, clk: 6, k: 12, pre: 7, clr: 8, preInv: true, clrInv: true, q: 11, qn: 10 }] },
+  '74112': { kind: 'ff_jk', clkFall: true, units: [{ j: 3, clk: 1, k: 2, pre: 4, clr: 15, preInv: true, clrInv: true, q: 5, qn: 6 }, { j: 11, clk: 13, k: 12, pre: 10, clr: 14, preInv: true, clrInv: true, q: 9, qn: 7 }] },
+  '4013':  { kind: 'ff_d', units: [{ d: 5, clk: 3, pre: 6, clr: 4, q: 1, qn: 2, preInv: false, clrInv: false }, { d: 9, clk: 11, pre: 8, clr: 10, q: 13, qn: 12, preInv: false, clrInv: false }] },
+  '74279': { kind: 'latch_sr', units: [{ s: [2, 3], r: 1, q: 4, inv: true }, { s: [6], r: 5, q: 7, inv: true }, { s: [11, 12], r: 10, q: 9, inv: true }, { s: [15], r: 14, q: 13, inv: true }] },
+
+  // Arithmetic, Decoders, Muxes, Registers & Counters (functional MSI blocks)
+  '7483':  { kind: 'msi', left: [13, 10, 8, 3, 1, 11, 7, 4, 16], right: [9, 6, 2, 15, 14] },
+  '74283': { kind: 'msi', left: [7, 5, 3, 14, 12, 6, 2, 15, 11], right: [4, 1, 13, 10, 9] },
+  '7485':  { kind: 'msi', left: [10, 12, 13, 15, 9, 11, 14, 1, 4, 3, 2], right: [5, 6, 7] },
+  '74138': { kind: 'msi', left: [1, 2, 3, 6, 4, 5], right: [15, 14, 13, 12, 11, 10, 9, 7], negated: [4, 5, 15, 14, 13, 12, 11, 10, 9, 7] },
+  '74238': { kind: 'msi', left: [1, 2, 3, 6, 4, 5], right: [15, 14, 13, 12, 11, 10, 9, 7], negated: [4, 5] },
+  '74139': { kind: 'msi', left: [1, 2, 3, 15, 14, 13], right: [4, 5, 6, 7, 12, 11, 10, 9], negated: [1, 15, 4, 5, 6, 7, 12, 11, 10, 9] },
+  '74148': { kind: 'msi', left: [5, 10, 11, 12, 13, 1, 2, 3, 4], right: [9, 7, 6, 14, 15], negated: [5, 10, 11, 12, 13, 1, 2, 3, 4, 9, 7, 6, 14, 15] },
+  '74151': { kind: 'msi', left: [7, 11, 10, 9, 4, 3, 2, 1, 15, 14, 13, 12], right: [5, 6], negated: [7, 6] },
+  '74153': { kind: 'msi', left: [1, 15, 14, 2, 6, 5, 4, 3, 10, 11, 12, 13], right: [7, 9], negated: [1, 15] },
+  '74157': { kind: 'msi', left: [15, 1, 2, 3, 5, 6, 11, 10, 14, 13], right: [4, 7, 9, 12], negated: [15] },
+  '74158': { kind: 'msi', left: [15, 1, 2, 3, 5, 6, 11, 10, 14, 13], right: [4, 7, 9, 12], negated: [15, 4, 7, 9, 12] },
+  '7447':  { kind: 'msi', left: [7, 1, 2, 6, 3, 5, 4], right: [13, 12, 11, 10, 9, 15, 14], negated: [3, 4, 5, 13, 12, 11, 10, 9, 15, 14] },
+  '7448':  { kind: 'msi', left: [7, 1, 2, 6, 3, 5, 4], right: [13, 12, 11, 10, 9, 15, 14], negated: [3, 4, 5] },
+  '74175': { kind: 'msi', left: [9, 1, 4, 5, 12, 13], right: [2, 3, 7, 6, 10, 11, 15, 14], clocks: [9], negated: [1, 3, 6, 11, 14] },
+  '74273': { kind: 'msi', left: [11, 1, 3, 4, 7, 8, 13, 14, 17, 18], right: [2, 5, 6, 9, 12, 15, 16, 19], clocks: [11], negated: [1] },
+  '74574': { kind: 'msi', left: [11, 1, 2, 3, 4, 5, 6, 7, 8, 9], right: [19, 18, 17, 16, 15, 14, 13, 12], clocks: [11], negated: [1] },
+  '74373': { kind: 'msi', left: [11, 1, 3, 4, 7, 8, 13, 14, 17, 18], right: [2, 5, 6, 9, 12, 15, 16, 19], negated: [1] },
+  '7490':  { kind: 'msi', left: [14, 1, 2, 3, 6, 7], right: [12, 9, 8, 11], clocks: [14, 1], negated: [14, 1] },
+  '7493':  { kind: 'msi', left: [14, 1, 2, 3], right: [12, 9, 8, 11], clocks: [14, 1], negated: [14, 1] },
+  '74193': { kind: 'msi', left: [5, 4, 14, 11, 15, 1, 10, 9], right: [3, 2, 6, 7, 12, 13], clocks: [5, 4], negated: [11, 12, 13] },
+  '4017':  { kind: 'msi', left: [14, 13, 15], right: [3, 2, 4, 7, 10, 1, 5, 6, 9, 11, 12], clocks: [14] },
+  '74194': { kind: 'msi', left: [11, 1, 9, 10, 2, 7, 3, 4, 5, 6], right: [15, 14, 13, 12], clocks: [11], negated: [1] },
+  '74165': { kind: 'msi', left: [2, 15, 1, 10, 11, 12, 13, 14, 3, 4, 5, 6], right: [9, 7], clocks: [2], negated: [1, 7] },
+  '74595': { kind: 'msi', left: [14, 11, 12, 10, 13], right: [15, 1, 2, 3, 4, 5, 6, 7, 9], clocks: [11, 12], negated: [10, 13] },
+};
+
+export { IC_LIST, QUAD_MAP, HEX_MAP, TRI_MAP, DUAL4_MAP };

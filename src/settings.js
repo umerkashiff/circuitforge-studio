@@ -20,6 +20,7 @@ export const DEFAULTS = {
   boardColor: '#fbfbfc',
   wireWidth: 1,               // multiplier
   chipText: 1,                // multiplier for chip markings
+  labelMode: 'off',           // off | refs | values | full
   uiScale: 1,                 // interface text size
   translucent: true,
   reduceMotion: false,

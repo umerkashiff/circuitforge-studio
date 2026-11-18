@@ -11,12 +11,13 @@
  * SIMULATE mode — the circuit is locked; click switches, hold buttons, turn knobs, drag to pan.
  * Both: scroll / two-finger drag pans, pinch or ⌘-scroll zooms, Space-drag pans.
  */
-import { P, Part, Wire, Board } from './model.js';
+import { P, Part, Wire, Board, rotPt } from './model.js';
 import { getDef } from './parts/registry.js';
 import { key } from './sim/engine.js';
 import { route, tidy } from './sim/router.js';
 import { WIRE_COLORS } from './view/renderer.js';
 import { SCOPE_VDIV, SCOPE_TDIV } from './parts/library.js';
+import { isAnnotationType, nextRef, buildNetLabelMap } from './export/designators.js';
 
 const TAU = Math.PI * 2;
 const DRAG_PX = 4;
@@ -61,40 +62,45 @@ export function findProblems(app, parts, movingBoards = []) {
   };
 
   for (const p of parts) {
-    if (isBenchtopPart(p)) {
-      const pBoxBoard = boxForPart(p, 0.5);
-      for (const b of c.boards) {
-        if (rectsOverlap(pBoxBoard, boxForBoard(b, 0))) {
-          flagBox(p, 'Benchtop instruments cannot be placed on or touching a breadboard.');
-          break;
+    const def = getDef(p.type);
+    const isNote = isAnnotationType(p.type);
+    if (!isNote) {
+      if (isBenchtopPart(p)) {
+        const pBoxBoard = boxForPart(p, 0.5);
+        for (const b of c.boards) {
+          if (rectsOverlap(pBoxBoard, boxForBoard(b, 0))) {
+            flagBox(p, 'Benchtop instruments cannot be placed on or touching a breadboard.');
+            break;
+          }
         }
-      }
-      const pBoxPart = boxForPart(p, 0.25);
-      for (const other of c.parts) {
-        if (other.id === p.id || ids.has(other.id)) continue;
-        if (rectsOverlap(pBoxPart, boxForPart(other, 0))) {
-          flagBox(p, 'Instruments cannot overlap other components.');
-          break;
+        const pBoxPart = boxForPart(p, 0.25);
+        for (const other of c.parts) {
+          if (other.id === p.id || ids.has(other.id) || isAnnotationType(other.type)) continue;
+          if (rectsOverlap(pBoxPart, boxForPart(other, 0))) {
+            flagBox(p, 'Instruments cannot overlap other components.');
+            break;
+          }
         }
-      }
-    } else {
-      const pBox = boxForPart(p, 0);
-      for (const inst of c.parts) {
-        if (inst.id === p.id || ids.has(inst.id) || !isBenchtopPart(inst)) continue;
-        if (rectsOverlap(pBox, boxForPart(inst, 0.25))) {
-          flagBox(p, 'Components cannot be placed on top of an instrument.');
-          break;
+      } else {
+        const pBox = boxForPart(p, 0);
+        for (const inst of c.parts) {
+          if (inst.id === p.id || ids.has(inst.id) || !isBenchtopPart(inst)) continue;
+          if (rectsOverlap(pBox, boxForPart(inst, 0.25))) {
+            flagBox(p, 'Components cannot be placed on top of an instrument.');
+            break;
+          }
         }
       }
     }
 
-    const def = getDef(p.type);
     const pins = p.worldPins();
     const allowed = new Set((def.links ? def.links(p) : []).map(([i, j]) => i < j ? `${i}-${j}` : `${j}-${i}`));
     const strips = new Map();
     for (const q of pins) {
       const k = key(q.x, q.y);
-      if ((ix.pins.get(k) || []).some(o => !ids.has(o.part.id))) flag(k, 'Those holes are taken by another part.');
+      if (!def.allowSharedPin && (ix.pins.get(k) || []).some(o => !ids.has(o.part.id) && !getDef(o.part.type).allowSharedPin)) {
+        flag(k, 'Those holes are taken by another part.');
+      }
       const hole = ix.holes.get(k);
       if (hole) {
         const prev = strips.get(hole.strip);
@@ -171,7 +177,12 @@ export class Editor {
   }
   topPartAt(wx, wy) {
     const parts = this.app.circuit.parts;
-    for (let i = parts.length - 1; i >= 0; i--) if (parts[i].hit(wx, wy)) return parts[i];
+    for (let i = parts.length - 1; i >= 0; i--) {
+      if (parts[i].type !== 'zone' && parts[i].hit(wx, wy)) return parts[i];
+    }
+    for (let i = parts.length - 1; i >= 0; i--) {
+      if (parts[i].type === 'zone' && parts[i].hit(wx, wy)) return parts[i];
+    }
     return null;
   }
   wireAt(wx, wy, minR = 0.25) {
@@ -250,6 +261,19 @@ export class Editor {
 
     if (!this.sim) {
       for (const id of this.selection) {
+        const p = this.app.circuit.partById(id);
+        if (p && p.type === 'callout' && Math.hypot(p.x - w.x, p.y - w.y) < this.hitR) {
+          const box = rotPt(+p.props.dx || 0, +p.props.dy || 0, p.rot);
+          this.mode = { kind: 'calloutTip', part: p, origX: p.x, origY: p.y, origDx: p.props.dx, origDy: p.props.dy, boxWX: p.x + box.x, boxWY: p.y + box.y };
+          return;
+        }
+        if (p && p.type === 'zone') {
+          const hw = rotPt(Math.max(6, +(p.props.w || 14)), Math.max(4, +(p.props.h || 9)), p.rot);
+          if (Math.hypot(p.x + hw.x - w.x, p.y + hw.y - w.y) < this.hitR * 1.2) {
+            this.mode = { kind: 'zoneResize', part: p, origW: p.props.w, origH: p.props.h };
+            return;
+          }
+        }
         const wire = this.app.circuit.wires.find(x => x.id === id);
         if (!wire) continue;
         for (const end of ['a', 'b']) {
@@ -351,7 +375,17 @@ export class Editor {
     if (mm) {
       if (mm.kind === 'place') { this.positionGhost(); this.liveProblemHint(mm.ghost ? [mm.ghost] : [], mm.board ? [mm.board] : []); }
       else if (mm.kind === 'drag') this.dragTo(w);
-      else if (mm.kind === 'wireEnd') {
+      else if (mm.kind === 'calloutTip') {
+        const p = mm.part;
+        p.x = Math.round(w.x); p.y = Math.round(w.y);
+        const loc = rotPt(mm.boxWX - p.x, mm.boxWY - p.y, 4 - p.rot);
+        p.props.dx = loc.x; p.props.dy = loc.y;
+      } else if (mm.kind === 'zoneResize') {
+        const p = mm.part;
+        const loc = p.toLocal(Math.round(w.x), Math.round(w.y));
+        p.props.w = Math.max(6, Math.round(loc.x));
+        p.props.h = Math.max(4, Math.round(loc.y));
+      } else if (mm.kind === 'wireEnd') {
         const pt = overCanvas ? this.pointAt(w.x, w.y, mm.wire[mm.end]) : null;
         mm.wire[mm.end].x = pt ? pt.x : w.x; mm.wire[mm.end].y = pt ? pt.y : w.y;
       } else if (mm.kind === 'bend') {
@@ -399,6 +433,14 @@ export class Editor {
         this.mode = null;
         break;
       case 'drag': this.endDrag(); break;
+      case 'calloutTip':
+        this.app.commit('Move callout pointer');
+        this.mode = null;
+        break;
+      case 'zoneResize':
+        this.app.commit('Resize zone');
+        this.mode = null;
+        break;
       case 'wireEnd': {
         const pt = e.target === this.cv ? this.pointAt(w.x, w.y, m.wire[m.end]) : null;
         const other = m.end === 'a' ? m.wire.b : m.wire.a;
@@ -556,20 +598,32 @@ export class Editor {
   }
   wireTip(w) {
     const sim = this.app.engine;
-    const v = sim.voltage(sim.netAt(w.a.x, w.a.y));
-    return { lines: ['Wire'], state: Number.isNaN(v) ? 'not powered (floating)' : `${v.toFixed(2)} V · ${v >= 2 ? 'HIGH' : v <= 0.8 ? 'LOW' : 'in between'}`, level: Number.isNaN(v) ? 'float' : v >= 2 ? 'high' : v <= 0.8 ? 'low' : 'mid' };
+    const netNames = buildNetLabelMap(this.app.circuit, sim);
+    const n = sim.netAt(w.a.x, w.a.y);
+    const sigName = w.label || (n >= 0 ? netNames.get(n) : '');
+    const v = sim.voltage(n);
+    const head = sigName ? `Wire · ${sigName}` : 'Wire';
+    return { lines: [head], state: Number.isNaN(v) ? 'not powered (floating)' : `${v.toFixed(2)} V · ${v >= 2 ? 'HIGH' : v <= 0.8 ? 'LOW' : 'in between'}`, level: Number.isNaN(v) ? 'float' : v >= 2 ? 'high' : v <= 0.8 ? 'low' : 'mid' };
   }
 
   tipFor(pt) {
     const lines = [];
+    const sim = this.app.engine;
+    const net = sim.netAt(pt.x, pt.y);
+    const sigName = net >= 0 ? buildNetLabelMap(this.app.circuit, sim).get(net) : '';
+    if (sigName) lines.push(`Net ${sigName}`);
     if (pt.hole) lines.push(pt.hole.rail ? pt.hole.label : `Hole ${pt.hole.label}`);
     for (const p of pt.pins) {
       const def = getDef(p.part.type);
-      lines.push(`${def.short || def.name} · ${def.ic ? 'pin ' + (p.i + 1) + ' ' : ''}${p.name}`);
+      const refPrefix = p.part.ref ? `${p.part.ref} (${def.short || def.name})` : (def.short || def.name);
+      lines.push(`${refPrefix} · ${def.ic ? 'pin ' + (p.i + 1) + ' ' : ''}${p.name}`);
     }
     if (!pt.hole && !pt.pins.length) lines.push('Wire junction');
     if (pt.hole && !pt.hole.rail && !pt.pins.length) {
-      for (const p of this.stripChipPins(pt.hole.strip)) lines.push(`Connects to ${getDef(p.part.type).short} pin ${p.i + 1} (${p.name})`);
+      for (const p of this.stripChipPins(pt.hole.strip)) {
+        const refTag = p.part.ref ? `${p.part.ref} ` : '';
+        lines.push(`Connects to ${refTag}${getDef(p.part.type).short} pin ${p.i + 1} (${p.name})`);
+      }
     }
     if (this.sim) for (const p of pt.pins) {
       if (p.part.type !== 'capacitor') continue;
@@ -579,8 +633,7 @@ export class Editor {
       const amps = a >= 1e-3 ? (a * 1e3).toFixed(2) + ' mA' : (a * 1e6).toFixed(0) + ' µA';
       lines.push(`Capacitor ${d.vc.toFixed(2)} V · ${!flowing ? 'holding its charge' : (d.vc * d.i > 0 ? 'charging' : 'discharging') + ', ' + amps}`);
     }
-    const sim = this.app.engine;
-    const v = sim.voltage(sim.netAt(pt.x, pt.y));
+    const v = sim.voltage(net);
     let state = '';
     if (this.sim) state = Number.isNaN(v) ? 'not powered (floating)' : `${v.toFixed(2)} V · ${v >= 2 ? 'HIGH' : v <= 0.8 ? 'LOW' : 'in between'}`;
     return { lines, state, level: Number.isNaN(v) ? 'float' : v >= 2 ? 'high' : v <= 0.8 ? 'low' : 'mid' };
@@ -791,7 +844,8 @@ export class Editor {
     const { msg } = this.problems([m.ghost]);
     if (msg) { this.app.ui.toast(msg); return; }
     const g = m.ghost;
-    const p = new Part(g.type, g.x, g.y, g.rot, JSON.parse(JSON.stringify(g.props)));
+    const ref = nextRef(this.app.circuit, g.type);
+    const p = new Part(g.type, g.x, g.y, g.rot, JSON.parse(JSON.stringify(g.props)), undefined, ref);
     this.app.circuit.parts.push(p);
     this.app.commit('Add ' + getDef(p.type).name);
     if (getDef(p.type).cat === 'Instruments' && this.app.ui.openInstrumentWindow) this.app.ui.openInstrumentWindow(p);
@@ -860,10 +914,14 @@ export class Editor {
     const c = this.app.circuit;
     const idMap = new Map(), ids = [];
     for (const b of o.boards) { const nb = new Board(b.size, b.x + offset, b.y + offset * 11); c.boards.push(nb); ids.push(nb.id); }
-    for (const p of o.parts) { const np = new Part(p.type, p.x + offset, p.y + offset, p.rot, p.props); idMap.set(p.id, np.id); c.parts.push(np); ids.push(np.id); }
+    for (const p of o.parts) {
+      const ref = nextRef(c, p.type);
+      const np = new Part(p.type, p.x + offset, p.y + offset, p.rot, p.props, undefined, ref);
+      idMap.set(p.id, np.id); c.parts.push(np); ids.push(np.id);
+    }
     for (const w of o.wires) {
       const shift = (e) => { const n = { x: e.x + offset, y: e.y + offset }; if (e.pin && idMap.has(e.pin.part)) n.pin = { part: idMap.get(e.pin.part), i: e.pin.i }; return n; };
-      const nw = new Wire(shift(w.a), shift(w.b), w.color, w.pts.map(p => ({ x: p.x + offset, y: p.y + offset })));
+      const nw = new Wire(shift(w.a), shift(w.b), w.color, w.pts.map(p => ({ x: p.x + offset, y: p.y + offset })), undefined, w.label || '');
       c.wires.push(nw); ids.push(nw.id);
     }
     c.syncWires();
@@ -901,6 +959,7 @@ export class Editor {
       else if (k === 'd') { e.preventDefault(); if (this.copy()) this.paste(); }
       else if (k === 'a') { e.preventDefault(); const c = this.app.circuit; this.select([...c.parts, ...c.wires].map(x => x.id)); }
       else if (k === 's') { e.preventDefault(); this.app.saveFile(); }
+      else if (k === 'e') { e.preventDefault(); this.app.ui.openExport?.('breadboard'); }
       else if (k === 'o') { e.preventDefault(); this.app.openFile(); }
       else if (k === ',') { e.preventDefault(); this.app.ui.showSettings(); }
       else if (k === 'k') { e.preventDefault(); this.app.ui.toggleAiTab?.(); }
@@ -918,7 +977,7 @@ export class Editor {
     }
     if (k === 'e') { this.rotateSelection(e.shiftKey ? -1 : 1); return; }
     if (k === 't') { if (e.shiftKey) this.app.toggleAutoRoute(); else this.tidyWires(); return; }
-    if (k === 'l') { this.app.ui.toggleAnalyzer(); return; }
+    if (k === 'l') { if (e.shiftKey) this.app.ui.cycleLabelMode?.(); else this.app.ui.toggleAnalyzer(); return; }
     if (k === 'f') { this.app.fit(); return; }
     if (k === '?' || (k === '/' && e.shiftKey)) { this.app.ui.showShortcuts(); return; }
     if (k === '.') { if (this.sim) this.app.togglePause(); return; }
@@ -945,6 +1004,8 @@ export class Editor {
     else if (board && !this.selection.has(board.id)) this.select([board.id]);
     if (pt) items.push({ label: 'Add Probe to Analyzer', action: () => this.app.addProbe(pt.x, pt.y) });
     if (part && getDef(part.type).mcu) items.push({ label: 'Edit Code…', key: '↵', action: () => this.app.ui.openCode(part) });
+    if (part && !isAnnotationType(part.type)) items.push({ label: 'Edit Designator (Ref)…', action: () => this.app.ui.focusInspectorField('ref') });
+    if (hw) items.push({ label: 'Set Wire Signal Name…', action: () => this.app.ui.focusInspectorField('wire-label') });
     if (this.selection.size && !this.sim) {
       if (items.length) items.push('-');
       const { wires, boards } = this.selected();
@@ -967,6 +1028,17 @@ export class Editor {
     const R = this.app.renderer;
     const z = this.app.cam.z;
     if (!this.sim) for (const id of this.selection) {
+      const sp = this.app.circuit.partById(id);
+      if (sp && sp.type === 'callout') {
+        g.fillStyle = '#fff'; g.strokeStyle = R.accent; g.lineWidth = 1.8 / z;
+        g.beginPath(); g.arc(sp.x * P, sp.y * P, 5 / Math.min(z, 1.5), 0, TAU); g.fill(); g.stroke();
+      } else if (sp && sp.type === 'zone') {
+        const hw = rotPt(Math.max(6, +(sp.props.w || 14)), Math.max(4, +(sp.props.h || 9)), sp.rot);
+        const hx = (sp.x + hw.x) * P, hy = (sp.y + hw.y) * P;
+        const s = 4.5 / Math.min(z, 1.5);
+        g.fillStyle = '#fff'; g.strokeStyle = R.accent; g.lineWidth = 1.8 / z;
+        g.beginPath(); g.rect(hx - s, hy - s, s * 2, s * 2); g.fill(); g.stroke();
+      }
       const wire = this.app.circuit.wires.find(x => x.id === id);
       if (!wire) continue;
       for (const p of wire.path()) {
@@ -1074,8 +1146,8 @@ export class Editor {
       g.restore();
     }
 
-    // 2. Punch real breadboard holes in the pin area so holes beneath are always clearly visible
-    this.punchHoles(g, b, 2.8, env && env.dark);
+    // 2. Punch real breadboard holes in the immediate pin area so nearby holes stay visible
+    this.punchHoles(g, b, 1.35, env && env.dark);
 
     // 3. Draw pin text on top of badges and punched holes with subtle shadow for crisp readability
     for (const it of items) {

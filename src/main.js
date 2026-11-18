@@ -9,6 +9,8 @@ import { getDef } from './parts/registry.js';
 import { Settings } from './settings.js';
 import { AiGuide } from './ai/guide.js';
 import { AiCopilot } from './ai/copilot.js';
+import { ensureDesignators, buildNetLabelMap } from './export/designators.js';
+import { exportBreadboardPNG } from './export/breadboard_export.js';
 
 const STORE = 'cf.v2.circuit';
 const PROBE_COLORS = ['#ff9f0a', '#30d158', '#0a84ff', '#ff375f', '#bf5af2', '#64d2ff', '#ffd60a', '#ac8e68'];
@@ -313,6 +315,7 @@ class App {
       for (const p of c.parts) { const q = p.worldPins().find(q => q.x === e.x && q.y === e.y); if (q) { e.pin = { part: p.id, i: q.i }; break; } }
     }
     c.probes = (ex.probes || []).map((p, i) => ({ id: newId('pr'), color: PROBE_COLORS[i % PROBE_COLORS.length], ...p }));
+    ensureDesignators(c);
     this.load(c.toJSON());
     this.engine.reset();
     if (c.probes.length && !quiet) this.ui.toggleAnalyzer(true);
@@ -343,11 +346,7 @@ class App {
     inp.click();
   }
   exportPNG() {
-    this.renderer.draw();
-    const a = document.createElement('a');
-    a.href = this.canvas.toDataURL('image/png');
-    a.download = (this.circuit.name || 'circuit') + '.png';
-    a.click();
+    return exportBreadboardPNG(this, { labelMode: this.settings.get('labelMode') || 'refs' });
   }
 
   // ------------------------------------------------------------- probes --
@@ -357,8 +356,11 @@ class App {
     if (c.probes.length >= 8) { this.ui.toast('The analyzer has 8 channels — remove one first.'); return; }
     let label = name;
     if (!label) {
+      const n = this.engine.netAt(x, y);
+      const netLbl = n >= 0 ? buildNetLabelMap(c, this.engine).get(n) : '';
       const pt = this.editor.describe(x, y);
-      label = pt && pt.pins.length ? `${getDef(pt.pins[0].part.type).short || getDef(pt.pins[0].part.type).name} ${pt.pins[0].name}` : pt && pt.hole ? pt.hole.label : `${x},${y}`;
+      const pinRef = pt && pt.pins.length ? `${pt.pins[0].part.ref || getDef(pt.pins[0].part.type).short || getDef(pt.pins[0].part.type).name}.${pt.pins[0].name}` : '';
+      label = netLbl || pinRef || (pt && pt.hole ? pt.hole.label : `${x},${y}`);
     }
     const used = new Set(c.probes.map(p => p.color));
     c.probes.push({ id: newId('pr'), x, y, name: label, color: PROBE_COLORS.find(col => !used.has(col)) || PROBE_COLORS[0] });

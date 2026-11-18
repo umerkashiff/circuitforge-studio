@@ -8,6 +8,7 @@ import { BOARD_SIZES, Circuit } from '../model.js';
 import { Engine, key } from '../sim/engine.js';
 import { computeScopeWindow, measureChannelStats } from '../parts/library.js';
 import { probeCircuitLedBehavior } from './logic_verify.js';
+import { buildNetLabelMap } from '../export/designators.js';
 
 function fmtV(v) {
   if (v === undefined || v === null || Number.isNaN(v)) return null;
@@ -267,6 +268,7 @@ export function serializeCircuitState(app, { maxChars = 4800 } = {}) {
 
     const out = {
       id: p.id,
+      ref: p.ref || undefined,
       type: p.type,
       name: def.short || def.name,
       props: compactProps,
@@ -330,11 +332,12 @@ export function serializeCircuitState(app, { maxChars = 4800 } = {}) {
       nextStep: gState.activeStep?.desc || 'completed',
     };
   }
-  if (app.mode === 'sim' || netMap.size > 0) {
+  const netNames = buildNetLabelMap(c, eng);
+  if (app.mode === 'sim' || netMap.size > 0 || netNames.size > 0) {
     summary.nets = [...netMap.values()]
-      .filter(n => n.ends.length > 1 || n.rails.size > 0 || wiredNets.has(n.net) || (app.mode === 'sim' && n.v !== null))
+      .filter(n => n.ends.length > 1 || n.rails.size > 0 || wiredNets.has(n.net) || netNames.has(n.net) || (app.mode === 'sim' && n.v !== null))
       .slice(0, 45)
-      .map(n => ({ id: n.net, v: app.mode === 'sim' ? n.v : undefined, st: app.mode === 'sim' ? n.state : undefined, rails: [...n.rails], ends: n.ends }));
+      .map(n => ({ id: n.net, name: netNames.get(n.net) || undefined, v: app.mode === 'sim' ? n.v : undefined, st: app.mode === 'sim' ? n.state : undefined, rails: [...n.rails], ends: n.ends }));
   }
   const issues = app.allIssues().map(w => `${w.level}:${w.part?.id || ''} ${w.text}`);
   if (ledDiagById) {
