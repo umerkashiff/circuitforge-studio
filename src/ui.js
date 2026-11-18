@@ -8,7 +8,7 @@ import { ACCENTS, BOARD_COLORS } from './settings.js';
 import { SCOPE_VDIV, SCOPE_TDIV, computeScopeWindow, measureChannelStats, fmtUnits } from './parts/library.js';
 import { mountAiPanel } from './ai/panel.js';
 
-const SHOW_ABOUT = false; // Temporarily hide About page content without removing code
+const SHOW_ABOUT = true; // Show About page content in Settings & brand logo click
 const $ = (s, r = document) => r.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => {
   const el = document.createElement(tag);
