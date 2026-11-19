@@ -543,7 +543,7 @@ export async function generateDailyNewIdeas({ apiKey, model, availableModels = n
     'Invent distinct, practical, buildable electronics circuits across levels: Analog/Diodes, BJT Switching, 555 Timers, 74xx Logic/Counters, Benchtop Instruments, and Arduino Uno.',
     'NEVER request component types outside the supported list above.',
     recentTitles ? `Avoid duplicating these already-generated ideas: ${recentTitles}` : '',
-    `Output MINIFIED STRICT JSON ONLY: {"ideas":[{"name":"short title","prompt":"realistic user prompt (may include minor casual phrasing)","requireTypes":["ne555","led"],"check":"led_active|led_multi|buzzer_active|scope_ac|seg7_active|bargraph_active|mcu_run","usesUno":false}]} with exactly ${count} ideas.`,
+    `Output MINIFIED STRICT JSON ONLY: {"ideas":[{"name":"short title","prompt":"realistic user prompt (may include minor casual phrasing)","requireTypes":["ne555","led"],"check":"led_active|led_multi|buzzer_active|scope_ac|seg7_active|bargraph_active|mcu_run|dmm_valid|built_clean","usesUno":false}]} with exactly ${count} ideas.`,
   ].filter(Boolean).join('\n');
 
   const res = await callGemini({
@@ -567,19 +567,33 @@ export async function generateDailyNewIdeas({ apiKey, model, availableModels = n
     const name = String(item?.name || '').trim();
     const prompt = String(item?.prompt || '').trim();
     if (!name || !prompt || existingNames.has(name.toLowerCase())) continue;
-    const reqList = Array.isArray(item.requireTypes)
+    const rawReqs = Array.isArray(item.requireTypes)
       ? item.requireTypes
           .map(t => {
             const raw = String(t).trim();
             return validSet.has(raw) ? raw : resolvePartType(raw)?.type;
           })
           .filter(t => t && validSet.has(t))
-          .map(t => [t])
       : [];
+    const reqList = rawReqs.map(t => {
+      if (t === 'power-supply' && !/\b(bench|mps|dual\s*rail|power[- ]supply)\b/i.test(prompt)) return ['power-supply', 'battery', 'vcc'];
+      if (t === 'button' || t === 'tactile') return ['button', 'tactile', 'toggle'];
+      if (t === 'pot' && !/\b(pot|potentiometer|trimpot|knob)\b/i.test(prompt)) return ['pot', 'resistor'];
+      return [t];
+    });
     if (!reqList.length) continue;
     const usesUno = Boolean(item.usesUno) || /\b(uno|arduino|atmega)\b/i.test(prompt) || reqList.some(r => r[0] === 'uno');
     const scopes = usesUno ? ['uno'] : [];
     if (scopes.some(s => skip.has(s))) continue;
+
+    const supportedChecks = ['led_active', 'led_multi', 'buzzer_active', 'scope_ac', 'seg7_active', 'bargraph_active', 'mcu_run', 'dmm_valid', 'built_clean'];
+    let check = supportedChecks.includes(item.check) ? item.check : 'led_active';
+    const hasAcIntent = /\b(scope|cro|oscilloscope|func\s*gen|signal\s*gen|sine|ac\b|wave|filter|rectif|amp|op[-\s]?amp|ring\s*osc)\b/i.test(prompt);
+    if (check === 'scope_ac' && !hasAcIntent) {
+      check = reqList.some(r => r.includes('multimeter')) ? 'dmm_valid'
+        : reqList.some(r => r.includes('led')) ? 'led_active'
+        : 'built_clean';
+    }
 
     existingNames.add(name.toLowerCase());
     out.push({
@@ -591,9 +605,7 @@ export async function generateDailyNewIdeas({ apiKey, model, availableModels = n
       oracle: {
         minParts: 3,
         requireTypes: reqList.slice(0, 4),
-        check: ['led_active', 'led_multi', 'buzzer_active', 'scope_ac', 'seg7_active', 'bargraph_active', 'mcu_run'].includes(item.check)
-          ? item.check
-          : 'led_active',
+        check,
       },
       createdAt: new Date().toISOString().slice(0, 10),
     });

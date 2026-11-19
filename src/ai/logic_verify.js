@@ -643,12 +643,14 @@ export function probeCircuitLedBehavior(sim, circuit) {
 
   const runClockWindow = (cycles) => {
     const hzList = clocks.map(c => Math.max(0.25, Math.min(200, +(c.props.frequency || c.props.hz || 1))));
-    const minHz = hzList.length ? Math.min(...hzList) : 2;
-    const maxHz = hzList.length ? Math.max(...hzList) : 20;
-    const stepMax = Math.min(0.02, 1 / (Math.max(maxHz, 2) * 8));
-    const totalSpan = cycles / Math.max(minHz, 0.25);
-    const dt = Math.min(stepMax, Math.max(0.002, totalSpan / 360));
-    const steps = Math.min(420, Math.max(24, Math.ceil(totalSpan / dt)));
+    const maxCapUf = Math.max(0, ...circuit.parts.filter(p => p.type === 'capacitor').map(p => +p.props?.uf || 0));
+    const est555Hz = has555 && !hzList.length ? (maxCapUf >= 47 ? 0.8 : maxCapUf >= 10 ? 1.5 : 2) : 2;
+    const minHz = hzList.length ? Math.min(...hzList) : est555Hz;
+    const maxHz = hzList.length ? Math.max(...hzList) : Math.max(20, ...circuit.parts.filter(p => p.type === 'funcgen').map(p => +p.props?.hz || 10));
+    const stepMax = Math.min(0.025, 1 / (Math.max(maxHz, 2) * 8));
+    const totalSpan = Math.min(12, cycles / Math.max(minHz, 0.4));
+    const dt = Math.min(stepMax, Math.max(0.002, totalSpan / 420));
+    const steps = Math.min(500, Math.max(24, Math.ceil(totalSpan / dt)));
     for (let i = 0; i < steps; i++) {
       sim.step(dt);
       sampleLeds();
@@ -666,6 +668,12 @@ export function probeCircuitLedBehavior(sim, circuit) {
       } else {
         runClockWindow(hasCounter ? 9 : 3);
       }
+      if (tactiles.length) {
+        tactiles.forEach(t => { t.ui = { ...(t.ui || {}), pressed: true }; });
+        sim.build(circuit);
+        runClockWindow(hasCounter ? 9 : 2);
+      }
+      if (pots.length) sweepPots(sim);
     } else if (setters.length) {
       const pats = [];
       if (setters.length <= 4) {
@@ -969,17 +977,31 @@ export function verifyInstrumentAndLoadLiveness(sim, circuit, refById = null) {
 
   if (errors.length) return errors;
 
-  // Step dynamic simulator long enough to inspect waveforms/displays when signals exist
+  // Step dynamic simulator with sub-stepping above Nyquist so 50/100/200/1k Hz waves never alias to 0.00 Vpp
   const needDynamicWindow = !hasSwitches && hasDynamic && (scopes.length || buzzers.length || segs.length || bars.length);
   const maxSpan = scopes.length ? Math.min(1.5, Math.max(0.6, Math.max(...scopes.map(s => (s.props?.timeDiv || 0.05) * 10)))) : 0.6;
+  const srcHzList = circuit.parts
+    .filter(p => p.type === 'funcgen' || p.type === 'clock')
+    .map(p => +p.props?.hz || +p.props?.frequency || 10);
+  const maxSrcHz = srcHzList.length ? Math.max(...srcHzList) : 0;
+  const minSrcHz = srcHzList.length ? Math.min(...srcHzList) : 0;
+  const hasSlowLogic = circuit.parts.some(p => getDef(p.type).mcu || p.type === 'ne555') || (minSrcHz > 0 && minSrcHz < 15);
   const buzMaxDv = new Map();
   let segPeakMa = 0;
   let barPeakMa = 0;
 
   if (needDynamicWindow || segs.length || bars.length) {
-    const steps = needDynamicWindow ? Math.max(60, Math.ceil(maxSpan / 0.01)) : 6;
+    const useAcWindow = needDynamicWindow && maxSrcHz >= 15 && !hasSlowLogic;
+    const dt = useAcWindow
+      ? Math.max(2e-5, Math.min(0.002, 1 / (20 * maxSrcHz)))
+      : (needDynamicWindow && maxSrcHz >= 15 ? Math.max(5e-5, Math.min(0.005, 1 / (16 * maxSrcHz))) : 0.01);
+    const totalT = useAcWindow
+      ? Math.min(maxSpan, Math.max(0.04, 8 / Math.max(15, minSrcHz || maxSrcHz)))
+      : (needDynamicWindow ? maxSpan : 0.06);
+    const steps = Math.min(640, Math.max(useAcWindow ? 80 : (needDynamicWindow ? 60 : 6), Math.ceil(totalT / dt)));
+    const stepSize = totalT / steps;
     for (let s = 0; s < steps; s++) {
-      sim.step(0.01);
+      sim.step(stepSize);
       for (const bz of buzzers) {
         const ent = sim.byPart.get(bz.id);
         const v0 = ent?.pinNets?.[0] >= 0 ? sim.voltage(ent.pinNets[0]) : NaN;

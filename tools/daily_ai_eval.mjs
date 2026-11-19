@@ -197,8 +197,23 @@ function evaluateCircuit(app, tc) {
   let barPeakMa = 0;
   let barActiveSegs = 0;
 
-  for (let s = 0; s < 120; s++) {
-    app.engine.step(0.01);
+  const srcHzList = app.circuit.parts
+    .filter(p => p.type === 'funcgen' || p.type === 'clock')
+    .map(p => +p.props?.hz || +p.props?.frequency || 10);
+  const maxSrcHz = srcHzList.length ? Math.max(...srcHzList) : 0;
+  const minSrcHz = srcHzList.length ? Math.min(...srcHzList) : 0;
+  const hasSlow = app.circuit.parts.some(p => p.type === 'ne555' || p.type === 'uno' || p.type === 'nano' || p.type === 'esp32' || p.type === 'esp32s3' || p.type === 'bluepill')
+    || (minSrcHz > 0 && minSrcHz < 15);
+  const useAcWindow = maxSrcHz >= 15 && !hasSlow;
+  const evalSteps = useAcWindow
+    ? Math.min(480, Math.max(96, Math.ceil((8 / Math.max(15, minSrcHz || maxSrcHz)) / Math.max(2e-5, Math.min(0.002, 1 / (20 * maxSrcHz))))))
+    : (maxSrcHz >= 15 ? 360 : 120);
+  const evalDt = useAcWindow
+    ? Math.max(2e-5, Math.min(0.002, 1 / (20 * maxSrcHz)))
+    : (maxSrcHz >= 15 ? (1.2 / evalSteps) : 0.01);
+
+  for (let s = 0; s < evalSteps; s++) {
+    app.engine.step(evalDt);
     for (const p of app.circuit.parts) {
       const ent = app.engine.byPart.get(p.id);
       if (!ent) continue;
@@ -295,6 +310,8 @@ function evaluateCircuit(app, tc) {
       if (!good) silentReasons.push('multimeter produced no valid finite reading (---- / OL / LIVE V!)');
       break;
     }
+    case 'built_clean':
+      break;
   }
 
   return {

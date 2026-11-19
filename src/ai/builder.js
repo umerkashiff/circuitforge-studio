@@ -160,7 +160,10 @@ function extractInvertedStem(targetRaw) {
 /** Resolve a symbolic pin identifier (name, inverted bar, CMOS VDD/VSS, alias, or 1-based number) on a Part. */
 export function resolvePinIndex(part, rawPin) {
   const pins = part.worldPins();
-  const targetRawPre = normRawPin(rawPin);
+  // Tolerate "MASTER +(#6)" echoed back from Valid pins hints (without breaking 7490 "R0(1)")
+  const strippedPin = String(rawPin || '').trim().replace(/\s*\(#\d+\)$/, '');
+  const hashIdxMatch = /\(#(\d+)\)$/.exec(String(rawPin || '').trim());
+  const targetRawPre = normRawPin(strippedPin);
   // Tolerate "1:1.l" or "3:OUT" copied from 1-based Valid pins hints
   const colonPrefix = /^(\d+):(.+)$/.exec(targetRawPre);
   if (colonPrefix) {
@@ -170,8 +173,14 @@ export function resolvePinIndex(part, rawPin) {
     if (nIdx >= 0 && nIdx < pins.length) return nIdx;
   }
   const targetRaw = targetRawPre;
-  const target = normPin(rawPin);
-  if (!target) return -1;
+  const target = normPin(strippedPin);
+  if (!target) {
+    if (hashIdxMatch) {
+      const idx = parseInt(hashIdxMatch[1], 10) - 1;
+      if (idx >= 0 && idx < pins.length) return idx;
+    }
+    return -1;
+  }
 
   // 1a. Exact match preserving overline \u0305 so 1Q and 1Q̅ never collide
   for (let i = 0; i < pins.length; i++) {
@@ -327,10 +336,12 @@ export function resolvePinIndex(part, rawPin) {
 
 export function parseRailToken(tok) {
   const s = String(tok || '').trim().toUpperCase().replace(/−/g, '-');
-  if (s === '+' || s === '+5V' || s === '5V' || s === 'VCC' || s === 'VDD' || s === 'RAIL+' || s === 'TOP+' || s === 'BOT+') {
+  if (s === '+' || s === '+5V' || s === '5V' || s === 'VCC' || s === 'VDD' || s === 'RAIL+' || s === 'TOP+' || s === 'BOT+'
+    || /^(?:\+|VCC|\+?5V)(?:\s*\/\s*(?:\+|VCC|\+?5V|VDD))+$/.test(s)) {
     return { rail: '+', half: s.startsWith('BOT') ? 'b' : s.startsWith('TOP') ? 't' : 'auto' };
   }
-  if (s === '-' || s === 'GND' || s === '0V' || s === 'VSS' || s === 'RAIL-' || s === 'TOP-' || s === 'BOT-') {
+  if (s === '-' || s === 'GND' || s === '0V' || s === 'VSS' || s === 'RAIL-' || s === 'TOP-' || s === 'BOT-'
+    || /^(?:-|GND|0V)(?:\s*\/\s*(?:-|GND|0V|VSS))+$/.test(s)) {
     return { rail: '−', half: s.startsWith('BOT') ? 'b' : s.startsWith('TOP') ? 't' : 'auto' };
   }
   return null;
@@ -1233,7 +1244,7 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
           errors.push(`tactile button ("${tag}") only connects to one internally-bridged side (1.l/1.r OR 2.l/2.r) so pressing it cannot switch — wire one terminal to "${tag}.1.l" and the switched terminal to "${tag}.2.l".`);
         }
       }
-    } else if (p.type === 'resistor' || p.type === 'led' || p.type === 'diode' || p.type === 'capacitor' || p.type === 'inductor') {
+    } else if (p.type === 'resistor' || p.type === 'led' || p.type === 'diode' || p.type === 'zener' || p.type === 'capacitor' || p.type === 'inductor') {
       if (!allowIncomplete) {
         const wPins = p.worldPins();
         if (ent.pinNets.length === 2 && wPins.length === 2) {

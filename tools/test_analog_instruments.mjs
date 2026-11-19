@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { Board, Circuit, Wire, Part } from '../src/model.js';
 import { Engine } from '../src/sim/engine.js';
+import { parseRailToken, resolvePinIndex } from '../src/ai/builder.js';
+import { verifyInstrumentAndLoadLiveness, probeCircuitLedBehavior } from '../src/ai/logic_verify.js';
 import '../src/parts/library.js';
 import '../src/mcu/boards.js';
 
@@ -474,6 +476,59 @@ test('A1.13', 'Breadboard-mounted LM358 + LM393 start up & converge in 1 step wi
   assert.equal(d393.notes, null, 'Healthy LM393 with unused Ch2 has no orange warnings');
   assert.ok(!d393.infos || !d393.infos.some(s => /Ch2/.test(s)), 'Unused breadboard LM393 Ch2 stays silent');
   return `Cold-start converged: LM358=${vAmp.toFixed(3)}V, LED=${(ledDev.cur[0] * 1000).toFixed(1)}mA, 0 false warnings`;
+});
+
+test('A1.14', '2N7000 low-side NMOS wakes series LED cleanly without floating-drain deadlock', () => {
+  const c = new Circuit();
+  const vcc = new Part('vcc', 0, 0), gnd = new Part('gnd', 0, 10);
+  const sw = new Part('toggle', 4, 0, 0, { on: false });
+  const r = new Part('resistor', 8, 0, 0, { ohms: 220 });
+  const led = new Part('led', 14, 0, 0, { color: 'red', protect: 'off' });
+  const q = new Part('nmos', 16, 4, 0, { model: '2N7000' }); // G, D, S
+  c.parts.push(vcc, gnd, sw, r, led, q);
+  wire(c, vcc.worldPins()[0], r.worldPins()[0]);
+  wire(c, r.worldPins()[1], led.worldPins()[0]);
+  wire(c, led.worldPins()[1], q.worldPins()[1]);
+  wire(c, q.worldPins()[2], gnd.worldPins()[0]);
+  wire(c, sw.worldPins()[0], q.worldPins()[0]);
+
+  const eng = new Engine();
+  eng.build(c);
+  eng.step(1e-4);
+  const ledDev = eng.byPart.get(led.id).device;
+  assert.ok(ledDev.cur[0] < 1e-4, 'LED off when NMOS Gate LOW');
+
+  const ledStats = probeCircuitLedBehavior(eng, c);
+  assert.ok(ledStats[0].peakMa > 10, `NMOS LED must wake up when Gate HIGH (>10mA), got ${ledStats[0].peakMa.toFixed(2)}mA`);
+  return `NMOS Gate toggle woke series LED to ${ledStats[0].peakMa.toFixed(2)} mA`;
+});
+
+test('A1.15', '100Hz FuncGen rectifier + scope avoids 0.00 Vpp aliasing; pins & composite rails resolve', () => {
+  // 1) 100Hz funcgen half-wave rectifier verified via verifyInstrumentAndLoadLiveness
+  const c = new Circuit();
+  const gnd = new Part('gnd', 0, 10);
+  const fg = new Part('funcgen', 4, 8, 0, { power: true, wave: 'sine', hz: 100, vpp: 10 });
+  const d = new Part('diode', 20, 4, 0, { model: '1N4007' });
+  const r = new Part('resistor', 26, 4, 0, { ohms: 1000 });
+  const sc = new Part('oscilloscope', 34, 8);
+  c.parts.push(gnd, fg, d, r, sc);
+  wire(c, fg.worldPins()[4], d.worldPins()[0]); // OUT+ -> D.A
+  wire(c, d.worldPins()[1], r.worldPins()[0]);  // D.K -> R
+  wire(c, r.worldPins()[1], gnd.worldPins()[0]);
+  wire(c, fg.worldPins()[5], gnd.worldPins()[0]); // OUT- -> GND
+  wire(c, d.worldPins()[1], sc.worldPins()[0]); // CH1+ -> output
+  wire(c, gnd.worldPins()[0], sc.worldPins()[1]); // CH1 GND -> GND
+  const eng = new Engine();
+  eng.build(c);
+  const errs = verifyInstrumentAndLoadLiveness(eng, c);
+  assert.deepEqual(errs, [], `100Hz FuncGen scope check must pass without 0.00 Vpp aliasing: ${errs}`);
+
+  // 2) Pin hint echo "MASTER +(#6)" & composite "+/VCC" rails
+  const psu = new Part('power-supply', 0, 0);
+  assert.equal(resolvePinIndex(psu, 'MASTER +(#6)'), 5);
+  assert.equal(parseRailToken('+/VCC')?.rail, '+');
+  assert.equal(parseRailToken('−/GND')?.rail, '−');
+  return '100Hz scope captured cleanly (0 errors); MASTER +(#6) & +/VCC resolved';
 });
 
 let failed = 0;

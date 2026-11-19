@@ -92,9 +92,9 @@ function selectDetailedTypes(queryText = '', app = null) {
 }
 
 const PART_HINTS = {
-  toggle: ' // active 5V/0V source (do NOT wire +5V/GND to OUT)',
-  button: ' // active 5V/0V source (do NOT wire +5V/GND to OUT)',
-  clock: ' // active 5V/0V source (do NOT wire +5V/GND to OUT)',
+  toggle: ' // active 5V/0V source (do NOT wire +/- to OUT)',
+  button: ' // 1-pin 5V/0V driver (NEVER wire to +/-; use "tactile" if pull-down/up R needed)',
+  clock: ' // active 5V/0V source (do NOT wire +/- to OUT)',
   dip4: ' // active 5V/0V drivers S1..S4 (do NOT wire +5V/GND to S1..S4)',
   dip8: ' // active 5V/0V drivers S1..S8 (do NOT wire +5V/GND to S1..S8)',
   ne555: ' // Astable: R1(+->DIS), R2(DIS->THR), THR-TRIG, C(THR->-), RESET->+. Monostable: R(+->DIS), DIS-THR, C(THR->-), input->TRIG',

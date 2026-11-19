@@ -825,14 +825,15 @@ export function mosfet(nets, part, isPmos = false) {
 
       let next = 'off', idNew = 0;
       const vov = vdrive - vth;
-      if (vov > 0 && vdrop > 0) {
-        if (vdrop < vov) {
+      if (vov > 0 && d >= 0 && (!dOk || vdrop >= -0.02)) {
+        const vdEff = dOk ? Math.max(0, vdrop) : 0;
+        if (vdEff < vov) {
           next = 'linear';
           const ron = rdson + 1 / (kp * vov);
-          idNew = vdrop / ron;
+          idNew = vdEff / ron;
         } else {
           next = 'sat';
-          idNew = Math.min(vdrop / rdson, 0.5 * kp * vov * vov);
+          idNew = Math.min(vdEff / rdson, 0.5 * kp * vov * vov);
         }
       }
       const idChanged = next === 'sat' && Math.abs(idNew - this.id) / Math.max(1e-4, this.id) > 0.05;
