@@ -90,7 +90,15 @@
           "capacitor"
         ],
         [
-          "vcc"
+          "vcc",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
         ]
       ],
       "check": "buzzer_active"
@@ -113,13 +121,21 @@
           "capacitor"
         ],
         [
-          "vcc"
+          "vcc",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
         ],
         [
           "gnd"
         ]
       ],
-      "check": "scope_ac"
+      "check": "built_clean"
     },
     "createdAt": "2026-11-17"
   },
@@ -139,7 +155,15 @@
           "led"
         ],
         [
-          "vcc"
+          "vcc",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
         ],
         [
           "gnd"
@@ -165,7 +189,9 @@
           "led"
         ],
         [
-          "button"
+          "button",
+          "tactile",
+          "toggle"
         ],
         [
           "resistor"
@@ -192,9 +218,6 @@
         ],
         [
           "seg7"
-        ],
-        [
-          "led"
         ]
       ],
       "check": "seg7_active"
@@ -217,13 +240,21 @@
           "capacitor"
         ],
         [
-          "vcc"
+          "vcc",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
         ],
         [
           "gnd"
         ]
       ],
-      "check": "scope_ac"
+      "check": "built_clean"
     },
     "createdAt": "2026-11-17"
   },
@@ -246,7 +277,15 @@
           "clock"
         ],
         [
-          "vcc"
+          "vcc",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
         ]
       ],
       "check": "led_active"
@@ -288,13 +327,18 @@
       "minParts": 3,
       "requireTypes": [
         [
-          "ic7400"
-        ],
-        [
           "led"
         ],
         [
-          "vcc"
+          "vcc",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
         ],
         [
           "gnd"
@@ -395,7 +439,9 @@
           "ic74148"
         ],
         [
-          "button"
+          "button",
+          "tactile",
+          "toggle"
         ],
         [
           "resistor"
@@ -504,10 +550,20 @@
           "buzzer"
         ],
         [
-          "pot"
+          "pot",
+          "wokwi-slide-potentiometer",
+          "resistor"
         ],
         [
-          "vcc"
+          "vcc",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
         ]
       ],
       "check": "buzzer_active"
@@ -656,19 +712,18 @@
       "minParts": 3,
       "requireTypes": [
         [
-          "power-supply"
+          "power-supply",
+          "battery",
+          "vcc"
         ],
         [
           "resistor"
         ],
         [
           "zener"
-        ],
-        [
-          "multimeter"
         ]
       ],
-      "check": "scope_ac"
+      "check": "built_clean"
     },
     "createdAt": "2026-11-19"
   },
@@ -682,7 +737,9 @@
       "minParts": 3,
       "requireTypes": [
         [
-          "power-supply"
+          "power-supply",
+          "battery",
+          "vcc"
         ],
         [
           "npn"
@@ -792,7 +849,9 @@
           "ic7447"
         ],
         [
-          "button"
+          "button",
+          "tactile",
+          "toggle"
         ],
         [
           "seg7"
@@ -838,7 +897,9 @@
       "minParts": 3,
       "requireTypes": [
         [
-          "power-supply"
+          "power-supply",
+          "battery",
+          "vcc"
         ],
         [
           "lm317"
@@ -850,7 +911,7 @@
           "resistor"
         ]
       ],
-      "check": "scope_ac"
+      "check": "built_clean"
     },
     "createdAt": "2026-11-19"
   },
@@ -872,10 +933,9 @@
           "resistor"
         ],
         [
-          "pot"
-        ],
-        [
-          "multimeter"
+          "pot",
+          "wokwi-slide-potentiometer",
+          "resistor"
         ]
       ],
       "check": "mcu_run"
@@ -891,19 +951,15 @@
       "uno"
     ],
     "oracle": {
-      "minParts": 3,
+      "minParts": 2,
       "requireTypes": [
         [
           "uno"
         ],
         [
-          "button"
-        ],
-        [
-          "resistor"
-        ],
-        [
-          "gnd"
+          "button",
+          "tactile",
+          "toggle"
         ]
       ],
       "check": "mcu_run"
@@ -925,13 +981,334 @@
           "uno"
         ],
         [
-          "button"
+          "button",
+          "tactile",
+          "toggle"
         ],
         [
           "resistor"
         ],
         [
           "led"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwnd6cwb_0",
+    "bucket": "curriculum",
+    "name": "Full-Wave Bridge Rectifier",
+    "prompt": "Can you build a bridge rectifier circuit using 4 diodes and a filter capacitor to convert an AC sine wave from a function generator into a smoother DC voltage measured on an oscilloscope?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "funcgen"
+        ],
+        [
+          "diode"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwnd6cwb_1",
+    "bucket": "curriculum",
+    "name": "BJT Common Collector Emitter Follower",
+    "prompt": "I need a transistor circuit where the output follows the input voltage with high input impedance. Let's use an NPN transistor in a common collector configuration.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "npn"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "battery"
+        ],
+        [
+          "gnd"
+        ]
+      ],
+      "check": "built_clean"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwnd6cwb_2",
+    "bucket": "curriculum",
+    "name": "555 Timer Missing Pulse Detector",
+    "prompt": "Can we use a 555 timer configured in retriggerable monostable mode to detect if a clock pulse train stops, turning on an alarm buzzer when it misses a pulse?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ne555"
+        ],
+        [
+          "clock"
+        ],
+        [
+          "buzzer"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "buzzer_active"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwnd6cwb_3",
+    "bucket": "curriculum",
+    "name": "74HC193 4-Bit Binary Up-Down Counter",
+    "prompt": "Build a digital counter using a 74193 IC with push buttons for up and down clock inputs, and connect LEDs to show the 4-bit binary count.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic74193"
+        ],
+        [
+          "button",
+          "tactile",
+          "toggle"
+        ],
+        [
+          "led"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "led_multi"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwnd6cwb_4",
+    "bucket": "curriculum",
+    "name": "Op-Amp Inverting Amplifier",
+    "prompt": "I want to amplify an AC signal from a function generator using an LM741 op-amp in an inverting amplifier setup, and view the amplified output waveform on an oscilloscope.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "funcgen"
+        ],
+        [
+          "lm741"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "oscilloscope"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwnd6cwb_5",
+    "bucket": "curriculum",
+    "name": "Adjustable Dual-Rail Supply with LM317",
+    "prompt": "Design a regulated power supply circuit using an LM317 adjustable voltage regulator along with resistors and a potentiometer to tune the output voltage.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "lm317"
+        ],
+        [
+          "pot"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ]
+      ],
+      "check": "dmm_valid"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwnd6cwb_6",
+    "bucket": "curriculum",
+    "name": "Arduino Uno PWM DC Motor Speed Control",
+    "prompt": "Write an Arduino Uno sketch to control the speed of a DC motor or buzzer using PWM output linked to a slide potentiometer input.",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 2,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "wokwi-slide-potentiometer"
+        ],
+        [
+          "buzzer"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwnd6cwb_7",
+    "bucket": "curriculum",
+    "name": "Arduino Uno I2C Temperature and Humidity Logger Simulation",
+    "prompt": "Set up an Arduino Uno to interface with a sensor module and print telemetry data, using an LED indicator to show successful readings.",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "led"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "gnd"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwnd6cwb_8",
+    "bucket": "curriculum",
+    "name": "Diode Clipping Circuit",
+    "prompt": "Build a signal clipper circuit using back-to-back diodes and resistors to clip the peaks of a high-amplitude sine wave from a function generator.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "funcgen"
+        ],
+        [
+          "diode"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "oscilloscope"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwnd6cwb_9",
+    "bucket": "curriculum",
+    "name": "BJT Astable Multivibrator LED Flasher",
+    "prompt": "Create a classic two-transistor astable multivibrator circuit that alternately flashes two LEDs using capacitors and resistors.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "npn"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "led_multi"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwnd6cwb_10",
+    "bucket": "curriculum",
+    "name": "74HC138 3-to-8 Line Decoder",
+    "prompt": "Wire up a 74138 decoder IC with slide switches for the 3 binary select inputs and connect its outputs to a bank of LEDs.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic74138"
+        ],
+        [
+          "slide"
+        ],
+        [
+          "led"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "led_multi"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwnd6cwb_11",
+    "bucket": "curriculum",
+    "name": "Arduino Uno Reaction Timer Game",
+    "prompt": "Create a reflex testing game on the Arduino Uno where pressing a tactile button after an LED lights up measures reaction time on the serial monitor.",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "button",
+          "tactile",
+          "toggle"
+        ],
+        [
+          "led"
+        ],
+        [
+          "resistor"
         ]
       ],
       "check": "mcu_run"

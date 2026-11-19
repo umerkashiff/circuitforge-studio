@@ -1,8 +1,8 @@
 {
   "cursors": {
-    "wild": 30,
-    "mutation": 33,
-    "combinatorial": 34
+    "wild": 46,
+    "mutation": 65,
+    "combinatorial": 67
   },
   "history": [
     {
@@ -34,12 +34,22 @@
       "totalTokens": 539046,
       "graduated": 1,
       "stopReason": "reached time budget (25m)"
+    },
+    {
+      "date": "2026-11-19",
+      "dryRun": false,
+      "cases": 157,
+      "pass": 121,
+      "httpCalls": 300,
+      "totalTokens": 915837,
+      "graduated": 25,
+      "stopReason": "reached daily call cap (300)"
     }
   ],
   "signatures": {
     "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC*.CH": {
       "tier": "T1_BUILD_FAIL",
-      "count": 19,
+      "count": 20,
       "firstSeen": "2026-11-17",
       "lastSeen": "2026-11-19",
       "sampleId": "reg_guitar_fuzz"
@@ -81,9 +91,9 @@
     },
     "missing expected type (gnd)": {
       "tier": "T2_SILENT_DEAD",
-      "count": 1,
+      "count": 2,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-17",
+      "lastSeen": "2026-11-19",
       "sampleId": "idea_mwl354p0_8"
     },
     "Unknown pin \"GND(##)\" on part \"GND\" (gnd). Valid pins: [GND(##)]": {
@@ -109,14 +119,14 @@
     },
     "Output pins #, # are shorted to another output or a supply.": {
       "tier": "T1_BUILD_FAIL",
-      "count": 2,
+      "count": 5,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-18",
+      "lastSeen": "2026-11-19",
       "sampleId": "wild_traffic_light_4017"
     },
     "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=<val>) — fix its resistor/driver wiring, check counter/gate inputs, and ensure": {
       "tier": "T1_BUILD_FAIL",
-      "count": 7,
+      "count": 14,
       "firstSeen": "2026-11-17",
       "lastSeen": "2026-11-19",
       "sampleId": "wild_decade_dice"
@@ -130,7 +140,7 @@
     },
     "Boolean logic verification failed for Y = A' + B' * C: when (A=#, B=#, C=#): expected #, got LED OFF (#); when (A=#, B=#, C=#): expected #, ": {
       "tier": "T1_BUILD_FAIL",
-      "count": 3,
+      "count": 5,
       "firstSeen": "2026-11-17",
       "lastSeen": "2026-11-19",
       "sampleId": "comb_bool_006"
@@ -151,7 +161,7 @@
     },
     "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=NC) — fix its resistor/driver wiring, check counter/gate inputs, and ensure se": {
       "tier": "T1_BUILD_FAIL",
-      "count": 7,
+      "count": 8,
       "firstSeen": "2026-11-17",
       "lastSeen": "2026-11-19",
       "sampleId": "comb_chain_013"
@@ -256,7 +266,7 @@
     },
     "missing expected type (resistor)": {
       "tier": "T2_SILENT_DEAD",
-      "count": 1,
+      "count": 2,
       "firstSeen": "2026-11-19",
       "lastSeen": "2026-11-19",
       "sampleId": "idea_mwmwtu2e_4"
@@ -298,7 +308,7 @@
     },
     "IC \"<ref>\" (ne555): No power — pin # (VCC) needs +<val> and pin # (GND) needs ground.. Ensure \"V*.#\"->\"+\", \"G*.#\"->\"-\", \"U*.VCC\"->\"+\", \"U*.G": {
       "tier": "T1_BUILD_FAIL",
-      "count": 1,
+      "count": 7,
       "firstSeen": "2026-11-19",
       "lastSeen": "2026-11-19",
       "sampleId": "comb_chain_032"
@@ -309,6 +319,90 @@
       "firstSeen": "2026-11-19",
       "lastSeen": "2026-11-19",
       "sampleId": "comb_bool_033"
+    },
+    "Unknown pin \"<val> FIXED +#\" on part \"<ref>\" (power-supply). Valid pins: [SLAVE −(##), SLAVE GND(##), SLAVE +(##), MASTER −(##), MASTER GND(": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "autoreg_idea_mwmwtu2e_1"
+    },
+    "Shorted outputs / driver contention: U*.1Y and U*.3Y are both driving the same node — never wire two outputs directly together.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "autoreg_comb_bool_033"
+    },
+    "missing expected type (battery)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 2,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "idea_mwnd6cwb_1"
+    },
+    "multimeter produced no valid finite reading (---- / OL / LIVE V!)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "idea_mwnd6cwb_5"
+    },
+    "missing expected type (capacitor)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "idea_mwnd6cwb_5_typo"
+    },
+    "None of the # wired LED(s) lit up (all <val>)! Check that \"vcc\"->\"+\", \"gnd\"->\"-\", and LED Anodes reach \"+\" (via resistor) and Cathodes reach": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 2,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "idea_mwnd6cwb_9"
+    },
+    "Output pins #, #, # are shorted to another output or a supply.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "comb_bool_039"
+    },
+    "Boolean logic verification failed for Y = (A ^ B) & C: when (A=#, B=#, C=#): expected #, got LED ON (#); when (A=#, B=#, C=#): expected #, g": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "comb_bool_042"
+    },
+    "MCU runtime error: p10126: i is not defined": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "comb_chain_050"
+    },
+    "Shorted outputs / driver contention: U*.2Y and U*.3Y are both driving the same node — never wire two outputs directly together.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "comb_bool_057"
+    },
+    "DIP Switch ×# (ref \"<ref>\") S* is an active <val>/<val> output switch; do NOT wire it directly to +<val> or GND (wire \"S*.S*\" directly to yo": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "comb_bool_063"
+    },
+    "buzzer \"<ref>\" remained silent (peak |dV|=<val>) — verify \"+\" connects to active driver/timer output and \"-\" connects to GND.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "mut_siren_v006"
     }
   }
 }
