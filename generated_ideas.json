@@ -619,5 +619,323 @@
       "check": "mcu_run"
     },
     "createdAt": "2026-11-18"
+  },
+  {
+    "id": "idea_mwmwtu2e_0",
+    "bucket": "curriculum",
+    "name": "Half-Wave Rectifier with Capacitor Filter",
+    "prompt": "Hey, can you help me build a basic half-wave rectifier using a diode and a capacitor filter on the oscilloscope?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "funcgen"
+        ],
+        [
+          "diode"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwmwtu2e_1",
+    "bucket": "curriculum",
+    "name": "Zener Diode Voltage Regulator",
+    "prompt": "I need to test how a zener diode regulates voltage under varying load conditions. Can you set up a DC supply with a series resistor, zener, and load resistor?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "power-supply"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "zener"
+        ],
+        [
+          "multimeter"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwmwtu2e_2",
+    "bucket": "curriculum",
+    "name": "BJT Common Emitter Amplifier",
+    "prompt": "Can we design a simple single-stage NPN transistor amplifier circuit and check the input and output waveforms on an oscilloscope?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "power-supply"
+        ],
+        [
+          "npn"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwmwtu2e_3",
+    "bucket": "curriculum",
+    "name": "555 Timer Buzzer Alarm",
+    "prompt": "Build a loud audible alarm circuit using an astable 555 timer connected to a piezo buzzer.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ne555"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "buzzer"
+        ]
+      ],
+      "check": "buzzer_active"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwmwtu2e_4",
+    "bucket": "curriculum",
+    "name": "7400 Quad NAND Gate Oscillator",
+    "prompt": "Can you build a ring oscillator using a couple of NAND gates from a 7400 IC and monitor the output clock pulse?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7400"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwmwtu2e_5",
+    "bucket": "curriculum",
+    "name": "4-Bit Shift Register Pattern Generator",
+    "prompt": "I want to assemble a 4-bit serial-in parallel-out shift register using D flip-flops with LEDs on the outputs to see the bits shift across.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7474"
+        ],
+        [
+          "toggle"
+        ],
+        [
+          "clock"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "led_multi"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwmwtu2e_6",
+    "bucket": "curriculum",
+    "name": "Decade Counter with 7-Segment Display",
+    "prompt": "Set up a 7490 decade counter driven by a manual clock button, feeding a 7447 decoder to display numbers 0-9 on a 7-segment display.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7490"
+        ],
+        [
+          "ic7447"
+        ],
+        [
+          "button"
+        ],
+        [
+          "seg7"
+        ]
+      ],
+      "check": "seg7_active"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwmwtu2f_7",
+    "bucket": "curriculum",
+    "name": "Op-Amp Non-Inverting Amplifier",
+    "prompt": "Let's build an LM358 non-inverting amplifier with a function generator input and observe the amplified signal on the scope.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "lm358"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "funcgen"
+        ],
+        [
+          "oscilloscope"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwmwtu2f_8",
+    "bucket": "curriculum",
+    "name": "Adjustable Bench Power Supply with LM317",
+    "prompt": "I need an adjustable voltage regulator circuit using an LM317, a potentiometer, and some filter caps to vary the output voltage.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "power-supply"
+        ],
+        [
+          "lm317"
+        ],
+        [
+          "pot"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwmwtu2f_9",
+    "bucket": "curriculum",
+    "name": "Arduino Uno Analog Light Sensor",
+    "prompt": "Write a program for the Arduino Uno to read an analog light-dependent resistor voltage divider and display brightness levels.",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "pot"
+        ],
+        [
+          "multimeter"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwmwtu2f_10",
+    "bucket": "curriculum",
+    "name": "Arduino Uno Digital Stopwatch Counter",
+    "prompt": "Can you make a simple digital timer on the Arduino using a push button to start and stop, printing ticks to the serial monitor?",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "button"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "gnd"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwmwtu2f_11",
+    "bucket": "curriculum",
+    "name": "Arduino Uno Button Debounce with LED Toggle",
+    "prompt": "Write an Arduino sketch to debounce a tactile push button and toggle an LED state with each press.",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "button"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-19"
   }
 ]

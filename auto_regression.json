@@ -240,30 +240,6 @@
       "lastFailed": "2026-11-17"
     },
     {
-      "id": "autoreg_comb_chain_005",
-      "name": "Combinatorial chain #5",
-      "prompt": "setup an arduino arduino uno sketch scanning 3 LEDs with resiter controlled by a momentary switch button or potnetiometer",
-      "scopes": [
-        "uno"
-      ],
-      "oracle": {
-        "minParts": 6,
-        "requireTypes": [
-          [
-            "uno"
-          ],
-          [
-            "led"
-          ]
-        ],
-        "check": "mcu_run"
-      },
-      "signature": "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"B*.OUT\" directly to its destinat",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-17",
-      "lastFailed": "2026-11-17"
-    },
-    {
       "id": "autoreg_comb_bool_006",
       "name": "Boolean Y = A' + B' * C (nand)",
       "prompt": "bild Y = A' + B' * C using ONLY NAND gates (ic7400) with a DIP4 switch and an output LED + 220ohm resister",
@@ -515,6 +491,350 @@
       "tier": "T1_BUILD_FAIL",
       "firstFailed": "2026-11-17",
       "lastFailed": "2026-11-17"
+    },
+    {
+      "id": "autoreg_reg_nmos_lowside_led",
+      "name": "2N7000 N-MOSFET LED Driver",
+      "prompt": "build an enhancement N-MOSFET 2N7000 low-side switch where a toggle switch drives Gate HIGH, Source goes to GND, and Drain sinks a red LED with 220 ohm resistor from +5V",
+      "scopes": [],
+      "oracle": {
+        "minParts": 5,
+        "requireTypes": [
+          [
+            "nmos"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=NC) — fix its resistor/driver wiring, check counter/gate inputs, and ensure se",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-19",
+      "lastFailed": "2026-11-19"
+    },
+    {
+      "id": "autoreg_idea_mwmwtu2e_0_typo",
+      "name": "Half-Wave Rectifier with Capacitor Filter (typos)",
+      "prompt": "Hey, can you help me build a basic half-wave rectifier using a diode and a capacitor filter on the oscilloscope?",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "funcgen"
+          ],
+          [
+            "diode"
+          ],
+          [
+            "capacitor"
+          ],
+          [
+            "resistor"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "oscilloscope captured flat/no AC waveform (vpp <= <val>)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-19",
+      "lastFailed": "2026-11-19"
+    },
+    {
+      "id": "autoreg_idea_mwmwtu2e_1",
+      "name": "Zener Diode Voltage Regulator",
+      "prompt": "I need to test how a zener diode regulates voltage under varying load conditions. Can you set up a DC supply with a series resistor, zener, and load resistor?",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "power-supply"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "zener"
+          ],
+          [
+            "multimeter"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "missing expected type (power-supply)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-19",
+      "lastFailed": "2026-11-19"
+    },
+    {
+      "id": "autoreg_idea_mwmwtu2e_2",
+      "name": "BJT Common Emitter Amplifier",
+      "prompt": "Can we design a simple single-stage NPN transistor amplifier circuit and check the input and output waveforms on an oscilloscope?",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "power-supply"
+          ],
+          [
+            "npn"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "capacitor"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "missing expected type (power-supply)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-19",
+      "lastFailed": "2026-11-19"
+    },
+    {
+      "id": "autoreg_idea_mwmwtu2e_4",
+      "name": "7400 Quad NAND Gate Oscillator",
+      "prompt": "Can you build a ring oscillator using a couple of NAND gates from a 7400 IC and monitor the output clock pulse?",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "ic7400"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "capacitor"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "missing expected type (resistor)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-19",
+      "lastFailed": "2026-11-19"
+    },
+    {
+      "id": "autoreg_idea_mwmwtu2f_7_typo",
+      "name": "Op-Amp Non-Inverting Amplifier (typos)",
+      "prompt": "Let's build an LM358 non-inverting amplifier with a function generator input and observe the amplifeid signal on the scope.",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "lm358"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "funcgen"
+          ],
+          [
+            "oscilloscope"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "Invalid connection endpoint \"+/VCC\"",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-19",
+      "lastFailed": "2026-11-19"
+    },
+    {
+      "id": "autoreg_idea_mwmwtu2f_9",
+      "name": "Arduino Uno Analog Light Sensor",
+      "prompt": "Write a program for the Arduino Uno to read an analog light-dependent resistor voltage divider and display brightness levels.",
+      "scopes": [
+        "uno"
+      ],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "uno"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "pot"
+          ],
+          [
+            "multimeter"
+          ]
+        ],
+        "check": "mcu_run"
+      },
+      "signature": "missing expected type (pot)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-19",
+      "lastFailed": "2026-11-19"
+    },
+    {
+      "id": "autoreg_idea_mwmwtu2f_10",
+      "name": "Arduino Uno Digital Stopwatch Counter",
+      "prompt": "Can you make a simple digital timer on the Arduino using a push button to start and stop, printing ticks to the serial monitor?",
+      "scopes": [
+        "uno"
+      ],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "uno"
+          ],
+          [
+            "button"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "gnd"
+          ]
+        ],
+        "check": "mcu_run"
+      },
+      "signature": "too few parts (# < #)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-19",
+      "lastFailed": "2026-11-19"
+    },
+    {
+      "id": "autoreg_idea_mwmwtu2f_11",
+      "name": "Arduino Uno Button Debounce with LED Toggle",
+      "prompt": "Write an Arduino sketch to debounce a tactile push button and toggle an LED state with each press.",
+      "scopes": [
+        "uno"
+      ],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "uno"
+          ],
+          [
+            "button"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "mcu_run"
+      },
+      "signature": "missing expected type (button)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-19",
+      "lastFailed": "2026-11-19"
+    },
+    {
+      "id": "autoreg_wild_bridge_rectifier",
+      "name": "Full-Wave 4-Diode Bridge + Scope",
+      "prompt": "build a 4-diode 1n4007 full wave bridge rectifier fed by 100Hz sine function generator across a 1k load resistor with scope measuring output ripple",
+      "scopes": [],
+      "oracle": {
+        "minParts": 7,
+        "requireTypes": [
+          [
+            "funcgen"
+          ],
+          [
+            "diode"
+          ],
+          [
+            "oscilloscope"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC*.CH",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-19",
+      "lastFailed": "2026-11-19"
+    },
+    {
+      "id": "autoreg_comb_chain_032",
+      "name": "Combinatorial chain #32",
+      "prompt": "cretae a 5Hz lm555 asatble oscillator driving cd4017 counting 6 LEDs with resistor in sequence",
+      "scopes": [],
+      "oracle": {
+        "minParts": 10,
+        "requireTypes": [
+          [
+            "ne555"
+          ],
+          [
+            "ic4017"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_multi",
+        "minActiveLeds": 2
+      },
+      "signature": "IC \"<ref>\" (ne555): No power — pin # (VCC) needs +<val> and pin # (GND) needs ground.. Ensure \"V*.#\"->\"+\", \"G*.#\"->\"-\", \"U*.VCC\"->\"+\", \"U*.G",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-19",
+      "lastFailed": "2026-11-19"
+    },
+    {
+      "id": "autoreg_comb_bool_033",
+      "name": "Boolean F = (A & B) | (B & C) | (A & C) (nand)",
+      "prompt": "cretae F = (A & B) | (B & C) | (A & C) using ONLY NAND gates (ic7400) with toggle switches and an output LED + 220ohm 220ohm resiter",
+      "scopes": [],
+      "oracle": {
+        "minParts": 4,
+        "requireTypes": [
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "Shorted outputs / driver contention: U*.1Y and U*.2Y are both driving the same node — never wire two outputs directly together.",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-19",
+      "lastFailed": "2026-11-19"
+    },
+    {
+      "id": "autoreg_mut_bjt_driver_v003",
+      "name": "Mutated bjt_driver #3",
+      "prompt": "cretae an npn bjt common-emitter switch activated by momentary switch button through 10k 220ohm resiter powering a led and sounder",
+      "scopes": [],
+      "oracle": {
+        "minParts": 6,
+        "requireTypes": [
+          [
+            "npn"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"BT*.OUT\" directly to its destina",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-19",
+      "lastFailed": "2026-11-19"
     }
   ],
   "resolved": [
@@ -542,6 +862,11 @@
       "id": "autoreg_mut_bjt_driver_v002",
       "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=NC) — fix its resistor/driver wiring, check counter/gate inputs, and ensure se",
       "resolvedAt": "2026-11-18"
+    },
+    {
+      "id": "autoreg_comb_chain_005",
+      "signature": "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"B*.OUT\" directly to its destinat",
+      "resolvedAt": "2026-11-19"
     }
   ]
 }

@@ -1,8 +1,8 @@
 {
   "cursors": {
-    "wild": 14,
-    "mutation": 29,
-    "combinatorial": 30
+    "wild": 30,
+    "mutation": 33,
+    "combinatorial": 34
   },
   "history": [
     {
@@ -24,14 +24,24 @@
       "totalTokens": 162915,
       "graduated": 5,
       "stopReason": "2 consecutive cases exhausted all models (API quota/infra) — stopping for today"
+    },
+    {
+      "date": "2026-11-19",
+      "dryRun": false,
+      "cases": 80,
+      "pass": 36,
+      "httpCalls": 186,
+      "totalTokens": 539046,
+      "graduated": 1,
+      "stopReason": "reached time budget (25m)"
     }
   ],
   "signatures": {
     "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC*.CH": {
       "tier": "T1_BUILD_FAIL",
-      "count": 11,
+      "count": 19,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-18",
+      "lastSeen": "2026-11-19",
       "sampleId": "reg_guitar_fuzz"
     },
     "+ → -: Short <val> supply to ground.": {
@@ -43,16 +53,16 @@
     },
     "missing expected type (vcc)": {
       "tier": "T2_SILENT_DEAD",
-      "count": 2,
+      "count": 3,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-17",
+      "lastSeen": "2026-11-19",
       "sampleId": "idea_mwl354p0_3"
     },
     "oscilloscope captured flat/no AC waveform (vpp <= <val>)": {
       "tier": "T2_SILENT_DEAD",
-      "count": 4,
+      "count": 7,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-18",
+      "lastSeen": "2026-11-19",
       "sampleId": "idea_mwl354p0_4_typo"
     },
     "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"B*.OUT\" directly to its destinat": {
@@ -64,9 +74,9 @@
     },
     "missing expected type (led)": {
       "tier": "T2_SILENT_DEAD",
-      "count": 3,
+      "count": 4,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-18",
+      "lastSeen": "2026-11-19",
       "sampleId": "idea_mwl354p0_7"
     },
     "missing expected type (gnd)": {
@@ -85,9 +95,9 @@
     },
     "missing expected type (ic7400)": {
       "tier": "T2_SILENT_DEAD",
-      "count": 3,
+      "count": 4,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-18",
+      "lastSeen": "2026-11-19",
       "sampleId": "idea_mwl354p0_11"
     },
     "Oscilloscope \"OSC\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC.CH*+\"": {
@@ -106,9 +116,9 @@
     },
     "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=<val>) — fix its resistor/driver wiring, check counter/gate inputs, and ensure": {
       "tier": "T1_BUILD_FAIL",
-      "count": 2,
+      "count": 7,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-17",
+      "lastSeen": "2026-11-19",
       "sampleId": "wild_decade_dice"
     },
     "LED \"<ref>\" has an unconnected pin — wire Anode (via #–#Ω resistor) to its driver/signal and Cathode to \"-\".": {
@@ -120,37 +130,37 @@
     },
     "Boolean logic verification failed for Y = A' + B' * C: when (A=#, B=#, C=#): expected #, got LED OFF (#); when (A=#, B=#, C=#): expected #, ": {
       "tier": "T1_BUILD_FAIL",
-      "count": 2,
+      "count": 3,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-18",
+      "lastSeen": "2026-11-19",
       "sampleId": "comb_bool_006"
     },
     "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"BT*.OUT\" directly to its destina": {
       "tier": "T1_BUILD_FAIL",
-      "count": 1,
+      "count": 2,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-17",
+      "lastSeen": "2026-11-19",
       "sampleId": "mut_bjt_driver_v001"
     },
     "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"O*.CH*+": {
       "tier": "T1_BUILD_FAIL",
-      "count": 3,
+      "count": 5,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-18",
+      "lastSeen": "2026-11-19",
       "sampleId": "mut_rc_scope_v001"
     },
     "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=NC) — fix its resistor/driver wiring, check counter/gate inputs, and ensure se": {
       "tier": "T1_BUILD_FAIL",
-      "count": 4,
+      "count": 7,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-18",
+      "lastSeen": "2026-11-19",
       "sampleId": "comb_chain_013"
     },
     "Short circuit on the supply — it is wired straight to another supply or ground.": {
       "tier": "T1_BUILD_FAIL",
-      "count": 1,
+      "count": 2,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-17",
+      "lastSeen": "2026-11-19",
       "sampleId": "comb_chain_016"
     },
     "diode (\"<ref>\") has one open/unconnected pin (\"Cathode\") — connect \"D*.Cathode\" to complete the circuit.": {
@@ -190,9 +200,9 @@
     },
     "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"SW*.OUT\" directly to its destina": {
       "tier": "T1_BUILD_FAIL",
-      "count": 1,
+      "count": 2,
       "firstSeen": "2026-11-18",
-      "lastSeen": "2026-11-18",
+      "lastSeen": "2026-11-19",
       "sampleId": "autoreg_wild_7402_nor_sr"
     },
     "{\"intent\":\"build\",\"plan\":\"Setup an Arduino Uno with # LEDs and a potentiometer to control LED scanning speed or pattern, including pull-down": {
@@ -208,6 +218,97 @@
       "firstSeen": "2026-11-18",
       "lastSeen": "2026-11-18",
       "sampleId": "autoreg_comb_chain_014"
+    },
+    "ne555 (\"<ref>\") THR pin is unconnected — for astable tie THR->TRIG, R*(+->DIS), R*(DIS->THR), C(THR->-), RESET->+; for monostable tie DIS->T": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "autoreg_wild_decade_dice"
+    },
+    "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"BTN*.OUT\" directly to its destin": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "autoreg_mut_bjt_driver_v001"
+    },
+    "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"S*.CH*+": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "autoreg_mut_rc_scope_v001"
+    },
+    "missing expected type (power-supply)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 4,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "idea_mwmwtu2e_1"
+    },
+    "Unknown pin \"MASTER +(##)\" on part \"<ref>\" (power-supply). Valid pins: [SLAVE −(##), SLAVE GND(##), SLAVE +(##), MASTER −(##), MASTER GND(##": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "idea_mwmwtu2e_1_typo"
+    },
+    "missing expected type (resistor)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "idea_mwmwtu2e_4"
+    },
+    "Invalid connection endpoint \"+/VCC\"": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "idea_mwmwtu2f_7_typo"
+    },
+    "missing expected type (pot)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "idea_mwmwtu2f_9"
+    },
+    "too few parts (# < #)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "idea_mwmwtu2f_10"
+    },
+    "missing expected type (button)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "idea_mwmwtu2f_11"
+    },
+    "Clocked counter ic4017 (\"<ref>\") LED output(s) never toggled over #.#+ clock cycles! Check clock pin, active-high/low resets (tie #/# R*(#)/": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "wild_traffic_light_4017"
+    },
+    "IC \"<ref>\" (ne555): No power — pin # (VCC) needs +<val> and pin # (GND) needs ground.. Ensure \"V*.#\"->\"+\", \"G*.#\"->\"-\", \"U*.VCC\"->\"+\", \"U*.G": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "comb_chain_032"
+    },
+    "Shorted outputs / driver contention: U*.1Y and U*.2Y are both driving the same node — never wire two outputs directly together.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-19",
+      "lastSeen": "2026-11-19",
+      "sampleId": "comb_bool_033"
     }
   }
 }
