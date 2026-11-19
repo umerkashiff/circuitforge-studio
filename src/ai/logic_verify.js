@@ -562,6 +562,40 @@ export function verifyOutputContention(sim, circuit, refById = null) {
 const COUNTER_SEQ_TYPES = new Set(['ic4017', 'ic7490', 'ic7493', 'ic74193', 'ic74194', 'ic74165', 'ic74595']);
 const ALL_SEQ_TYPES = new Set(['ic7474', 'ic7473', 'ic7476', 'ic74112', 'ic4013', ...COUNTER_SEQ_TYPES]);
 
+function collectBinarySwitchSetters(sim, circuit) {
+  const dips = circuit.parts.filter(p => p.type === 'dip4' || p.type === 'dip8');
+  const toggles = circuit.parts.filter(p => {
+    if (p.type !== 'toggle') return false;
+    const ent = sim.byPart.get(p.id);
+    return ent && sim.isNetConnected(ent.pinNets[0]);
+  });
+  const slides = circuit.parts.filter(p => {
+    if (p.type !== 'slide') return false;
+    const ent = sim.byPart.get(p.id);
+    return ent && sim.isNetConnected(ent.pinNets[0]) && sim.isNetConnected(ent.pinNets[1]);
+  });
+  const setters = [];
+  for (const dip of dips) {
+    const ent = sim.byPart.get(dip.id);
+    if (!ent) continue;
+    for (let i = 0; i < ent.pinNets.length; i++) {
+      if (sim.isNetConnected(ent.pinNets[i])) setters.push(v => { dip.props.bits[i] = v; });
+    }
+  }
+  for (const sw of toggles) setters.push(v => { sw.props.on = v; });
+  for (const sw of slides) setters.push(v => { sw.props.on = v; });
+
+  const savedDipBits = dips.map(d => d.props.bits.slice());
+  const savedToggles = toggles.map(t => Boolean(t.props.on));
+  const savedSlides = slides.map(s => Boolean(s.props.on));
+  const restore = () => {
+    dips.forEach((d, idx) => { d.props.bits = savedDipBits[idx]; });
+    toggles.forEach((t, idx) => { t.props.on = savedToggles[idx]; });
+    slides.forEach((s, idx) => { s.props.on = savedSlides[idx]; });
+  };
+  return { setters, needsRebuild: slides.length > 0, restore };
+}
+
 /** Probe peak/min currents and voltages across DC, switch states, and clock/counter/555 cycles. */
 export function probeCircuitLedBehavior(sim, circuit) {
   const leds = circuit.parts.filter(p => p.type === 'led');
@@ -616,29 +650,16 @@ export function probeCircuitLedBehavior(sim, circuit) {
   const hasMcu = circuit.parts.some(p => getDef(p.type).mcu);
   const has555 = circuit.parts.some(p => p.type === 'ne555');
   const hasCounter = circuit.parts.some(p => COUNTER_SEQ_TYPES.has(p.type));
-  const dips = circuit.parts.filter(p => p.type === 'dip4' || p.type === 'dip8');
-  const toggles = circuit.parts.filter(p => {
-    if (p.type !== 'toggle') return false;
-    const ent = sim.byPart.get(p.id);
-    return ent && sim.isNetConnected(ent.pinNets[0]);
-  });
+  const hasSeqIc = circuit.parts.some(p => ALL_SEQ_TYPES.has(p.type));
+  const swInfo = collectBinarySwitchSetters(sim, circuit);
+  const { setters, needsRebuild: switchNeedsRebuild, restore: restoreSwitches } = swInfo;
   const pots = circuit.parts.filter(p => p.type === 'pot' || p.type === 'wokwi-slide-potentiometer');
   const tactiles = circuit.parts.filter(p => p.type === 'tactile');
+  const buttons = circuit.parts.filter(p => p.type === 'button');
+  const pressables = [...tactiles, ...buttons];
 
-  const setters = [];
-  for (const dip of dips) {
-    const ent = sim.byPart.get(dip.id);
-    if (!ent) continue;
-    for (let i = 0; i < ent.pinNets.length; i++) {
-      if (sim.isNetConnected(ent.pinNets[i])) setters.push(v => { dip.props.bits[i] = v; });
-    }
-  }
-  for (const sw of toggles) setters.push(v => { sw.props.on = v; });
-
-  const savedDipBits = dips.map(d => d.props.bits.slice());
-  const savedToggles = toggles.map(t => Boolean(t.props.on));
   const savedPots = pots.map(p => p.props.pos);
-  const savedTactiles = tactiles.map(t => Boolean(t.ui?.pressed));
+  const savedPressed = pressables.map(t => Boolean(t.ui?.pressed));
 
   const sweepPots = (eng) => {
     if (!pots.length) return;
@@ -648,6 +669,8 @@ export function probeCircuitLedBehavior(sim, circuit) {
       sampleLeds(eng);
     }
   };
+
+  const allNonOpenLit = () => stats.every(s => s.open || s.blown || s.peakMa >= 0.35);
 
   const estimate555Hz = () => {
     const t555 = circuit.parts.find(p => p.type === 'ne555');
@@ -672,11 +695,11 @@ export function probeCircuitLedBehavior(sim, circuit) {
       }
       if (rSum > 0 && cSum > 0 && nThr >= 0 && nThr !== nGnd) {
         const f = 1.44 / (rSum * cSum);
-        if (f > 0.05 && f < 100000) return Math.min(200, Math.max(0.25, f));
+        if (f > 0.05 && f < 100000) return Math.min(200, Math.max(0.1, f));
       }
     }
     const maxCapUf = Math.max(0, ...circuit.parts.filter(p => p.type === 'capacitor').map(p => +p.props?.uf || 0));
-    return maxCapUf >= 100 ? 0.4 : maxCapUf >= 47 ? 0.8 : maxCapUf >= 10 ? 1.2 : 2;
+    return maxCapUf >= 100 ? 0.2 : maxCapUf >= 47 ? 0.5 : maxCapUf >= 10 ? 1.2 : 2;
   };
 
   const runClockWindow = (cycles) => {
@@ -684,34 +707,68 @@ export function probeCircuitLedBehavior(sim, circuit) {
     const est555Hz = has555 && !hzList.length ? estimate555Hz() : 2;
     const minHz = hzList.length ? Math.min(...hzList) : est555Hz;
     const maxClockHz = hzList.length ? Math.max(...hzList) : est555Hz;
-    const stepMax = Math.min(0.025, 1 / (Math.max(maxClockHz, 2) * 8));
-    const maxSpanSec = hasCounter ? 24 : 12;
-    const totalSpan = Math.min(maxSpanSec, cycles / Math.max(minHz, 0.35));
+    const slow555 = hasCounter && has555 && !hzList.length && est555Hz < 1;
+    const stepMax = slow555
+      ? Math.min(0.08, 1 / (Math.max(est555Hz, 0.2) * 16))
+      : Math.min(0.025, 1 / (Math.max(maxClockHz, 2) * 8));
+    const maxSpanSec = hasCounter ? 90 : 24;
+    const totalSpan = Math.min(maxSpanSec, cycles / Math.max(minHz, 0.1));
     const steps = Math.min(2400, Math.max(24, Math.ceil(totalSpan / stepMax)));
     const dt = totalSpan / steps;
+    const minToggleSpan = hasSeqIc ? Math.min(totalSpan, 3 / Math.max(minHz, 0.25)) : 0;
     for (let i = 0; i < steps; i++) {
       sim.step(dt);
       sampleLeds();
+      if (((i + 1) * dt) >= minToggleSpan && allNonOpenLit()) break;
+    }
+  };
+
+  const exercisePressables = (eng) => {
+    if (!pressables.length) return;
+    const applyState = (target, state) => {
+      pressables.forEach(p => { p.ui = { ...(p.ui || {}), pressed: p === target ? state : false }; });
+      if (target.type === 'tactile' || tactiles.length) eng.build(circuit);
+      for (let i = 0; i < 4; i++) eng.step(0.005);
+      sampleLeds(eng);
+      sweepPots(eng);
+    };
+    for (const p of pressables) {
+      applyState(p, true);
+      applyState(p, false);
+    }
+    if (hasSeqIc && !clocks.length && !has555 && !allNonOpenLit()) {
+      for (let pulse = 0; pulse < 16 && !allNonOpenLit(); pulse++) {
+        for (const p of pressables) {
+          applyState(p, true);
+          applyState(p, false);
+          if (allNonOpenLit()) break;
+        }
+      }
+    }
+    if (pressables.length > 1 && !allNonOpenLit()) {
+      pressables.forEach(p => { p.ui = { ...(p.ui || {}), pressed: true }; });
+      if (tactiles.length) eng.build(circuit);
+      for (let i = 0; i < 6; i++) eng.step(0.005);
+      sampleLeds(eng);
+      sweepPots(eng);
     }
   };
 
   try {
     const seqCycles = hasCounter ? 14 : 3;
-    if (clocks.length || has555 || hasCounter) {
+    if (clocks.length || has555 || (hasCounter && !pressables.length)) {
       if (setters.length) {
         // Test dynamic behavior with switches ON and OFF so gated clock/counter LEDs are exercised
         setters.forEach(fn => fn(true));
+        if (switchNeedsRebuild) sim.build(circuit);
         runClockWindow(seqCycles);
         setters.forEach(fn => fn(false));
+        if (switchNeedsRebuild) sim.build(circuit);
         runClockWindow(2);
       } else {
         runClockWindow(seqCycles);
       }
-      if (tactiles.length) {
-        tactiles.forEach(t => { t.ui = { ...(t.ui || {}), pressed: true }; });
-        sim.build(circuit);
-        runClockWindow(seqCycles);
-      }
+      exercisePressables(sim);
       if (pots.length) sweepPots(sim);
     } else if (setters.length) {
       const pats = [];
@@ -723,9 +780,11 @@ export function probeCircuitLedBehavior(sim, circuit) {
       }
       for (const pat of pats) {
         pat.forEach((v, k) => setters[k](v));
+        if (switchNeedsRebuild) sim.build(circuit);
         for (let i = 0; i < 4; i++) sim.step(0.005);
         sampleLeds();
       }
+      exercisePressables(sim);
     } else if (hasMcu) {
       for (let i = 0; i < 180; i++) {
         sim.step(0.025);
@@ -735,21 +794,18 @@ export function probeCircuitLedBehavior(sim, circuit) {
       for (let i = 0; i < 8; i++) sim.step(0.005);
       sampleLeds();
       sweepPots(sim);
-      if (tactiles.length) {
-        tactiles.forEach(t => { t.ui = { ...(t.ui || {}), pressed: true }; });
+      if (pressables.length) {
         const pressSim = new Engine();
         pressSim.build(circuit);
-        for (let i = 0; i < 6; i++) pressSim.step(0.005);
-        sampleLeds(pressSim);
-        sweepPots(pressSim);
+        exercisePressables(pressSim);
       }
     }
   } finally {
-    dips.forEach((d, idx) => { d.props.bits = savedDipBits[idx]; });
-    toggles.forEach((t, idx) => { t.props.on = savedToggles[idx]; });
+    restoreSwitches();
     pots.forEach((p, idx) => { p.props.pos = savedPots[idx]; });
-    tactiles.forEach((t, idx) => { t.ui = { ...(t.ui || {}), pressed: savedTactiles[idx] }; });
-    if (setters.length || pots.length) for (let i = 0; i < 3; i++) sim.step(0.005);
+    pressables.forEach((t, idx) => { t.ui = { ...(t.ui || {}), pressed: savedPressed[idx] }; });
+    if (switchNeedsRebuild || (tactiles.length && (clocks.length || has555 || hasCounter || setters.length))) sim.build(circuit);
+    if (setters.length || pots.length || pressables.length) for (let i = 0; i < 3; i++) sim.step(0.005);
   }
 
   return stats.map(s => ({
@@ -803,25 +859,9 @@ export function verifyCombinationalSwitchLiveness(sim, circuit) {
   });
   if (!leds.length) return [];
 
-  const dips = circuit.parts.filter(p => p.type === 'dip4' || p.type === 'dip8');
-  const toggles = circuit.parts.filter(p => {
-    if (p.type !== 'toggle') return false;
-    const ent = sim.byPart.get(p.id);
-    return ent && sim.isNetConnected(ent.pinNets[0]);
-  });
-
-  const setters = [];
-  for (const dip of dips) {
-    const ent = sim.byPart.get(dip.id);
-    for (let i = 0; i < ent.pinNets.length; i++) {
-      if (sim.isNetConnected(ent.pinNets[i])) setters.push(v => { dip.props.bits[i] = v; });
-    }
-  }
-  for (const sw of toggles) setters.push(v => { sw.props.on = v; });
+  const { setters, needsRebuild, restore } = collectBinarySwitchSetters(sim, circuit);
   if (!setters.length) return [];
 
-  const savedDipBits = dips.map(d => d.props.bits.slice());
-  const savedToggles = toggles.map(t => Boolean(t.props.on));
   const ledSeen = leds.map(() => ({ hi: false, lo: false }));
 
   const patterns = [];
@@ -840,6 +880,7 @@ export function verifyCombinationalSwitchLiveness(sim, circuit) {
   try {
     for (const pat of patterns) {
       pat.forEach((v, k) => setters[k](v));
+      if (needsRebuild) sim.build(circuit);
       for (let s = 0; s < 4; s++) sim.step(0.005);
       for (let k = 0; k < leds.length; k++) {
         const mA = (sim.byPart.get(leds[k].id)?.device?.cur?.[0] || 0) * 1000;
@@ -847,8 +888,8 @@ export function verifyCombinationalSwitchLiveness(sim, circuit) {
       }
     }
   } finally {
-    dips.forEach((d, idx) => { d.props.bits = savedDipBits[idx]; });
-    toggles.forEach((t, idx) => { t.props.on = savedToggles[idx]; });
+    restore();
+    if (needsRebuild) sim.build(circuit);
     for (let s = 0; s < 3; s++) sim.step(0.005);
   }
 

@@ -612,7 +612,131 @@ test('A1.17', 'sanitizeEvalCase fixes legacy saved curriculum/autoreg oracles wi
   });
   assert.equal(wild.oracle.check, 'led_multi');
   assert.deepEqual(wild.oracle.requireTypes, [['ic74138'], ['led']]);
+
+  // Additional edge cases from 2nd 2026-11-19 run
+  const bat = sanitizeEvalCase({
+    id: 'idea_mwnd6cwb_1',
+    prompt: 'I need a transistor circuit where the output follows the input voltage with high input impedance. Let\'s use an NPN transistor in a common collector configuration.',
+    oracle: { minParts: 3, requireTypes: [['battery'], ['npn'], ['resistor']], check: 'built_clean' },
+  });
+  assert.deepEqual(bat.oracle.requireTypes, [['battery', 'vcc', 'power-supply'], ['npn'], ['resistor']]);
+
+  const lm317 = sanitizeEvalCase({
+    id: 'idea_mwnd6cwb_5',
+    prompt: 'Design a regulated power supply circuit using an LM317 adjustable voltage regulator along with resistors and a potentiometer to tune the output voltage.',
+    oracle: { minParts: 3, requireTypes: [['lm317'], ['pot'], ['capacitor'], ['multimeter']], check: 'dmm_valid' },
+  });
+  assert.equal(lm317.oracle.check, 'built_clean');
+  assert.deepEqual(lm317.oracle.requireTypes, [['lm317'], ['pot']]);
+
+  const unoGnd = sanitizeEvalCase({
+    id: 'idea_mwnd6cwb_7',
+    prompt: 'Set up an Arduino Uno to interface with a sensor module and print telemetry data, using an LED indicator to show successful readings.',
+    oracle: { minParts: 3, requireTypes: [['uno'], ['gnd'], ['led']], check: 'led_active' },
+  });
+  assert.ok(unoGnd.oracle.requireTypes[1].includes('uno'));
+
+  const ring = sanitizeEvalCase({
+    id: 'autoreg_idea_mwmwtu2e_4',
+    prompt: 'Can you build a ring oscillator using a couple of NAND gates from a 7400 IC and monitor the output clock pulse?',
+    oracle: { minParts: 3, requireTypes: [['ic7400'], ['resistor'], ['led']], check: 'led_active' },
+  });
+  assert.equal(ring.oracle.check, 'built_clean');
+  assert.deepEqual(ring.oracle.requireTypes, [['ic7400']]);
   return 'Legacy idea/autoreg oracles normalized safely; pinned wild/reg unchanged';
+});
+
+test('A1.18', '7402 NOR SR latch with individual tactile buttons illuminates both Q and Qbar LEDs cleanly', () => {
+  const c = new Circuit();
+  const vcc = new Part('vcc', 0, 0), gnd = new Part('gnd', 0, 2);
+  const u02 = new Part('ic7402', 6, 4); // 1Y(0) 1A(1) 1B(2) 2Y(3) 2A(4) 2B(5) GND(6) ... VCC(13)
+  const swS = new Part('tactile', 20, 4); // 1.l(0) 2.l(2)
+  const swR = new Part('tactile', 26, 4);
+  const rPd1 = new Part('resistor', 20, 10, 0, { ohms: 10000 });
+  const rPd2 = new Part('resistor', 26, 10, 0, { ohms: 10000 });
+  const rL1 = new Part('resistor', 6, 12, 0, { ohms: 220 });
+  const rL2 = new Part('resistor', 12, 12, 0, { ohms: 220 });
+  const l1 = new Part('led', 6, 15, 0, { color: 'red', protect: 'off' });
+  const l2 = new Part('led', 12, 15, 0, { color: 'green', protect: 'off' });
+  c.parts.push(vcc, gnd, u02, swS, swR, rPd1, rPd2, rL1, rL2, l1, l2);
+
+  const vp = vcc.worldPins()[0], gp = gnd.worldPins()[0];
+  const p = u02.worldPins();
+  wire(c, vp, p[13]); wire(c, gp, p[6]);
+  // Buttons: + -> 1.l, 2.l -> pulldown -> GND
+  wire(c, vp, swS.worldPins()[0]); wire(c, swS.worldPins()[2], rPd1.worldPins()[0]); wire(c, rPd1.worldPins()[1], gp);
+  wire(c, vp, swR.worldPins()[0]); wire(c, swR.worldPins()[2], rPd2.worldPins()[0]); wire(c, rPd2.worldPins()[1], gp);
+  // NOR cross-coupling: S -> 1A, 1B <- 2Y(Q), 1Y(Qbar) -> 2B, R -> 2A
+  wire(c, swS.worldPins()[2], p[1]); wire(c, p[3], p[2]);
+  wire(c, p[0], p[5]); wire(c, swR.worldPins()[2], p[4]);
+  // Unused NOR gates grounded
+  wire(c, gp, p[7]); wire(c, gp, p[8]); wire(c, gp, p[10]); wire(c, gp, p[11]);
+  // LEDs on Q (2Y) and Qbar (1Y)
+  wire(c, p[0], rL1.worldPins()[0]); wire(c, rL1.worldPins()[1], l1.worldPins()[0]); wire(c, l1.worldPins()[1], gp);
+  wire(c, p[3], rL2.worldPins()[0]); wire(c, rL2.worldPins()[1], l2.worldPins()[0]); wire(c, l2.worldPins()[1], gp);
+
+  const eng = new Engine();
+  eng.build(c);
+  const stats = probeCircuitLedBehavior(eng, c);
+  assert.equal(stats.filter(s => s.litOnce).length, 2, `Expected both NOR SR latch LEDs to light, got ${JSON.stringify(stats.map(s => s.peakMa))}`);
+  return `7402 NOR SR latch illuminated Q & Qbar individually (${stats.map(s => s.peakMa.toFixed(1) + 'mA').join(', ')})`;
+});
+
+test('A1.19', 'Slide switches + 74138 decoder and manual-button 74193 counter probe all LEDs cleanly', () => {
+  // 1) 3 slide switches + pull-downs -> 74138 active-LOW 8 LEDs
+  const c1 = new Circuit();
+  const vcc1 = new Part('vcc', 0, 0), gnd1 = new Part('gnd', 0, 2);
+  const u138 = new Part('ic74138', 16, 4);
+  c1.parts.push(vcc1, gnd1, u138);
+  const vp1 = vcc1.worldPins()[0], gp1 = gnd1.worldPins()[0], p1 = u138.worldPins();
+  wire(c1, vp1, p1[15]); wire(c1, gp1, p1[7]);
+  wire(c1, vp1, p1[5]); wire(c1, gp1, p1[3]); wire(c1, gp1, p1[4]);
+  for (let i = 0; i < 3; i++) {
+    const sw = new Part('slide', 2 + i * 4, 4);
+    const pd = new Part('resistor', 2 + i * 5, 8, 1, { ohms: 10000 });
+    c1.parts.push(sw, pd);
+    wire(c1, vp1, sw.worldPins()[0]);
+    wire(c1, sw.worldPins()[1], p1[i]);
+    wire(c1, sw.worldPins()[1], pd.worldPins()[0]);
+    wire(c1, pd.worldPins()[1], gp1);
+  }
+  const yIdx = [14, 13, 12, 11, 10, 9, 8, 6];
+  for (let i = 0; i < 8; i++) {
+    const r = new Part('resistor', 2 + i * 5, 14, 1, { ohms: 220 });
+    const l = new Part('led', 2 + i * 5, 20, 0, { color: 'red', protect: 'off' });
+    c1.parts.push(r, l);
+    wire(c1, vp1, r.worldPins()[0]); wire(c1, r.worldPins()[1], l.worldPins()[0]); wire(c1, l.worldPins()[1], p1[yIdx[i]]);
+  }
+  const eng1 = new Engine();
+  eng1.build(c1);
+  const s1 = probeCircuitLedBehavior(eng1, c1);
+  assert.equal(s1.filter(s => s.litOnce).length, 8, `Expected all 8/8 74138 LEDs via slide switches, got ${s1.filter(s => s.litOnce).length}/8`);
+
+  // 2) Pushbutton-clocked 74193 4-bit counter -> 4 binary LEDs (plus "5V FIXED +8" pin check)
+  const c2 = new Circuit();
+  const vcc2 = new Part('vcc', 0, 0), gnd2 = new Part('gnd', 0, 2);
+  const u93 = new Part('ic74193', 10, 4); // B0 QB1 QA2 DOWN3 UP4 QC5 QD6 GND7 D8 C9 LOAD10 CO11 BO12 CLR13 A14 VCC15
+  const btn = new Part('tactile', 24, 4);
+  const pd = new Part('resistor', 24, 10, 0, { ohms: 10000 });
+  c2.parts.push(vcc2, gnd2, u93, btn, pd);
+  const vp2 = vcc2.worldPins()[0], gp2 = gnd2.worldPins()[0], p2 = u93.worldPins();
+  wire(c2, vp2, p2[15]); wire(c2, gp2, p2[7]);
+  wire(c2, vp2, p2[3]); wire(c2, vp2, p2[10]); wire(c2, gp2, p2[13]); // DOWN=1, LOAD=1, CLR=0
+  wire(c2, vp2, btn.worldPins()[0]); wire(c2, btn.worldPins()[2], p2[4]);
+  wire(c2, btn.worldPins()[2], pd.worldPins()[0]); wire(c2, pd.worldPins()[1], gp2);
+  for (const [k, idx] of [2, 1, 5, 6].entries()) {
+    const r = new Part('resistor', 4 + k * 5, 14, 1, { ohms: 220 });
+    const l = new Part('led', 4 + k * 5, 20, 0, { color: 'green', protect: 'off' });
+    c2.parts.push(r, l);
+    wire(c2, p2[idx], r.worldPins()[0]); wire(c2, r.worldPins()[1], l.worldPins()[0]); wire(c2, l.worldPins()[1], gp2);
+  }
+  const eng2 = new Engine();
+  eng2.build(c2);
+  const s2 = probeCircuitLedBehavior(eng2, c2);
+  assert.equal(s2.filter(s => s.litOnce).length, 4, `Expected all 4/4 binary counter LEDs via pushbutton, got ${s2.filter(s => s.litOnce).length}/4`);
+
+  assert.equal(resolvePinIndex(new Part('power-supply', 0, 0), '5V FIXED +8'), 7);
+  return `Slide+74138 lit ${s1.filter(s => s.litOnce).length}/8, button+74193 lit ${s2.filter(s => s.litOnce).length}/4, "5V FIXED +8" resolved`;
 });
 
 let failed = 0;

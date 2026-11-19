@@ -121,6 +121,7 @@ const PART_HINTS = {
   ic7490: ' // R0(1)&R0(2)->"-" to count (NEVER "+"); QA->CKB',
   ic7447: ' // Active-LOW -> seg7 common:"anode"; LT,RBI,BI/RBO->"+"',
   ic7448: ' // Active-HIGH -> seg7 common:"cathode"; LT,RBI,BI/RBO->"+"',
+  ic7402: ' // Outputs precede inputs: 1Y(1),1A(2),1B(3); 2Y(4),2A(5),2B(6)',
   'board-ssd1306': ' // I2C OLED: VCC->"+", GND->"-", SDA->U1.A4, SCL->U1.A5',
   'wokwi-lcd1602': ' // I2C LCD: VCC->"+", GND->"-", SDA->U1.A4, SCL->U1.A5',
   npn: ' // Low-side load: "+"->R->LED.A, LED.K->C, E->"-"; Base via R (never K to "+")',

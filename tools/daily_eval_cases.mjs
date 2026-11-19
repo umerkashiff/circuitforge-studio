@@ -544,18 +544,24 @@ export function sanitizeEvalCase(tc) {
     if (arr.length === 1) {
       const t = arr[0];
       if (t === 'led' && hasSeg7 && !/\bleds?\b/i.test(prompt)) continue;
+      if (t === 'led' && /\b(ring\s*oscillator|logic\s*analyzer)\b/i.test(prompt) && !/\bleds?\b/i.test(prompt)) continue;
       if (t === 'ic7400' && !/\b(7400|nand|logic\s*gate)\b/i.test(prompt)) continue;
       if (t === 'multimeter' && !/\b(multimeter|dmm|ohmmeter|continuity|measure|current)\b/i.test(prompt)) continue;
-      if ((t === 'resistor' || t === 'gnd') && /\b(arduino|uno)\b/i.test(prompt) && !/\b(resistor|gnd|led|divider|pot)\b/i.test(prompt)) {
-        if (minParts > 2) minParts = 2;
+      if (t === 'capacitor' && !/\b(cap|capacitor|filter|smooth|decouple|rc\b|timing|blink|osc|flash|555|rectif|doubler)\b/i.test(prompt)) continue;
+      if (t === 'resistor' && /\b(ring\s*oscillator|arduino|uno)\b/i.test(prompt) && !/\b(resistor|ohm|led|divider|pot)\b/i.test(prompt)) {
+        if (/\b(arduino|uno)\b/i.test(prompt) && minParts > 2) minParts = 2;
+        continue;
+      }
+      if (t === 'battery' && !/\b(battery|9v|1\.5v|coin\s*cell|aa\b)\b/i.test(prompt)) {
+        reqs.push(['battery', 'vcc', 'power-supply']);
         continue;
       }
       if (t === 'power-supply' && !/\b(bench|mps|dual\s*rail|power[- ]supply)\b/i.test(prompt)) {
         reqs.push(['power-supply', 'battery', 'vcc']);
         continue;
       }
-      if (t === 'vcc') {
-        reqs.push(['vcc', 'battery', 'power-supply', 'funcgen', 'uno', 'nano', 'esp32', 'esp32s3', 'bluepill']);
+      if (t === 'vcc' || t === 'gnd') {
+        reqs.push([t, 'battery', 'power-supply', 'funcgen', 'uno', 'nano', 'esp32', 'esp32s3', 'bluepill']);
         continue;
       }
       if (t === 'button' || t === 'tactile') {
@@ -578,6 +584,12 @@ export function sanitizeEvalCase(tc) {
     check = reqs.some(r => r.includes('multimeter')) ? 'dmm_valid'
       : reqs.some(r => r.includes('led')) ? 'led_active'
       : 'built_clean';
+  }
+  if (check === 'dmm_valid' && !reqs.some(r => r.includes('multimeter'))) {
+    check = reqs.some(r => r.includes('led')) ? 'led_active' : 'built_clean';
+  }
+  if (check === 'led_active' && /\b(ring\s*oscillator|logic\s*analyzer)\b/i.test(prompt) && !reqs.some(r => r.includes('led')) && !/\bleds?\b/i.test(prompt)) {
+    check = 'built_clean';
   }
 
   return {

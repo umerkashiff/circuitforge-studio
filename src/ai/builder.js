@@ -331,6 +331,12 @@ export function resolvePinIndex(part, rawPin) {
     const near = eligible.filter(o => o.n.length >= 3 && lev1(t, o.n));
     if (near.length === 1) return near[0].idx;
   }
+  // 7. Strip trailing pin index appended directly after '+'/'-'/'−' (e.g. "5V FIXED +8" -> "5V FIXED +")
+  const signDigit = /^(.*[+\-−-])\s*#?\d+$/.exec(strippedPin);
+  if (signDigit) {
+    const bySign = resolvePinIndex(part, signDigit[1]);
+    if (bySign >= 0) return bySign;
+  }
   return -1;
 }
 
@@ -1261,15 +1267,26 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
   for (const d of sim.devices) {
     if (d.rt?.error) errors.push(`${getDef(d.part.type).name} sketch error${d.rt.errorLine ? ` (line ${d.rt.errorLine})` : ''}: ${d.rt.error}`);
   }
-  const dt = Math.min(0.005, sim.suggestDt ? sim.suggestDt() : 0.005);
-  for (let i = 0; i < 12; i++) sim.step(dt);
+  const hasMcuPart = app.circuit.parts.some(p => getDef(p.type).mcu);
+  const dt = hasMcuPart && !allowIncomplete ? 0.015 : Math.min(0.005, sim.suggestDt ? sim.suggestDt() : 0.005);
+  const simSteps = hasMcuPart && !allowIncomplete ? 25 : 12;
+  for (let i = 0; i < simSteps; i++) sim.step(dt);
   for (const w of sim.collectWarnings()) {
     if (w.level === 'error') {
       if (/no power/i.test(w.text) && w.part) {
         if (!allowIncomplete) {
           const tag = refById?.get(w.part.id) || w.part.id;
+          let railPlusOk = false, railMinusOk = false;
+          for (const [, hl] of app.index.holes) {
+            if (!hl.rail) continue;
+            const n = sim.netAt(hl.x, hl.y);
+            const ks = n >= 0 ? (app.netKinds.get(n) || []) : [];
+            if (hl.rail === '+' && ks.some(k => /^(V|B\+)$/.test(String(k.kind || '').split(':')[0]))) railPlusOk = true;
+            if (hl.rail === '−' && ks.some(k => /^(G|B-)$/.test(String(k.kind || '').split(':')[0]))) railMinusOk = true;
+          }
+          const railDiag = `${!railPlusOk ? ' "+" rail lacks vcc supply!' : ''}${!railMinusOk ? ' "-" rail lacks gnd supply!' : ''}`;
           const missing = `${!hasVccPart ? ' Missing "vcc" part wired to "+".' : ''}${!hasGndPart ? ' Missing "gnd" part wired to "-".' : ''}`;
-          errors.push(`IC "${tag}" (${w.part.type}): ${w.text}.${missing} Ensure "V1.1"->"+", "G1.1"->"-", "${tag}.VCC"->"+", "${tag}.GND"->"-"`);
+          errors.push(`IC "${tag}" (${w.part.type}): ${w.text}.${missing}${railDiag} Ensure "V1.1"->"+", "G1.1"->"-", "${tag}.VCC"->"+", "${tag}.GND"->"-"`);
         }
       } else {
         errors.push(w.text);
