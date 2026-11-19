@@ -524,6 +524,74 @@ const SKIP_SCOPE_TYPES = {
 };
 
 /**
+ * Normalize/sanitize LLM-generated or saved curriculum/autoreg oracles so equivalent parts
+ * (vcc/battery/psu, button/tactile/toggle, seg7 without bogus discrete LED) & DC circuits aren't falsely flagged.
+ */
+export function sanitizeEvalCase(tc) {
+  if (!tc || typeof tc !== 'object') return tc;
+  const isIdea = /^(?:autoreg_)?idea_/.test(String(tc.id || ''));
+  if (!isIdea) return tc;
+
+  const prompt = String(tc.prompt || '');
+  const orig = tc.oracle || {};
+  const hasSeg7 = (orig.requireTypes || []).some(g => Array.isArray(g) && g.includes('seg7'));
+  let minParts = orig.minParts || 3;
+
+  const reqs = [];
+  for (const grp of (orig.requireTypes || [])) {
+    const arr = (Array.isArray(grp) ? grp : [grp]).map(t => String(t || '').trim()).filter(Boolean);
+    if (!arr.length) continue;
+    if (arr.length === 1) {
+      const t = arr[0];
+      if (t === 'led' && hasSeg7 && !/\bleds?\b/i.test(prompt)) continue;
+      if (t === 'ic7400' && !/\b(7400|nand|logic\s*gate)\b/i.test(prompt)) continue;
+      if (t === 'multimeter' && !/\b(multimeter|dmm|ohmmeter|continuity|measure|current)\b/i.test(prompt)) continue;
+      if ((t === 'resistor' || t === 'gnd') && /\b(arduino|uno)\b/i.test(prompt) && !/\b(resistor|gnd|led|divider|pot)\b/i.test(prompt)) {
+        if (minParts > 2) minParts = 2;
+        continue;
+      }
+      if (t === 'power-supply' && !/\b(bench|mps|dual\s*rail|power[- ]supply)\b/i.test(prompt)) {
+        reqs.push(['power-supply', 'battery', 'vcc']);
+        continue;
+      }
+      if (t === 'vcc') {
+        reqs.push(['vcc', 'battery', 'power-supply', 'funcgen', 'uno', 'nano', 'esp32', 'esp32s3', 'bluepill']);
+        continue;
+      }
+      if (t === 'button' || t === 'tactile') {
+        reqs.push(['button', 'tactile', 'toggle']);
+        continue;
+      }
+      if (t === 'pot' && !/\b(pot|potentiometer|trimpot|knob)\b/i.test(prompt)) {
+        reqs.push(['pot', 'wokwi-slide-potentiometer', 'resistor']);
+        continue;
+      }
+    }
+    reqs.push(arr);
+  }
+
+  let check = orig.check || 'led_active';
+  const hasDcReg = /\b(zener|lm317|lm7805|regulator|doubles\s+the\s+input\s+dc|voltage\s+doubler|rc\s+circuit\s+for\s+analysis)\b/i.test(prompt);
+  const hasAcIntent = /\b(scope|cro|oscilloscope|func\s*gen|signal\s*gen|sine|ac\b|wave|filter|rectif|amp|op[-\s]?amp|ring\s*osc)\b/i.test(prompt)
+    && !(hasDcReg && !/\b(scope|cro|oscilloscope|func\s*gen|signal\s*gen)\b/i.test(prompt));
+  if (check === 'scope_ac' && !hasAcIntent) {
+    check = reqs.some(r => r.includes('multimeter')) ? 'dmm_valid'
+      : reqs.some(r => r.includes('led')) ? 'led_active'
+      : 'built_clean';
+  }
+
+  return {
+    ...tc,
+    oracle: {
+      ...orig,
+      minParts,
+      requireTypes: reqs.slice(0, 4),
+      check,
+    },
+  };
+}
+
+/**
  * Bucket 5 (1 call/day): Ask the LLM to invent `count` brand-new realistic buildable circuits
  * using ONLY currently enabled component types, avoiding previously generated ideas.
  */
@@ -567,36 +635,25 @@ export async function generateDailyNewIdeas({ apiKey, model, availableModels = n
     const name = String(item?.name || '').trim();
     const prompt = String(item?.prompt || '').trim();
     if (!name || !prompt || existingNames.has(name.toLowerCase())) continue;
-    const rawReqs = Array.isArray(item.requireTypes)
+    const reqList = Array.isArray(item.requireTypes)
       ? item.requireTypes
           .map(t => {
             const raw = String(t).trim();
             return validSet.has(raw) ? raw : resolvePartType(raw)?.type;
           })
           .filter(t => t && validSet.has(t))
+          .map(t => [t])
       : [];
-    const reqList = rawReqs.map(t => {
-      if (t === 'power-supply' && !/\b(bench|mps|dual\s*rail|power[- ]supply)\b/i.test(prompt)) return ['power-supply', 'battery', 'vcc'];
-      if (t === 'button' || t === 'tactile') return ['button', 'tactile', 'toggle'];
-      if (t === 'pot' && !/\b(pot|potentiometer|trimpot|knob)\b/i.test(prompt)) return ['pot', 'resistor'];
-      return [t];
-    });
     if (!reqList.length) continue;
     const usesUno = Boolean(item.usesUno) || /\b(uno|arduino|atmega)\b/i.test(prompt) || reqList.some(r => r[0] === 'uno');
     const scopes = usesUno ? ['uno'] : [];
     if (scopes.some(s => skip.has(s))) continue;
 
     const supportedChecks = ['led_active', 'led_multi', 'buzzer_active', 'scope_ac', 'seg7_active', 'bargraph_active', 'mcu_run', 'dmm_valid', 'built_clean'];
-    let check = supportedChecks.includes(item.check) ? item.check : 'led_active';
-    const hasAcIntent = /\b(scope|cro|oscilloscope|func\s*gen|signal\s*gen|sine|ac\b|wave|filter|rectif|amp|op[-\s]?amp|ring\s*osc)\b/i.test(prompt);
-    if (check === 'scope_ac' && !hasAcIntent) {
-      check = reqList.some(r => r.includes('multimeter')) ? 'dmm_valid'
-        : reqList.some(r => r.includes('led')) ? 'led_active'
-        : 'built_clean';
-    }
+    const check = supportedChecks.includes(item.check) ? item.check : 'led_active';
 
     existingNames.add(name.toLowerCase());
-    out.push({
+    out.push(sanitizeEvalCase({
       id: `idea_${Date.now().toString(36)}_${out.length}`,
       bucket: 'curriculum',
       name,
@@ -608,7 +665,7 @@ export async function generateDailyNewIdeas({ apiKey, model, availableModels = n
         check,
       },
       createdAt: new Date().toISOString().slice(0, 10),
-    });
+    }));
   }
   return out;
 }

@@ -3,7 +3,9 @@ import { Board, Circuit, Wire, Part } from '../src/model.js';
 import { Engine } from '../src/sim/engine.js';
 import { parseRailToken, resolvePinIndex } from '../src/ai/builder.js';
 import { verifyInstrumentAndLoadLiveness, probeCircuitLedBehavior } from '../src/ai/logic_verify.js';
+import { sanitizeEvalCase } from './daily_eval_cases.mjs';
 import '../src/parts/library.js';
+import '../src/parts/ics.js';
 import '../src/mcu/boards.js';
 
 const results = [];
@@ -529,6 +531,88 @@ test('A1.15', '100Hz FuncGen rectifier + scope avoids 0.00 Vpp aliasing; pins & 
   assert.equal(parseRailToken('+/VCC')?.rail, '+');
   assert.equal(parseRailToken('−/GND')?.rail, '−');
   return '100Hz scope captured cleanly (0 errors); MASTER +(#6) & +/VCC resolved';
+});
+
+test('A1.16', 'Slow ~0.72Hz 555 -> 7493 -> 74138 visits all 8 LED states in probeCircuitLedBehavior', () => {
+  const c = new Circuit();
+  const vcc = new Part('vcc', 0, 0), gnd = new Part('gnd', 0, 2);
+  const u555 = new Part('ne555', 4, 4);
+  const r1 = new Part('resistor', 4, 10, 0, { ohms: 1000 });
+  const r2 = new Part('resistor', 10, 10, 0, { ohms: 100000 });
+  const cap = new Part('capacitor', 16, 10, 0, { uf: 10 });
+  const u93 = new Part('ic7493', 20, 4);
+  const u138 = new Part('ic74138', 32, 4);
+  c.parts.push(vcc, gnd, u555, r1, r2, cap, u93, u138);
+
+  const vp = vcc.worldPins()[0], gp = gnd.worldPins()[0];
+  const p5 = u555.worldPins(); // GND0 TRIG1 OUT2 RESET3 CTRL4 THR5 DIS6 VCC7
+  wire(c, vp, p5[7]); wire(c, vp, p5[3]); wire(c, gp, p5[0]);
+  wire(c, p5[5], p5[1]); // THR-TRIG
+  wire(c, vp, r1.worldPins()[0]); wire(c, r1.worldPins()[1], p5[6]);
+  wire(c, p5[6], r2.worldPins()[0]); wire(c, r2.worldPins()[1], p5[5]);
+  wire(c, p5[5], cap.worldPins()[0]); wire(c, cap.worldPins()[1], gp);
+
+  const p93 = u93.worldPins(); // CKB0 R01(1) R02(2) NC3 VCC4 NC5 NC6 QC7 QB8 GND9 QD10 QA11 NC12 CKA13
+  wire(c, vp, p93[4]); wire(c, gp, p93[9]);
+  wire(c, gp, p93[1]); wire(c, gp, p93[2]);
+  wire(c, p5[2], p93[13]); // OUT -> CKA
+  wire(c, p93[11], p93[0]); // QA -> CKB
+
+  const p138 = u138.worldPins(); // A0 B1 C2 G2A3 G2B4 G1_5 Y7_6 GND7 Y6_8..Y0_14 VCC15
+  wire(c, vp, p138[15]); wire(c, gp, p138[7]);
+  wire(c, vp, p138[5]); wire(c, gp, p138[3]); wire(c, gp, p138[4]);
+  wire(c, p93[11], p138[0]); wire(c, p93[8], p138[1]); wire(c, p93[7], p138[2]);
+
+  const yIndices = [14, 13, 12, 11, 10, 9, 8, 6];
+  for (let i = 0; i < 8; i++) {
+    const rLed = new Part('resistor', 4 + i * 5, 16, 0, { ohms: 220 });
+    const led = new Part('led', 4 + i * 5, 19, 0, { color: 'red', protect: 'off' });
+    c.parts.push(rLed, led);
+    wire(c, vp, rLed.worldPins()[0]);
+    wire(c, rLed.worldPins()[1], led.worldPins()[0]);
+    wire(c, led.worldPins()[1], p138[yIndices[i]]);
+  }
+
+  const eng = new Engine();
+  eng.build(c);
+  const stats = probeCircuitLedBehavior(eng, c);
+  assert.equal(stats.length, 8);
+  const litCount = stats.filter(s => s.litOnce).length;
+  assert.equal(litCount, 8, `Expected all 8 decoder LEDs to light across 0.72Hz 555 cycles, got ${litCount}/8`);
+  return `All ${litCount}/8 decoder LEDs visited & lit across slow ~0.72Hz 555 + 7493 + 74138`;
+});
+
+test('A1.17', 'sanitizeEvalCase fixes legacy saved curriculum/autoreg oracles without mutating fixed wild/reg cases', () => {
+  const c7 = sanitizeEvalCase({
+    id: 'autoreg_idea_mwl354p0_7',
+    prompt: 'How can I use a 7490 decade counter to drive a 7-segment display? I want to count from 0 to 9.',
+    oracle: { minParts: 3, requireTypes: [['ic7490'], ['ic7447'], ['seg7'], ['led']], check: 'seg7_active' },
+  });
+  assert.deepEqual(c7.oracle.requireTypes, [['ic7490'], ['ic7447'], ['seg7']]);
+
+  const c11 = sanitizeEvalCase({
+    id: 'autoreg_idea_mwl354p0_11',
+    prompt: 'I need a simple tool to check logic levels (high/low) on a digital circuit. Can you design a basic logic probe using LEDs?',
+    oracle: { minParts: 3, requireTypes: [['ic7400'], ['led']], check: 'led_multi' },
+  });
+  assert.deepEqual(c11.oracle.requireTypes, [['led']]);
+
+  const zener = sanitizeEvalCase({
+    id: 'idea_mwmwtu2e_1',
+    prompt: 'I need to test how a zener diode regulates voltage under varying load conditions. Can you set up a DC supply with a series resistor, zener, and load resistor?',
+    oracle: { minParts: 3, requireTypes: [['power-supply'], ['zener'], ['resistor'], ['multimeter']], check: 'scope_ac' },
+  });
+  assert.equal(zener.oracle.check, 'built_clean');
+  assert.deepEqual(zener.oracle.requireTypes, [['power-supply', 'battery', 'vcc'], ['zener'], ['resistor']]);
+
+  const wild = sanitizeEvalCase({
+    id: 'wild_74138_decoder_bar',
+    prompt: 'build a 74138 3-to-8 decoder demo',
+    oracle: { minParts: 12, requireTypes: [['ic74138'], ['led']], check: 'led_multi', minActiveLeds: 4 },
+  });
+  assert.equal(wild.oracle.check, 'led_multi');
+  assert.deepEqual(wild.oracle.requireTypes, [['ic74138'], ['led']]);
+  return 'Legacy idea/autoreg oracles normalized safely; pinned wild/reg unchanged';
 });
 
 let failed = 0;

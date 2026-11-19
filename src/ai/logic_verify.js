@@ -587,6 +587,9 @@ export function probeCircuitLedBehavior(sim, circuit) {
       minMa: mA,
       vA: nA >= 0 ? sim.voltage(nA) : NaN,
       vK: nK >= 0 ? sim.voltage(nK) : NaN,
+      maxRevBias: 0,
+      revVa: NaN,
+      revVk: NaN,
     };
   });
 
@@ -601,6 +604,11 @@ export function probeCircuitLedBehavior(sim, circuit) {
       const nK = ent?.pinNets?.[1] ?? -1;
       if (nA >= 0) s.vA = eng.voltage(nA);
       if (nK >= 0) s.vK = eng.voltage(nK);
+      if (Number.isFinite(s.vA) && Number.isFinite(s.vK) && (s.vK - s.vA) > s.maxRevBias) {
+        s.maxRevBias = s.vK - s.vA;
+        s.revVa = s.vA;
+        s.revVk = s.vK;
+      }
     }
   };
 
@@ -641,16 +649,46 @@ export function probeCircuitLedBehavior(sim, circuit) {
     }
   };
 
+  const estimate555Hz = () => {
+    const t555 = circuit.parts.find(p => p.type === 'ne555');
+    if (t555) {
+      const ent = sim.byPart.get(t555.id);
+      const nTrig = ent?.pinNets?.[1] ?? -1;
+      const nThr = ent?.pinNets?.[5] ?? -1;
+      const nDis = ent?.pinNets?.[6] ?? -1;
+      const nGnd = ent?.pinNets?.[0] ?? -1;
+      let rSum = 0, cSum = 0;
+      for (const rp of circuit.parts) {
+        const re = sim.byPart.get(rp.id);
+        if (!re) continue;
+        if (rp.type === 'resistor') {
+          const onDis = re.pinNets.some(n => n >= 0 && n === nDis);
+          const onThr = re.pinNets.some(n => n >= 0 && (n === nThr || n === nTrig));
+          if (onDis || onThr) rSum += (onThr ? 2 : 1) * Math.max(100, +(rp.props?.ohms || 1000));
+        } else if (rp.type === 'capacitor') {
+          const onThr = re.pinNets.some(n => n >= 0 && (n === nThr || n === nTrig));
+          if (onThr) cSum += Math.max(1e-12, (+(rp.props?.uf || 1)) * 1e-6);
+        }
+      }
+      if (rSum > 0 && cSum > 0 && nThr >= 0 && nThr !== nGnd) {
+        const f = 1.44 / (rSum * cSum);
+        if (f > 0.05 && f < 100000) return Math.min(200, Math.max(0.25, f));
+      }
+    }
+    const maxCapUf = Math.max(0, ...circuit.parts.filter(p => p.type === 'capacitor').map(p => +p.props?.uf || 0));
+    return maxCapUf >= 100 ? 0.4 : maxCapUf >= 47 ? 0.8 : maxCapUf >= 10 ? 1.2 : 2;
+  };
+
   const runClockWindow = (cycles) => {
     const hzList = clocks.map(c => Math.max(0.25, Math.min(200, +(c.props.frequency || c.props.hz || 1))));
-    const maxCapUf = Math.max(0, ...circuit.parts.filter(p => p.type === 'capacitor').map(p => +p.props?.uf || 0));
-    const est555Hz = has555 && !hzList.length ? (maxCapUf >= 47 ? 0.8 : maxCapUf >= 10 ? 1.5 : 2) : 2;
+    const est555Hz = has555 && !hzList.length ? estimate555Hz() : 2;
     const minHz = hzList.length ? Math.min(...hzList) : est555Hz;
-    const maxHz = hzList.length ? Math.max(...hzList) : Math.max(20, ...circuit.parts.filter(p => p.type === 'funcgen').map(p => +p.props?.hz || 10));
-    const stepMax = Math.min(0.025, 1 / (Math.max(maxHz, 2) * 8));
-    const totalSpan = Math.min(12, cycles / Math.max(minHz, 0.4));
-    const dt = Math.min(stepMax, Math.max(0.002, totalSpan / 420));
-    const steps = Math.min(500, Math.max(24, Math.ceil(totalSpan / dt)));
+    const maxClockHz = hzList.length ? Math.max(...hzList) : est555Hz;
+    const stepMax = Math.min(0.025, 1 / (Math.max(maxClockHz, 2) * 8));
+    const maxSpanSec = hasCounter ? 24 : 12;
+    const totalSpan = Math.min(maxSpanSec, cycles / Math.max(minHz, 0.35));
+    const steps = Math.min(2400, Math.max(24, Math.ceil(totalSpan / stepMax)));
+    const dt = totalSpan / steps;
     for (let i = 0; i < steps; i++) {
       sim.step(dt);
       sampleLeds();
@@ -658,20 +696,21 @@ export function probeCircuitLedBehavior(sim, circuit) {
   };
 
   try {
+    const seqCycles = hasCounter ? 14 : 3;
     if (clocks.length || has555 || hasCounter) {
       if (setters.length) {
         // Test dynamic behavior with switches ON and OFF so gated clock/counter LEDs are exercised
         setters.forEach(fn => fn(true));
-        runClockWindow(hasCounter ? 9 : 3);
+        runClockWindow(seqCycles);
         setters.forEach(fn => fn(false));
         runClockWindow(2);
       } else {
-        runClockWindow(hasCounter ? 9 : 3);
+        runClockWindow(seqCycles);
       }
       if (tactiles.length) {
         tactiles.forEach(t => { t.ui = { ...(t.ui || {}), pressed: true }; });
         sim.build(circuit);
-        runClockWindow(hasCounter ? 9 : 2);
+        runClockWindow(seqCycles);
       }
       if (pots.length) sweepPots(sim);
     } else if (setters.length) {
@@ -884,9 +923,13 @@ export function verifyActiveLedHealth(prompt, sim, circuit, refById = null, { re
     } else if (s.blown) {
       errors.push(`LED "${tag}" is damaged by excess current — place a 220–470Ω current-limiting resistor in series.`);
     } else if (!skipLiveness && !s.litOnce) {
-      const vA = Number.isFinite(s.vA) ? `${s.vA.toFixed(2)}V` : 'NC';
-      const vK = Number.isFinite(s.vK) ? `${s.vK.toFixed(2)}V` : 'NC';
-      if (Number.isFinite(s.vA) && Number.isFinite(s.vK) && s.vK > s.vA + 0.5) {
+      const isRev = (s.maxRevBias > 0.5 && Number.isFinite(s.revVa) && Number.isFinite(s.revVk))
+        || (Number.isFinite(s.vA) && Number.isFinite(s.vK) && s.vK > s.vA + 0.5);
+      const vaNum = (s.maxRevBias > 0.5 && Number.isFinite(s.revVa)) ? s.revVa : s.vA;
+      const vkNum = (s.maxRevBias > 0.5 && Number.isFinite(s.revVk)) ? s.revVk : s.vK;
+      const vA = Number.isFinite(vaNum) ? `${vaNum.toFixed(2)}V` : 'NC';
+      const vK = Number.isFinite(vkNum) ? `${vkNum.toFixed(2)}V` : 'NC';
+      if (isRev) {
         errors.push(`LED "${tag}" is reverse-biased and never lights (Anode=${vA} < Cathode=${vK}) — swap Anode/Cathode or tie Cathode to "-".`);
       } else {
         errors.push(`LED "${tag}" never turned ON (peak ${s.peakMa.toFixed(2)} mA; Anode=${vA}, Cathode=${vK}) — fix its resistor/driver wiring, check counter/gate inputs, and ensure series resistance is 220–470Ω.`);

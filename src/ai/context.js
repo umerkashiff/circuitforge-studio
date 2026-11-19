@@ -125,7 +125,7 @@ const PART_HINTS = {
   'wokwi-lcd1602': ' // I2C LCD: VCC->"+", GND->"-", SDA->U1.A4, SCL->U1.A5',
   npn: ' // Low-side load: "+"->R->LED.A, LED.K->C, E->"-"; Base via R (never K to "+")',
   tactile: ' // 1.l==1.r & 2.l==2.r permanently bridged; press bridges 1<->2 (always wire 1.l & 2.l)',
-  led: ' // Forward: Anode(+/R)->Cathode(-/NPN.C); never reverse A<K',
+  led: ' // Forward: Anode(+/R)->Cathode(-/NPN.C); never reverse A<K; wire multiple LEDs in parallel branches on 5V (each w/ R), never series',
   oscilloscope: ' // ~1Hz timeDiv=0.2; 1kHz timeDiv=0.0005; connect CH1 GND->"-"',
 };
 

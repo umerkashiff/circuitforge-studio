@@ -20,7 +20,7 @@ import { serializeCircuitState } from '../src/ai/context.js';
 import { AiCopilot } from '../src/ai/copilot.js';
 import { AiGuide } from '../src/ai/guide.js';
 import { getDef } from '../src/parts/registry.js';
-import { generateDailyNewIdeas, selectDailyQueue } from './daily_eval_cases.mjs';
+import { generateDailyNewIdeas, sanitizeEvalCase, selectDailyQueue } from './daily_eval_cases.mjs';
 
 function parseArgs(argv) {
   const opts = {
@@ -202,15 +202,16 @@ function evaluateCircuit(app, tc) {
     .map(p => +p.props?.hz || +p.props?.frequency || 10);
   const maxSrcHz = srcHzList.length ? Math.max(...srcHzList) : 0;
   const minSrcHz = srcHzList.length ? Math.min(...srcHzList) : 0;
-  const hasSlow = app.circuit.parts.some(p => p.type === 'ne555' || p.type === 'uno' || p.type === 'nano' || p.type === 'esp32' || p.type === 'esp32s3' || p.type === 'bluepill')
+  const has555 = app.circuit.parts.some(p => p.type === 'ne555');
+  const hasSlow = has555 || app.circuit.parts.some(p => p.type === 'uno' || p.type === 'nano' || p.type === 'esp32' || p.type === 'esp32s3' || p.type === 'bluepill')
     || (minSrcHz > 0 && minSrcHz < 15);
   const useAcWindow = maxSrcHz >= 15 && !hasSlow;
   const evalSteps = useAcWindow
     ? Math.min(480, Math.max(96, Math.ceil((8 / Math.max(15, minSrcHz || maxSrcHz)) / Math.max(2e-5, Math.min(0.002, 1 / (20 * maxSrcHz))))))
-    : (maxSrcHz >= 15 ? 360 : 120);
+    : (maxSrcHz >= 15 ? 360 : (has555 ? 300 : 120));
   const evalDt = useAcWindow
     ? Math.max(2e-5, Math.min(0.002, 1 / (20 * maxSrcHz)))
-    : (maxSrcHz >= 15 ? (1.2 / evalSteps) : 0.01);
+    : (maxSrcHz >= 15 ? (1.2 / evalSteps) : (has555 ? 0.02 : 0.01));
 
   for (let s = 0; s < evalSteps; s++) {
     app.engine.step(evalDt);
@@ -481,10 +482,12 @@ async function run() {
     ? { active: [], resolved: [] }
     : readJsonSafe(autoRegPath, { active: [], resolved: [] });
   if (!Array.isArray(autoReg.active)) autoReg.active = [];
+  else autoReg.active = autoReg.active.map(sanitizeEvalCase);
   if (!Array.isArray(autoReg.resolved)) autoReg.resolved = [];
 
   let storedIdeas = readJsonSafe(ideasPath, []);
   if (!Array.isArray(storedIdeas)) storedIdeas = [];
+  else storedIdeas = storedIdeas.map(sanitizeEvalCase);
 
   const budget = {
     httpCalls: 0,
