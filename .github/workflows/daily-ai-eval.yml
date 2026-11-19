@@ -51,15 +51,18 @@ jobs:
         id: auth
         env:
           GEM_KEY: ${{ secrets.GEM_KEY }}
+          GEM_KEY_2: ${{ secrets.GEM_KEY_2 }}
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
         run: |
           if [ "$DRY_RUN" = "true" ]; then
             echo "Running in offline --dry-run mode."
             exit 0
           fi
-          if [ -z "${GEM_KEY}${AI_API_KEY}" ]; then
-            echo "::error::Missing API key. Add GEM_KEY (or AI_API_KEY) under Settings -> Secrets and variables -> Actions -> Repository secrets."
+          if [ -z "${GEM_KEY}${GEM_KEY_2}${AI_API_KEY}${GEMINI_API_KEY}${GEMINI_API_KEY_2}" ]; then
+            echo "::error::Missing API key. Add GEM_KEY / GEM_KEY_2 (or AI_API_KEY) under Settings -> Secrets and variables -> Actions -> Repository secrets."
             exit 1
           fi
 
@@ -82,7 +85,10 @@ jobs:
       - name: Run daily AI eval suite
         env:
           GEM_KEY: ${{ secrets.GEM_KEY }}
+          GEM_KEY_2: ${{ secrets.GEM_KEY_2 }}
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
           AI_MODEL: ${{ vars.AI_EVAL_MODEL || 'gemini-3.5-flash-lite' }}
           MAX_CALLS: ${{ inputs.max_calls || vars.AI_EVAL_MAX_CALLS || '300' }}
           SKIP_SCOPES: ${{ inputs.skip_scopes || 'oled,esp32,i2c_display' }}

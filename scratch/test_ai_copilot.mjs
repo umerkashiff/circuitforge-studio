@@ -961,6 +961,38 @@ assert.equal(gemFb.modelUsed, 'gemini-2.5-flash-lite');
 assert.equal(gemFb.switchedFrom, 'gemini-3.5-flash-lite');
 assert.equal(gemFb.parsed.reply, 'Served via 2.5 Flash Lite');
 assert.equal(gemCalls.length, 3, '2 tries on 3.5-flash-lite (initial + 503 retry), then fallback to 2.5-flash-lite');
+
+// 17d. Multi-key failover: exhausted primary key shifts immediately to backup key & skips exhausted key afterwards
+const keyOrder = [];
+const multiKeyFetch = async (url, opts) => {
+  const auth = opts?.headers?.Authorization || '';
+  keyOrder.push(auth);
+  if (auth === 'Bearer AQ.primaryExhausted') {
+    return {
+      ok: false,
+      status: 429,
+      json: async () => ({ error: { message: 'You exceeded your current quota, please check your plan and billing details.' } }),
+    };
+  }
+  return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"intent":"analyze","reply":"Served by backup key"}' } }] }) };
+};
+const mk1 = await callGemini({
+  apiKey: 'AQ.primaryExhausted,AQ.backupHealthy',
+  model: 'gemini-3.5-flash-lite',
+  messages: [{ role: 'user', content: 'hi' }],
+  availableModels: [{ id: 'gemini-3.5-flash-lite' }],
+  fetchFn: multiKeyFetch,
+});
+assert.equal(mk1.parsed.reply, 'Served by backup key');
+const mk2 = await callGemini({
+  apiKey: 'AQ.primaryExhausted,AQ.backupHealthy',
+  model: 'gemini-3.5-flash-lite',
+  messages: [{ role: 'user', content: 'next' }],
+  availableModels: [{ id: 'gemini-3.5-flash-lite' }],
+  fetchFn: multiKeyFetch,
+});
+assert.equal(mk2.parsed.reply, 'Served by backup key');
+assert.deepEqual(keyOrder, ['Bearer AQ.primaryExhausted', 'Bearer AQ.backupHealthy', 'Bearer AQ.backupHealthy'], 'Exhausted key must cool down globally and route subsequent calls directly to backup key');
 console.log('   [PASS] Gemini-only model filtering, 503 recovery & multi-key support passed.');
 
 console.log('18. Testing Strict Follow-Up LED Health Verification, Counter 9-Cycle Liveness & LED Telemetry...');

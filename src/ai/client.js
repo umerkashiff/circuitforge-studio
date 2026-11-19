@@ -266,7 +266,20 @@ function isResponseFormatError(status, errPayload) {
   );
 }
 
+function isHardQuotaError(errPayload) {
+  const err = extractErrObj(errPayload);
+  const code = String(err?.code || '').toLowerCase();
+  const status = String(err?.status || '').toLowerCase();
+  const msg = String(err?.message || '');
+  return (
+    /exceeded your current quota|billing details|quota exceeded|\bTPD\b|\bRPD\b|PerDay/i.test(msg) ||
+    code.includes('insufficient_quota') ||
+    status === 'resource_exhausted' && !/(?:try again|retry)\s+in\s+\d+(?:\.\d+)?\s*(ms|s)/i.test(msg)
+  );
+}
+
 function parseRetryDelayMs(errPayload) {
+  if (isHardQuotaError(errPayload)) return Infinity;
   const err = extractErrObj(errPayload);
   const msg = String(err?.message || '');
   if (/tokens per day|\bTPD\b|\bRPD\b|PerDay|\b\d+\s*(?:h(?:ours?|rs?)?|min(?:utes?)?|m(?![s\w])|m(?=\d))/i.test(msg)) return Infinity;
@@ -355,7 +368,10 @@ export async function callGemini({
 
   for (let i = 0; i < candidates.length; i++) {
     const activeModel = candidates[i];
-    const uncooledKeys = keyList.filter(k => (cooldownUntil.get(`${k}|${activeModel}`) || 0) <= now);
+    const uncooledKeys = keyList.filter(k =>
+      (cooldownUntil.get(k) || 0) <= now &&
+      (cooldownUntil.get(`${k}|${activeModel}`) || 0) <= now
+    );
     const activeKeys = uncooledKeys.length ? uncooledKeys : keyList;
 
     let modelTpmErr = null;
@@ -417,19 +433,22 @@ export async function callGemini({
         modelTpmErr = null;
         break;
       }
-      if (attempt.status === 401 || attempt.status === 403) {
-        if (cleanKey) cooldownUntil.set(`${cleanKey}|${activeModel}`, now + 15 * 60_000);
+      if (attempt.status === 401 || attempt.status === 402 || attempt.status === 403) {
+        if (cleanKey) cooldownUntil.set(cleanKey, now + 15 * 60_000);
         continue;
       }
       if (attempt.status === 429) {
         if (!lastRateLimitErr) lastRateLimitErr = lastErr;
         const d = parseRetryDelayMs(attempt.payload);
         if (d === Infinity) {
-          if (cleanKey) cooldownUntil.set(`${cleanKey}|${activeModel}`, now + 15 * 60_000);
-        } else if (d < modelTpmWaitMs) {
-          modelTpmErr = lastErr;
-          modelTpmKey = cleanKey;
-          modelTpmWaitMs = d;
+          if (cleanKey) cooldownUntil.set(cleanKey, now + 15 * 60_000);
+        } else {
+          if (cleanKey && d > 0) cooldownUntil.set(`${cleanKey}|${activeModel}`, now + d);
+          if (d < modelTpmWaitMs) {
+            modelTpmErr = lastErr;
+            modelTpmKey = cleanKey;
+            modelTpmWaitMs = d;
+          }
         }
         continue;
       }

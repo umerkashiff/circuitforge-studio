@@ -464,7 +464,13 @@ function renderDigest({ opts, state, autoReg, newIdeasCount, fineTuneAdded, fine
 
 async function run() {
   const opts = parseArgs(process.argv.slice(2));
-  const rawKeys = [process.env.GEM_KEY, process.env.AI_API_KEY, process.env.GEMINI_API_KEY].filter(Boolean).join(',');
+  const rawKeys = [
+    process.env.GEM_KEY,
+    process.env.GEM_KEY_2,
+    process.env.AI_API_KEY,
+    process.env.GEMINI_API_KEY,
+    process.env.GEMINI_API_KEY_2,
+  ].filter(Boolean).join(',');
   const hasKey = splitKeys(rawKeys).length > 0;
   if (!opts.dryRun && !hasKey) {
     console.error('No API key found (set GEM_KEY, GEMINI_API_KEY, or AI_API_KEY), or pass --dry-run.');
