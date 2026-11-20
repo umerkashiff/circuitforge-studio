@@ -631,18 +631,41 @@ img { display: block; max-width: 100%; }
 @media (min-width: 768px) { .feature-grid { grid-template-columns: repeat(2, 1fr); } }
 
 .feature-cell {
-  padding: 32px 24px;
+  padding: 28px 24px 32px;
   border-bottom: 1px dashed var(--zinc-800);
   transition: background 0.2s ease;
+  display: flex;
+  flex-direction: column;
 }
 @media (min-width: 768px) {
-  .feature-cell { padding: 32px 32px; }
+  .feature-cell { padding: 30px 32px 34px; }
   .feature-cell:nth-child(odd) { border-right: 1px dashed var(--zinc-800); }
   .feature-cell:nth-last-child(-n+2) { border-bottom: 0; }
 }
-@media (min-width: 1024px) { .feature-cell { padding: 32px 48px; } }
+@media (min-width: 1024px) { .feature-cell { padding: 32px 44px 36px; } }
 .feature-cell:last-child { border-bottom: 0; }
 .feature-cell:hover { background: rgba(9, 9, 11, 0.5); }
+
+.cell-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9.3;
+  margin-bottom: 22px;
+  border-radius: 8px;
+  background: #000;
+  border: 1px solid rgba(39, 39, 42, 0.65);
+  overflow: hidden;
+}
+.cell-stage video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.55s var(--ease-spring);
+}
+.feature-cell:hover .cell-stage video {
+  transform: scale(1.025);
+}
 
 .feature-head {
   display: flex;
@@ -805,10 +828,10 @@ img { display: block; max-width: 100%; }
   position: relative;
   z-index: 10;
   width: 100%;
-  aspect-ratio: 1280 / 748;
+  aspect-ratio: 1120 / 650;
   border-radius: 10px;
   border: 1px solid var(--zinc-800);
-  background: var(--surface-2);
+  background: #000;
   overflow: hidden;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.85);
 }
@@ -824,6 +847,10 @@ img { display: block; max-width: 100%; }
   pointer-events: none;
   z-index: 0;
   transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+}
+.wb-media-item--contain {
+  object-fit: contain;
+  background: #09090b;
 }
 .wb-media-item.active {
   opacity: 1;
@@ -850,11 +877,16 @@ img { display: block; max-width: 100%; }
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--zinc-300);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .wb-live-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  flex-shrink: 0;
   background: var(--ok);
   box-shadow: 0 0 8px rgba(52, 199, 89, 0.7);
 }
@@ -869,6 +901,8 @@ img { display: block; max-width: 100%; }
   border-radius: 4px;
   border: 1px solid var(--zinc-800);
   background: rgba(9, 9, 11, 0.85);
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: border-color 0.2s, background 0.2s;
 }
 .wb-open-link:hover {
@@ -911,29 +945,37 @@ img { display: block; max-width: 100%; }
 .tile-row-wrap { width: 100%; overflow: hidden; }
 
 .part-tile {
-  width: 78px;
-  height: 78px;
-  border-radius: 8px;
+  width: 96px;
+  height: 96px;
+  padding: 8px 6px 6px;
+  border-radius: 10px;
   background: var(--zinc-950);
   border: 1px solid var(--zinc-800);
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 5px;
+  justify-content: space-between;
+  gap: 4px;
   flex-shrink: 0;
-  transition: border-color 0.2s, background 0.2s;
+  transition: border-color 0.2s, background 0.2s, transform 0.25s var(--ease-spring);
 }
 .part-tile:hover {
-  border-color: var(--zinc-700);
+  border-color: rgba(10, 132, 255, 0.5);
   background: var(--zinc-900);
+  transform: translateY(-2px);
 }
-.part-tile svg { width: 22px; height: 22px; color: var(--zinc-400); transition: color 0.2s; }
-.part-tile:hover svg { color: var(--accent-hi); }
+.part-tile img {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+  transition: transform 0.25s var(--ease-spring);
+}
+.part-tile:hover img { transform: scale(1.08); }
 .part-tile span {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 9.5px;
   color: var(--zinc-400);
+  line-height: 1;
 }
 .part-tile:hover span { color: #fff; }
 
@@ -1040,19 +1082,22 @@ img { display: block; max-width: 100%; }
 .tier-thumb {
   display: block;
   width: 100%;
-  aspect-ratio: 16 / 9.4;
+  aspect-ratio: 16 / 9.3;
   border-radius: 7px;
   border: 1px solid var(--zinc-800);
-  background: var(--surface-2);
+  background: #000;
   overflow: hidden;
   margin-bottom: 20px;
 }
+.tier-thumb video,
 .tier-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
   transition: transform 0.45s var(--ease-spring);
 }
+.tier-card:hover .tier-thumb video,
 .tier-card:hover .tier-thumb img {
   transform: scale(1.04);
 }

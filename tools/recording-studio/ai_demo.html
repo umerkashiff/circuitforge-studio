@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <title>CircuitForge AI Copilot Live Build Stage</title>
+  <link rel="stylesheet" href="../../css/app.css">
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      display: grid !important;
+      grid-template-columns: minmax(0, 1fr) 360px !important;
+      grid-template-rows: 1fr !important;
+      grid-template-areas: "stage insp" !important;
+      background: #000000 !important;
+      overflow: hidden;
+    }
+    .ai-stage {
+      grid-area: stage;
+      position: relative;
+      background: #000000;
+      overflow: hidden;
+    }
+    #ai-cv {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    .ai-pill-live {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 5px 14px;
+      border-radius: 999px;
+      font: 600 11px var(--font);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #fff;
+      background: #34c759;
+      box-shadow: 0 4px 18px rgba(52, 199, 89, 0.38);
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+    .ai-pill-live.on { opacity: 1; }
+    .ai-side {
+      grid-area: insp;
+      display: flex;
+      flex-direction: column;
+      background: #141416;
+      border-left: 1px solid rgba(255, 255, 255, 0.09);
+      overflow: hidden;
+    }
+    .ai-side-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 13px;
+      font-weight: 600;
+      color: #f5f5f7;
+    }
+    .ai-side-head .spark { color: #0a84ff; margin-right: 6px; }
+    .ai-model-pill {
+      font: 500 11px var(--mono);
+      color: #a1a1a6;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+    .ai-chat-feed {
+      flex: 1;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow: hidden;
+    }
+    .ai-msg.user { align-self: flex-end; max-width: 90%; }
+    .ai-msg.user .ai-bubble {
+      background: #0a84ff;
+      color: #fff;
+      padding: 9px 12px;
+      border-radius: 12px 12px 3px 12px;
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+    .ai-msg.assistant { align-self: stretch; }
+    .ai-step-log {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 11px;
+      border-radius: 10px;
+      background: #1c1c1e;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font: 400 11.5px/1.45 var(--mono);
+      color: #d1d1d6;
+    }
+    .ai-step-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .ai-step-row .ok { color: #34c759; font-weight: 700; }
+    .ai-step-row .run { color: #0a84ff; font-weight: 700; }
+    .ai-done-card {
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #1c1c1e;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: #e5e5ea;
+    }
+    .ai-done-card .ai-action.ok {
+      margin-top: 8px;
+      padding: 6px 9px;
+      border-radius: 7px;
+      background: rgba(52, 199, 89, 0.14);
+      border: 1px solid rgba(52, 199, 89, 0.3);
+      color: #34c759;
+      font-size: 11.5px;
+      font-weight: 500;
+    }
+    .ai-composer {
+      padding: 12px 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      background: #18181b;
+    }
+    .ai-mode-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .ai-mode-row span {
+      text-align: center;
+      padding: 4px 0;
+      border-radius: 6px;
+      font-size: 11px;
+      color: #a1a1a6;
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .ai-mode-row span.on {
+      background: rgba(10, 132, 255, 0.18);
+      color: #64d2ff;
+      font-weight: 600;
+    }
+    .ai-input-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+    }
+    .ai-fake-input {
+      flex: 1;
+      min-height: 40px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: #0e0e10;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #f5f5f7;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .ai-send-btn {
+      height: 36px;
+      padding: 0 14px;
+      border-radius: 8px;
+      background: #0a84ff;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      border: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="ai-stage">
+    <canvas id="ai-cv"></canvas>
+    <div id="live-pill" class="ai-pill-live">Simulating</div>
+  </div>
+  <aside class="ai-side">
+    <div class="ai-side-head">
+      <div><span class="spark">✦</span>AI Copilot</div>
+      <span class="ai-model-pill">Tool-Verified</span>
+    </div>
+    <div id="chat-feed" class="ai-chat-feed"></div>
+    <div class="ai-composer">
+      <div class="ai-mode-row">
+        <span>Auto</span>
+        <span class="on">Build</span>
+        <span>Guide</span>
+      </div>
+      <div class="ai-input-row">
+        <div id="prompt-box" class="ai-fake-input"></div>
+        <button class="ai-send-btn" type="button">Send</button>
+      </div>
+    </div>
+  </aside>
+
+  <script type="module">
+    import { P, Circuit, Board, Part, Wire } from '../../src/model.js';
+    import { Engine, key } from '../../src/sim/engine.js';
+    import { tidy } from '../../src/sim/router.js';
+    import { Renderer } from '../../src/view/renderer.js';
+    import { ensureDesignators } from '../../src/export/designators.js';
+    import '../../src/parts/library.js';
+
+    const R = '#e5484d', K = '#2b2d31', B = '#0a84ff', Y = '#f5c400';
+    const cv = document.getElementById('ai-cv');
+
+    const app = {
+      circuit: new Circuit(),
+      engine: new Engine(),
+      cam: { x: 0, y: 0, z: 1 },
+      mode: 'build',
+      effects: [],
+      checks: [],
+      index: { holes: new Map(), pins: new Map(), ends: new Map() },
+      editor: { hoverNet: -1, selection: new Set(), drawOverlay() {} },
+      settings: {
+        get: (k) => (k === 'accent' ? '#0a84ff' : k === 'chipText' ? 1 : k === 'labelMode' ? 'refs' : true),
+      },
+    };
+    const renderer = new Renderer(app, cv);
+    renderer.resize();
+
+    // Build full target 555 circuit once so we get exact tidy orthogonal paths for every wire!
+    const full = new Circuit();
+    full.boards.push(new Board('half', 0, 0));
+    const PART_SPECS = [
+      ['vcc', 3, -3], ['gnd', 5, -3],
+      ['ne555', 6, 11],
+      ['resistor', 7, 5, 3, { ohms: 1000 }], ['resistor', 7, 6, 0, { ohms: 10000 }],
+      ['capacitor', 7, 14, 2, { uf: 15 }],
+      ['resistor', 8, 12, 0, { ohms: 220 }], ['led', 12, 13, 0, { color: 'green' }],
+    ];
+    const WIRE_SPECS = [
+      [3, -3, 3, 1, R], [5, -3, 5, 2, K], [31, 1, 31, 17, R], [30, 2, 30, 18, K],
+      [6, 4, 6, 1, R], [9, 14, 9, 17, R], [6, 15, 6, 18, K],
+      [11, 4, 8, 4, B], [7, 13, 8, 7, Y], [13, 15, 13, 18, K],
+    ];
+    for (const [t, x, y, rot = 0, props] of PART_SPECS) full.parts.push(new Part(t, x, y, rot, props));
+    for (const [x1, y1, x2, y2, col] of WIRE_SPECS) full.wires.push(new Wire({ x: x1, y: y1 }, { x: x2, y: y2 }, col));
+    for (const w of full.wires) {
+      for (const e of [w.a, w.b]) {
+        const onHole = full.boards.some((b) => b.holes().some((hl) => hl.x === e.x && hl.y === e.y));
+        if (onHole) continue;
+        for (const p of full.parts) {
+          const q = p.worldPins().find((q) => q.x === e.x && q.y === e.y);
+          if (q) { e.pin = { part: p.id, i: q.i }; break; }
+        }
+      }
+    }
+    ensureDesignators(full);
+    app.circuit = full;
+    function reindex() {
+      const holes = new Map(), pins = new Map(), ends = new Map();
+      for (const b of app.circuit.boards) for (const hl of b.holes()) holes.set(key(hl.x, hl.y), hl);
+      for (const p of app.circuit.parts) for (const q of p.worldPins()) {
+        const k = key(q.x, q.y); if (!pins.has(k)) pins.set(k, []); pins.get(k).push({ part: p, i: q.i, name: q.name });
+      }
+      for (const w of app.circuit.wires) for (const e of [w.a, w.b]) {
+        const k = key(e.x, e.y); if (!ends.has(k)) ends.set(k, []); ends.get(k).push(e);
+      }
+      app.index = { holes, pins, ends };
+      app.engine.build(app.circuit);
+    }
+    reindex();
+    tidy(app, full.wires);
+
+    const ALL_PARTS = [...full.parts];
+    const ALL_WIRES = [...full.wires];
+    const BOARD = full.boards[0];
+
+    const chatEl = document.getElementById('chat-feed');
+    const promptEl = document.getElementById('prompt-box');
+    const livePill = document.getElementById('live-pill');
+
+    function setCam(cx, cy, z) {
+      app.cam = { z, x: renderer.w / 2 - cx * P * z, y: renderer.h / 2 - cy * P * z };
+    }
+
+    let builtLive = false;
+
+    window.AI_DEMO = {
+      setState({ partCount, wireCount, live, stepSec, cx, cy, z, promptText, showUserMsg, steps, done }) {
+        const c = new Circuit();
+        c.boards.push(BOARD);
+        c.parts = ALL_PARTS.slice(0, partCount);
+        c.wires = ALL_WIRES.slice(0, wireCount);
+        app.circuit = c;
+
+        if (live) {
+          if (!builtLive) {
+            reindex();
+            builtLive = true;
+          }
+          let rem = stepSec || 0;
+          let guard = 0;
+          while (rem > 1e-9 && guard++ < 4000) {
+            const dt = Math.min(rem, app.engine.suggestDt ? app.engine.suggestDt() : 1e-4);
+            app.engine.step(dt);
+            rem -= dt;
+          }
+        } else {
+          builtLive = false;
+        }
+
+        livePill.classList.toggle('on', !!live);
+        setCam(cx, cy, z);
+        renderer.draw({
+          cam: app.cam, dark: true, w: renderer.w, h: renderer.h, dpr: renderer.dpr,
+          background: '#000000', drawGrid: false, hideSelection: true,
+          live: !!live, labelMode: partCount > 2 ? 'refs' : 'off', drawWarnings: false,
+        });
+
+        promptEl.textContent = promptText || '';
+        let html = '';
+        if (showUserMsg) {
+          html += `<div class="ai-msg user"><div class="ai-bubble">Build a 555 astable LED blinker with a 220Ω resistor and verify oscillation.</div></div>`;
+        }
+        if (steps && steps.length) {
+          html += `<div class="ai-msg assistant"><div class="ai-step-log">` +
+            steps.map((s) => `<div class="ai-step-row"><span class="${s.ok ? 'ok' : 'run'}">${s.ok ? '✓' : '●'}</span><span>${s.text}</span></div>`).join('') +
+            `</div></div>`;
+        }
+        if (done) {
+          html += `<div class="ai-msg assistant"><div class="ai-done-card">Wired <strong>NE555</strong> astable oscillator (R1=1kΩ, R2=10kΩ, C1=15µF) driving green <strong>LED1</strong> through 220Ω.<div class="ai-action ok">✓ Applied (+8 parts, +10 wires) · 2.9 Hz verified</div></div></div>`;
+        }
+        chatEl.innerHTML = html;
+      },
+    };
+    window.__AI_DEMO_READY = true;
+  </script>
+</body>
+</html>

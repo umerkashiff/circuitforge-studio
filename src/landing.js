@@ -490,7 +490,28 @@
     });
   });
 
-  /* 8. FAQ Single-Open Accordion (closed by default like Relay) */
+  /* 8. Viewport-Aware Video Auto-Play (plays frameless clips when visible, pauses offscreen) */
+  const autoClips = [...document.querySelectorAll('video[data-autoplay-visible]')];
+  if (autoClips.length && 'IntersectionObserver' in window && !reducedMotion) {
+    const vio = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const v = entry.target;
+        if (entry.isIntersecting) v.play().catch(() => {});
+        else v.pause();
+      }
+    }, { threshold: 0.18 });
+    autoClips.forEach((v) => vio.observe(v));
+  }
+
+  /* 9. Hover-to-Play Starter Card Micro-Clips */
+  document.querySelectorAll('.tier-card').forEach((card) => {
+    const v = card.querySelector('video[data-hover-play]');
+    if (!v) return;
+    card.addEventListener('pointerenter', () => { if (!reducedMotion) v.play().catch(() => {}); });
+    card.addEventListener('pointerleave', () => { v.pause(); });
+  });
+
+  /* 10. FAQ Single-Open Accordion (closed by default like Relay) */
   const faqItems = [...document.querySelectorAll('.faq-item')];
   faqItems.forEach((item) => {
     item.querySelector('.faq-q')?.addEventListener('click', () => {

@@ -137,19 +137,24 @@ const cssFileName = `app.${cssHash}.css`;
 fs.writeFileSync(path.join(assetsDir, cssFileName), finalCss, 'utf8');
 console.log(`✅ Minified CSS generated: assets/${cssFileName} (${(finalCss.length / 1024).toFixed(1)} KB)`);
 
-// 6. Copy static assets (favicon, recorded demo GIFs, etc.)
+// 6. Copy static assets (favicon, recorded studio sprites & clips)
 if (fs.existsSync(path.join(root, 'favicon.svg'))) {
   fs.copyFileSync(path.join(root, 'favicon.svg'), path.join(dist, 'favicon.svg'));
 }
-const demosSrc = path.join(root, 'assets', 'demos');
-if (fs.existsSync(demosSrc)) {
-  const demosDest = path.join(assetsDir, 'demos');
-  fs.mkdirSync(demosDest, { recursive: true });
-  for (const f of fs.readdirSync(demosSrc)) {
-    fs.copyFileSync(path.join(demosSrc, f), path.join(demosDest, f));
+function copyDirRecursive(src, dest) {
+  if (!fs.existsSync(src)) return 0;
+  fs.mkdirSync(dest, { recursive: true });
+  let n = 0;
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const s = path.join(src, entry.name);
+    const d = path.join(dest, entry.name);
+    if (entry.isDirectory()) n += copyDirRecursive(s, d);
+    else { fs.copyFileSync(s, d); n++; }
   }
-  console.log(`✅ Copied ${fs.readdirSync(demosSrc).length} demo media files to dist/assets/demos/`);
+  return n;
 }
+const studioCount = copyDirRecursive(path.join(root, 'assets', 'studio'), path.join(assetsDir, 'studio'));
+if (studioCount > 0) console.log(`✅ Copied ${studioCount} studio assets (sprites + clips) to dist/assets/studio/`);
 
 // 7. Generate production studio.html (Simulator)
 console.log('📄 Generating production studio.html (Simulator)...');
