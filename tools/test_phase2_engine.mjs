@@ -205,6 +205,102 @@ test('P2-E4', 'icDevice leaves ctx.props undefined on standard 74xx ICs and free
   return 'Standard ICs keep ctx.props===undefined; 28c16 ctx.props frozen';
 });
 
+// ---------------------------------------------------------------------------
+// 5. Settled Idle Cap Release vs Active AC / Transient Cap Clamping
+// ---------------------------------------------------------------------------
+test('P2-E5', 'Settled idle RC/monostable cap releases suggestDt() while 10 Hz / 1 kHz AC RC keeps dt clamped', () => {
+  // Part A: Idle monostable 555 whose DIS pin clamps Cidle (0.1uF) across ~8 ohm
+  const cIdle = new Circuit();
+  const vp = new Part('vcc', 0, 0), gp = new Part('gnd', 0, 2);
+  const t555 = new Part('ne555', 10, 0);
+  const rpu = new Part('resistor', 4, 0, 0, { ohms: 10000 });
+  const rMono = new Part('resistor', 24, 0, 0, { ohms: 10000 });
+  const cMono = new Part('capacitor', 24, 6, 0, { kind: 'ceramic', uf: 0.1 });
+  cIdle.parts.push(vp, gp, t555, rpu, rMono, cMono);
+  const tp = t555.worldPins();
+  wire(cIdle, vp.worldPins()[0], tp[7]); // VCC
+  wire(cIdle, vp.worldPins()[0], tp[3]); // RST
+  wire(cIdle, gp.worldPins()[0], tp[0]); // GND
+  wire(cIdle, vp.worldPins()[0], rpu.worldPins()[0]);
+  wire(cIdle, rpu.worldPins()[1], tp[1]); // TRIG pulled HIGH (idle)
+  wire(cIdle, vp.worldPins()[0], rMono.worldPins()[0]);
+  wire(cIdle, rMono.worldPins()[1], tp[6]); // DIS
+  wire(cIdle, tp[6], tp[5]); // THR
+  wire(cIdle, tp[5], cMono.worldPins()[0]);
+  wire(cIdle, cMono.worldPins()[1], gp.worldPins()[0]);
+  const eIdle = new Engine();
+  eIdle.build(cIdle);
+  for (let s = 0; s < 30; s++) eIdle.step(eIdle.suggestDt());
+  const idleDt = eIdle.suggestDt();
+  assert.ok(idleDt >= 4.5e-4, `Settled idle 555 DIS cap should release suggestDt() to maxDt (~5e-4), got ${idleDt}`);
+
+  // Part B: 10 Hz and 1 kHz sine RC (tau=100us -> target dt=5us) must keep 0 spikes across sine peaks
+  for (const hz of [10, 1000]) {
+    const cAc = new Circuit();
+    const g2 = new Part('gnd', 0, 20);
+    const fg = new Part('funcgen', 0, 0, 0, { wave: 'sine', hz, vpp: 5, offsetOn: true, offset: 2.5 });
+    const r = new Part('resistor', 20, 0, 0, { ohms: 100 });
+    const cap = new Part('capacitor', 28, 0, 0, { kind: 'ceramic', uf: 1 });
+    cAc.parts.push(g2, fg, r, cap);
+    wire(cAc, fg.worldPins()[4], r.worldPins()[0]);
+    wire(cAc, r.worldPins()[1], cap.worldPins()[0]);
+    wire(cAc, cap.worldPins()[1], g2.worldPins()[0]);
+    wire(cAc, fg.worldPins()[5], g2.worldPins()[0]);
+    const eAc = new Engine();
+    eAc.build(cAc);
+    let spikes = 0;
+    for (let s = 0; s < 2000; s++) {
+      const dt = eAc.suggestDt();
+      if (s > 10 && dt > 1e-5) spikes++;
+      eAc.step(dt);
+    }
+    assert.equal(spikes, 0, `AC ${hz}Hz RC must have 0 dt spikes >1e-5s across wave peaks, got ${spikes}`);
+  }
+  return `Idle 555 DIS dt=${idleDt.toExponential(2)}; 10Hz/1kHz AC RC spikes=0`;
+});
+
+// ---------------------------------------------------------------------------
+// 6. Mid-Simulation Topology Rebuilds (Engine.build) Preserve Toggle State
+// ---------------------------------------------------------------------------
+test('P2-E6', 'Mid-simulation Engine.build rebuilds preserve node voltages & 7474 Qbar->D pushbutton toggle', () => {
+  const c = new Circuit();
+  const vcc = new Part('vcc', 0, 0), gnd = new Part('gnd', 0, 10);
+  const ff = new Part('ic7474', 10, 0);
+  const btn = new Part('tactile', 20, 0);
+  const rpd = new Part('resistor', 20, 6, 0, { ohms: 1000 });
+  c.parts.push(vcc, gnd, ff, btn, rpd);
+  const p = ff.worldPins();
+  wire(c, vcc.worldPins()[0], p[13]); // VCC
+  wire(c, gnd.worldPins()[0], p[6]);  // GND
+  wire(c, vcc.worldPins()[0], p[0]);  // 1CLR#
+  wire(c, vcc.worldPins()[0], p[3]);  // 1PRE#
+  wire(c, p[5], p[1]);                // 1Qbar -> 1D
+  wire(c, vcc.worldPins()[0], btn.worldPins()[0]);
+  wire(c, btn.worldPins()[2], p[2]);  // 2.l -> 1CLK
+  wire(c, btn.worldPins()[2], rpd.worldPins()[0]);
+  wire(c, rpd.worldPins()[1], gnd.worldPins()[0]);
+
+  const eng = new Engine();
+  eng.build(c);
+  for (let i = 0; i < 5; i++) eng.step(1e-4);
+  const qPin = p[4];
+  const readQ = () => eng.V[eng.netAt(qPin.x, qPin.y)] > 2.4 ? 1 : 0;
+  assert.equal(readQ(), 0, 'Initial 7474 Q must be 0');
+
+  const seq = [];
+  for (let click = 1; click <= 6; click++) {
+    btn.ui.pressed = true;
+    eng.build(c);
+    for (let i = 0; i < 5; i++) eng.step(1e-4);
+    seq.push(readQ());
+    btn.ui.pressed = false;
+    eng.build(c);
+    for (let i = 0; i < 5; i++) eng.step(1e-4);
+  }
+  assert.deepEqual(seq, [1, 0, 1, 0, 1, 0], `7474 Qbar->D toggle sequence mismatch: ${seq.join(',')}`);
+  return `7474 Qbar->D pushbutton sequence [${seq.join(',')}] across 12 mid-sim rebuilds verified`;
+});
+
 for (const r of results) console.log(`${r.pass ? 'PASS' : 'FAIL'} [${r.id}] ${r.name} -> ${r.info}`);
 const bad = results.filter(r => !r.pass).length;
 console.log(`\n${results.length - bad}/${results.length} passed`);

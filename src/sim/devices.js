@@ -73,9 +73,9 @@ export function resistor(nets, part) {
 export function capacitor(nets, part) {
   return {
     timeDependent: true,
-    vc: 0, stress: 0,
-    reset() { this.vc = 0; this.stress = 0; },
-    adopt(o) { this.vc = o.vc; this.stress = o.stress || 0; },
+    vc: 0, stress: 0, quiet: 0,
+    reset() { this.vc = 0; this.stress = 0; this.quiet = 0; },
+    adopt(o) { this.vc = o.vc; this.stress = o.stress || 0; this.quiet = o.quiet || 0; },
     stamp(S, V, e) {
       if (part.props.damaged) return;
       const geq = (part.props.uf * 1e-6) / e.dt;
@@ -90,8 +90,10 @@ export function capacitor(nets, part) {
       const prev = this.vc;
       if (ok(a) && ok(c)) this.vc = a - c;
       this.i = (C * (this.vc - prev)) / dt;   // > 0 while + side is charging up
+      this.quiet = (Math.abs(this.vc - prev) < 1e-6 && Math.abs(this.i) < 1e-8) ? Math.min(16, this.quiet + 1) : 0;
+      const settled = this.quiet >= 8;
       const isRailBypass = e && e.rootG && nets[0] >= 0 && nets[1] >= 0 && e.rootG[nets[0]] > 0.5 && e.rootG[nets[1]] > 0.5;
-      if (!isRailBypass && e && e.gsum && nets[0] >= 0 && nets[1] >= 0) {
+      if (!isRailBypass && !settled && e && e.gsum && nets[0] >= 0 && nets[1] >= 0) {
         const c0 = e.capG ? e.capG[nets[0]] : (C / dt);
         const c1 = e.capG ? e.capG[nets[1]] : (C / dt);
         const ga = e.gsum[nets[0]] - c0, gb = e.gsum[nets[1]] - c1;
@@ -215,9 +217,28 @@ export function icDevice(ic, nets, part = null) {
     mode: new Array(N + 1).fill('pp'),
     floatingInputs: [],
     pending: null,
-    reset() { this.s = initState(); this.committed = this.s.slice(); this.prev.fill(-1); this.out.fill(undefined); this.pending = null; },
-    adopt(o) { this.s = o.committed.slice(); this.committed = o.committed.slice(); this.prev.set(o.prev); this.pending = null; },
-    begin() { if (this.s.length) this.s = this.committed.slice(); this.seen.fill(0); this.pending = null; },
+    hasCommitted: false,
+    committedOut: new Array(N + 1).fill(undefined),
+    committedMode: new Array(N + 1).fill('pp'),
+    reset() {
+      this.s = initState(); this.committed = this.s.slice(); this.prev.fill(-1);
+      this.out.fill(undefined); this.committedOut.fill(undefined); this.committedMode.fill('pp');
+      this.hasCommitted = false; this.pending = null;
+    },
+    adopt(o) {
+      this.s = o.committed.slice(); this.committed = o.committed.slice(); this.prev.set(o.prev);
+      this.out = o.out.slice(); this.mode = o.mode.slice();
+      this.hasCommitted = !!o.hasCommitted;
+      this.committedOut = (o.committedOut || o.out).slice();
+      this.committedMode = (o.committedMode || o.mode).slice();
+      this.powered = o.powered; this.vh = o.vh; this.vl = o.vl;
+      this.pending = null;
+    },
+    begin() {
+      if (this.s.length) this.s = this.committed.slice();
+      if (this.hasCommitted) { this.out = this.committedOut.slice(); this.mode = this.committedMode.slice(); }
+      this.seen.fill(0); this.pending = null;
+    },
     stamp(S, V) {
       if (!this.powered) return;
       if (net(ic.vcc) >= 0 && net(ic.gnd) >= 0) S.G(net(ic.vcc), net(ic.gnd), 1 / 1250);
@@ -261,6 +282,7 @@ export function icDevice(ic, nets, part = null) {
       if (!this.powered) { this.pending = null; this.prev.fill(-1); this.warning = this.anyConnected() ? `No power — pin ${ic.vcc} (${ic.cmos ? 'VDD' : 'VCC'}) needs +5 V and pin ${ic.gnd} (${ic.cmos ? 'VSS' : 'GND'}) needs ground.` : null; return; }
       if (this.pending) { for (const fn of this.pending) fn(); this.pending = null; }
       if (this.s.length) this.committed = this.s.slice();
+      this.hasCommitted = true; this.committedOut = this.out.slice(); this.committedMode = this.mode.slice();
       for (let p = 1; p <= N; p++) this.prev[p] = this.lvl[p];
       this.warning = null;
       const floating = [], fights = [];
@@ -305,7 +327,11 @@ export function timer555(nets) {
   return {
     latch: 0, powered: false, vh: 5, vl: 0, decided: false,
     reset() { this.latch = 0; },
-    adopt(o) { this.latch = o.latch; },
+    adopt(o) {
+      this.latch = o.latch; this.powered = o.powered; this.vh = o.vh; this.vl = o.vl;
+      this.lastLatch = o.lastLatch; this.lastRise = o.lastRise;
+      this.highTime = o.highTime; this.period = o.period; this.duty = o.duty;
+    },
     // The latch may flip at most once per time step. Re-deciding inside the
     // convergence loop made it chatter (discharge on → THR falls → set → discharge
     // off → THR rises → reset …) and the step never converged.

@@ -278,6 +278,69 @@ test('CPU-5', 'ADI/SUI/OAH + JZ on (0xFF+0x01: ZF=1&CY=1) + Reset button + Progr
   return 'SUI+ADI (0xFF+1=>ZF=1,CY=1) + JZ + OAH 42 -> Reset -> Live DIP overwrite to 85 verified';
 });
 
+// ---------------------------------------------------------------------------
+// CPU-6: Adaptive suggestDt() Speed (No Idle-Cap 2us Stall) & Manual Step Clicks
+// ---------------------------------------------------------------------------
+test('CPU-6', 'Powers of 2 runs smoothly with eng.suggestDt() (~50us, no 2us idle stall) & Manual Step clicks advance T0..T4 cleanly', () => {
+  // Part A: Adaptive eng.suggestDt() (matching App.frame in main.js) on default potPos=0.012 (~53Hz)
+  const autoBuilt = buildSap1CpuCircuit({ program: 'powers2', potPos: 0.012 });
+  const eAuto = new Engine();
+  eAuto.build(autoBuilt.circuit);
+  const { L1, R4, R5 } = autoBuilt.boards;
+  const dispDev = eAuto.byPart.get(R4.ports.disp.id).device;
+  let prevOi = 0, steps = 0, settledDt = 0;
+  const outs = [];
+  for (; steps < 50000 && outs.length < 3; steps++) {
+    const dt = eAuto.suggestDt();
+    if (steps === 1000) settledDt = dt;
+    eAuto.step(dt);
+    const oi = readIcBit(eAuto, R5.ports.u08, 11);
+    if (!prevOi && oi) outs.push(readIcByte(eAuto, R4.ports.u273, [2, 5, 6, 9, 12, 15, 16, 19]));
+    prevOi = oi;
+  }
+  assert.deepEqual(outs, [1, 2, 4], `Adaptive suggestDt Powers of 2 expected [1,2,4], got [${outs.join(',')}]`);
+  assert.ok(settledDt >= 4.5e-5, `Idle Manual 555 cap must not pin suggestDt() to 2us; got ${settledDt}`);
+  assert.ok(steps < 40000, `Powers of 2 took ${steps} adaptive steps (expected < 40000)`);
+  const segMasks = [0, 0, 0, 0];
+  for (let s = 0; s < 300; s++) {
+    eAuto.step(eAuto.suggestDt());
+    for (let d = 0; d < 4; d++) {
+      let m = 0;
+      for (let seg = 0; seg < 8; seg++) if (dispDev.cur[d * 8 + seg] > 0.002) m |= (1 << seg);
+      if (m) segMasks[d] |= m;
+    }
+  }
+  const segStr = segMasks.map(decodeSegMask).join('');
+  assert.equal(segStr, ' 004', `Expected seg7x4 ' 004', got '${segStr}'`);
+  assertCleanHealth(eAuto, autoBuilt.circuit, 'CPU-6 auto');
+
+  // Part B: Manual Step mode (SPDT='B') + 20 tactile button press/release topology rebuilds
+  const manBuilt = buildSap1CpuCircuit({ program: 'powers2', potPos: 0.012 });
+  const mL1 = manBuilt.boards.L1;
+  mL1.ports.spdt.props.pos = 'B'; // Manual clock
+  const eMan = new Engine();
+  eMan.build(manBuilt.circuit);
+  for (let i = 0; i < 60; i++) eMan.step(eMan.suggestDt());
+  let prevStep = readCpuState(eMan, manBuilt).step;
+  assert.equal(prevStep, 0, 'Initial Manual Step must start at T0');
+  const seenOuts = [];
+  for (let click = 1; click <= 20; click++) {
+    mL1.ports.stepBtn.ui.pressed = true;
+    eMan.build(manBuilt.circuit);
+    for (let i = 0; i < 40; i++) eMan.step(eMan.suggestDt()); // 555 debounced high pulse
+    mL1.ports.stepBtn.ui.pressed = false;
+    eMan.build(manBuilt.circuit);
+    for (let t = 0; t < 350; t++) eMan.step(eMan.suggestDt()); // settle 555 monostable before next click
+    const st = readCpuState(eMan, manBuilt);
+    assert.equal(st.step, (prevStep + 1) % 5, `Manual click ${click}: expected T${(prevStep + 1) % 5}, got T${st.step}`);
+    prevStep = st.step;
+    if (st.out && seenOuts[seenOuts.length - 1] !== st.out) seenOuts.push(st.out);
+  }
+  assert.deepEqual(seenOuts, [1], `Expected Manual Step clicks to reach OUT=1 cleanly, got [${seenOuts.join(',')}]`);
+  assertCleanHealth(eMan, manBuilt.circuit, 'CPU-6 manual');
+  return `Auto suggestDt=${settledDt.toExponential(2)} (${steps} steps, seg='${segStr}'); 20 Manual Step clicks T0..T4 clean -> OUT=[1]`;
+});
+
 for (const r of results) {
   console.log(`${r.pass ? 'PASS' : 'FAIL'} [${r.id}] ${r.name} -> ${r.info}`);
 }

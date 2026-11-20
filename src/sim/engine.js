@@ -146,6 +146,7 @@ export class Engine {
   build(circuit) {
     this._i2cBuses = new Map();
     const uf = new UnionFind();
+    const prevPointNet = this.pointNet;
     const prevState = new Map();
     for (const [id, e] of this.byPart) if (e.device) prevState.set(id, e.device);
 
@@ -248,7 +249,15 @@ export class Engine {
     const oldV = this.V;
     this.V = new Float64Array(n).fill(NaN);
     this.defined = new Uint8Array(n);
-    if (oldV.length === this.V.length) this.V.set(oldV);
+    if (oldV.length === this.V.length) {
+      this.V.set(oldV);
+    } else if (prevPointNet.size && oldV.length) {
+      for (const [pk, net] of this.pointNet) {
+        if (!Number.isNaN(this.V[net])) continue;
+        const on = prevPointNet.get(pk);
+        if (on !== undefined && Number.isFinite(oldV[on])) this.V[net] = oldV[on];
+      }
+    }
     this.solve();
     for (const d of this.devices) if (d.update) d.update(this.V, this);
   }
