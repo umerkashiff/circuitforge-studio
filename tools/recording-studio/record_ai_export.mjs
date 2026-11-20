@@ -100,6 +100,7 @@ const chrome = spawn(CHROME, [
 ], { stdio: 'ignore' });
 
 const EXPORT_ONLY = process.argv.includes('--export-only');
+const AI_ONLY = process.argv.includes('--ai-only');
 try {
   const cdp = new CDP(await waitForDevTools(PORT));
   await cdp.connect();
@@ -131,8 +132,8 @@ try {
     let steps = [];
     let done = false;
 
-    // Camera starts wide on empty board, then purposefully zooms onto the newly built 555 + blinking LED!
-    let cx = 16.0, cy = 8.5, z = 1.04;
+    // Camera starts wide centered on the full breadboard, then smoothly zooms onto the blinking 555 + emerald LED!
+    let cx = 16.0, cy = 8.5, z = 1.02;
 
     if (f < 26) {
       // Typing prompt smoothly
@@ -191,9 +192,9 @@ try {
       // Smooth purposeful zoom right onto the working 555 + glowing green LED!
       const zt = Math.min(1, (f - 88) / 26);
       const e = easeInOutCubic(zt);
-      cx = lerp(16.0, 10.6, e);
+      cx = lerp(16.0, 9.6, e);
       cy = lerp(8.5, 10.2, e);
-      z = Math.exp(lerp(Math.log(1.04), Math.log(1.62), e));
+      z = Math.exp(lerp(Math.log(1.02), Math.log(1.82), e));
     }
 
     await cdp.evalJs(`window.AI_DEMO.setState(${JSON.stringify({
@@ -209,6 +210,7 @@ try {
   // =========================================================================
   // 2. clip-export-studio: Rich Binary Counter Schematic Style Morph + Smooth Lab Report Scroll + BOM!
   // =========================================================================
+  if (!AI_ONLY) {
   console.log('\n📄 [2/2] Capturing upgraded clip-export-studio (Live Schematic Styles + Smooth A4 Lab Report Scroll + BOM)...');
   await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 748, deviceScaleFactor: 1, mobile: false });
   await cdp.send('Page.navigate', { url: `${BASE_URL}/studio?example=counter` });
@@ -303,6 +305,7 @@ try {
   await snap(20);
 
   encodeClip(expDir, 'clip-export-studio', { crf: 21, width: 1120, posterFrame: 48 });
+  }
 
   await cdp.close();
   console.log('\n🎉 Upgraded clip-ai-panel & clip-export-studio ready!');
