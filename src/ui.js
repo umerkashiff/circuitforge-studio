@@ -11,7 +11,7 @@ import { isAnnotationType, isDuplicateRef, cleanRef, reannotateCircuit } from '.
 import { openExportStudio } from './export/modal.js';
 import { exportScopePNG } from './export/waveform_export.js';
 
-const SHOW_ABOUT = true; // Show About page content in Settings & brand logo click
+const SHOW_ABOUT = false; // Temporarily hide About page content without removing code
 const $ = (s, r = document) => r.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => {
   const el = document.createElement(tag);
