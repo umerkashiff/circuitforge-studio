@@ -913,6 +913,72 @@ export function buildSchematicSymbols(data, opts = {}) {
       continue;
     }
 
+    // 11b. SPDT Slide Switch (`spdt`) -> 3-pin A / B / COM toggle symbol
+    if (part.type === 'spdt') {
+      const bPos = part.props?.pos === 'B';
+      const pA = part.pins[0] || { name: 'A', num: '1' };
+      const pCom = part.pins[1] || { name: 'COM', num: '2' };
+      const pB = part.pins[2] || { name: 'B', num: '3' };
+      const pins = [
+        { ...pA, side: 'L', partPinIndex: 0, lx: 0, ly: 20, isPower: false },
+        { ...pB, side: 'L', partPinIndex: 2, lx: 0, ly: 40, isPower: false },
+        { ...pCom, side: 'R', partPinIndex: 1, lx: 80, ly: 20, isPower: false },
+      ];
+      symbols.push({
+        schId: part.id, partId: part.id, unit: null, ref: part.ref, value: bPos ? 'B' : 'A', type: part.type,
+        w: 80, h: 60, pins, showValue: false, prunedCount: 0,
+        bodyBox: { x0: 18, y0: 8, x1: 62, y1: 48 },
+        renderSVG(std, pal, showNums) {
+          const out = [
+            `<line x1="0" y1="20" x2="26" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`,
+            `<line x1="0" y1="40" x2="26" y2="40" stroke="${pal.pin}" stroke-width="1.6"/>`,
+            `<line x1="54" y1="20" x2="80" y2="20" stroke="${pal.pin}" stroke-width="1.6"/>`,
+            `<circle cx="28" cy="20" r="2.2" fill="${pal.bg}" stroke="${pal.stroke}" stroke-width="1.5"/>`,
+            `<circle cx="28" cy="40" r="2.2" fill="${pal.bg}" stroke="${pal.stroke}" stroke-width="1.5"/>`,
+            `<circle cx="52" cy="20" r="2.2" fill="${pal.bg}" stroke="${pal.stroke}" stroke-width="1.5"/>`,
+            `<line x1="50" y1="20" x2="29" y2="${bPos ? 40 : 20}" stroke="${pal.stroke}" stroke-width="2" stroke-linecap="round"/>`,
+            `<text x="40" y="7" font-size="10" font-weight="700" text-anchor="middle" fill="${pal.ref}">${esc(part.ref)}</text>`,
+          ];
+          if (showNums) {
+            out.push(`<text x="11" y="16" font-size="8" font-family="'SF Mono', monospace" fill="${pal.pinNum}">1</text>`);
+            out.push(`<text x="11" y="36" font-size="8" font-family="'SF Mono', monospace" fill="${pal.pinNum}">3</text>`);
+            out.push(`<text x="69" y="16" font-size="8" text-anchor="end" font-family="'SF Mono', monospace" fill="${pal.pinNum}">2</text>`);
+          }
+          return out.join('\n');
+        },
+      });
+      continue;
+    }
+
+    // 12a. 4-Digit Multiplexed 7-Segment Display (`seg7x4`)
+    if (part.type === 'seg7x4') {
+      const isAnode = part.props?.common === 'anode';
+      const segOrder = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'DP'];
+      const digOrder = ['D1', 'D2', 'D3', 'D4'];
+      const all = part.pins.map((p, idx) => ({ ...p, partPinIndex: idx, isPower: false }));
+      const sigPins = all
+        .filter(p => !/^D[1-4]$/i.test(p.name) && (!hideUnwired || p.wired))
+        .sort((a, b) => segOrder.indexOf(a.name) - segOrder.indexOf(b.name));
+      const digPins = all
+        .filter(p => /^D[1-4]$/i.test(p.name) && (!hideUnwired || p.wired))
+        .sort((a, b) => digOrder.indexOf(a.name) - digOrder.indexOf(b.name));
+      const finalSig = sigPins.length ? sigPins : all.filter(p => !/^D[1-4]$/i.test(p.name));
+      const finalDig = digPins.length ? digPins : all.filter(p => /^D[1-4]$/i.test(p.name));
+      const cand = [...finalSig, ...finalDig];
+      const leftIdx = finalSig.map((_, i) => i);
+      const topIdx = isAnode ? finalDig.map((_, i) => finalSig.length + i) : [];
+      const botIdx = isAnode ? [] : finalDig.map((_, i) => finalSig.length + i);
+      const box = pinSideMeta(part, opts, cand, leftIdx, [], topIdx, botIdx, '7-SEG×4');
+      const remapped = box.pins.map(bp => ({ ...bp, partPinIndex: cand[bp.partPinIndex].partPinIndex }));
+      symbols.push({
+        schId: part.id, partId: part.id, unit: null, ref: part.ref, value: part.value, type: part.type,
+        w: box.w, h: box.h, pins: remapped, showValue, prunedCount: Math.max(0, part.pins.length - cand.length),
+        bodyBox: { x0: 14, y0: 4, x1: box.w - 14, y1: box.h - 4 },
+        renderSVG: (std, pal, showNums) => drawGenericBox({ ref: part.ref, value: part.value, w: box.w, h: box.h, pins: remapped, showValue }, pal, std, showNums, '7-SEG×4'),
+      });
+      continue;
+    }
+
     // 12. 7-Segment Display -> collapsed single COM Top/Bottom + ordered segment inputs Left
     if (part.type === 'seg7') {
       const collapsed = collapseLinkedPins(part.pins);

@@ -11,6 +11,7 @@ import { AiGuide } from './ai/guide.js';
 import { AiCopilot } from './ai/copilot.js';
 import { ensureDesignators, buildNetLabelMap } from './export/designators.js';
 import { exportBreadboardPNG } from './export/breadboard_export.js';
+import { buildSap1CpuCircuit } from './examples/sap1_cpu.js';
 
 const STORE = 'cf.v2.circuit';
 const PROBE_COLORS = ['#ff9f0a', '#30d158', '#0a84ff', '#ff375f', '#bf5af2', '#64d2ff', '#ffd60a', '#ac8e68'];
@@ -62,6 +63,18 @@ const EXAMPLES = [
     wires: [[3, -3, 3, 1, R], [5, -3, 5, 2, K], [28, 1, 28, 17, R], [29, 2, 29, 18, K],
       [8, 22, 8, 15, B], [13, 14, 13, 18, K], [16, 15, 16, 18, K], [12, 15, 20, 15, G], [25, 14, 25, 18, K]],
     probes: [{ x: 12, y: 11, name: 'Capacitor +', analog: true }, { x: 8, y: 15, name: 'Button' }],
+  },
+  {
+    name: '8-Bit CPU: Fibonacci (SAP-1)', sub: '14 boards · 47 ICs · Turing-complete',
+    build: () => buildSap1CpuCircuit({ program: 'fibonacci', potPos: 0.012 }),
+  },
+  {
+    name: '8-Bit CPU: Powers of 2', sub: '14 boards · Doubling loop w/ carry reset',
+    build: () => buildSap1CpuCircuit({ program: 'powers2', potPos: 0.012 }),
+  },
+  {
+    name: '8-Bit CPU: Multiply (7×9)', sub: '14 boards · Repeated addition to 63 + HLT',
+    build: () => buildSap1CpuCircuit({ program: 'multiply', potPos: 0.012 }),
   },
 ];
 
@@ -303,18 +316,24 @@ class App {
     this.save();
   }
   loadExample(ex, quiet) {
-    const c = new Circuit();
-    c.name = ex.name;
-    c.boards.push(new Board('half', 0, 0));
-    for (const [t, x, y, rot = 0, props] of ex.parts) c.parts.push(new Part(t, x, y, rot, props));
-    for (const [x1, y1, x2, y2, col] of ex.wires) c.wires.push(new Wire({ x: x1, y: y1 }, { x: x2, y: y2 }, col));
-    // attach wire ends that sit on off-board pins
-    for (const w of c.wires) for (const e of [w.a, w.b]) {
-      const onHole = c.boards.some(b => b.holes().some(hl => hl.x === e.x && hl.y === e.y));
-      if (onHole) continue;
-      for (const p of c.parts) { const q = p.worldPins().find(q => q.x === e.x && q.y === e.y); if (q) { e.pin = { part: p.id, i: q.i }; break; } }
+    let c;
+    if (typeof ex.build === 'function') {
+      const built = ex.build();
+      c = built.circuit || built;
+    } else {
+      c = new Circuit();
+      c.name = ex.name;
+      c.boards.push(new Board('half', 0, 0));
+      for (const [t, x, y, rot = 0, props] of ex.parts) c.parts.push(new Part(t, x, y, rot, props));
+      for (const [x1, y1, x2, y2, col] of ex.wires) c.wires.push(new Wire({ x: x1, y: y1 }, { x: x2, y: y2 }, col));
+      // attach wire ends that sit on off-board pins
+      for (const w of c.wires) for (const e of [w.a, w.b]) {
+        const onHole = c.boards.some(b => b.holes().some(hl => hl.x === e.x && hl.y === e.y));
+        if (onHole) continue;
+        for (const p of c.parts) { const q = p.worldPins().find(q => q.x === e.x && q.y === e.y); if (q) { e.pin = { part: p.id, i: q.i }; break; } }
+      }
+      c.probes = (ex.probes || []).map((p, i) => ({ id: newId('pr'), color: PROBE_COLORS[i % PROBE_COLORS.length], ...p }));
     }
-    c.probes = (ex.probes || []).map((p, i) => ({ id: newId('pr'), color: PROBE_COLORS[i % PROBE_COLORS.length], ...p }));
     ensureDesignators(c);
     this.load(c.toJSON());
     this.engine.reset();
@@ -496,7 +515,7 @@ class App {
     this.dirty = false;
   }
   zoomAt(sx, sy, z) {
-    z = Math.min(4, Math.max(0.25, z));
+    z = Math.min(4, Math.max(0.12, z));
     const c = this.cam;
     c.x = sx - (sx - c.x) * (z / c.z);
     c.y = sy - (sy - c.y) * (z / c.z);
@@ -523,7 +542,7 @@ class App {
     for (const w of c.wires) for (const q of w.path()) grow(q.x, q.y, q.x, q.y);
     if (!Number.isFinite(x0)) { x0 = 0; y0 = 0; x1 = 30; y1 = 20; }
     const W = this.renderer.w || 800, H = this.renderer.h || 600, pad = 48;
-    const z = Math.min(2, Math.max(0.3, Math.min((W - pad * 2) / ((x1 - x0) * P), (H - pad * 2) / ((y1 - y0) * P))));
+    const z = Math.min(2, Math.max(0.15, Math.min((W - pad * 2) / ((x1 - x0) * P), (H - pad * 2) / ((y1 - y0) * P))));
     this.cam.z = z;
     this.cam.x = W / 2 - ((x0 + x1) / 2) * P * z;
     this.cam.y = H / 2 - ((y0 + y1) / 2) * P * z;

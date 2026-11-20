@@ -3,7 +3,7 @@ const primaryDefs = [];
 
 export const CATEGORIES = [
   'Boards', 'Instruments', 'Microcontrollers', 'Power', 'Inputs', 'Outputs', 'Passives',
-  'Op-Amps & Comparators', 'Logic Gates', 'Flip-Flops', 'Counters', 'Decoders & Mux', 'Arithmetic', 'Buffers', 'Timers', 'Notes',
+  'Op-Amps & Comparators', 'Logic Gates', 'Flip-Flops', 'Counters', 'Decoders & Mux', 'Arithmetic', 'Buffers', 'Memory', 'Timers', 'Notes',
 ];
 
 export function register(def) {

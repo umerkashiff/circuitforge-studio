@@ -163,11 +163,15 @@ export function extractCircuitData(circuit, engine = null, index = null) {
     return candidate;
   };
 
-  // Pass 1: explicit user net labels
+  // Pass 1: explicit user net labels (signal nets only; never let a label hijack a +5V/GND power rail)
   for (const n of [...activeNetIds].sort((a, b) => a - b)) {
-    if (userNetLabels.has(n)) {
-      netInfoById.set(n, { id: n, name: claimName(userNetLabels.get(n)), userNamed: true });
-    }
+    if (!userNetLabels.has(n)) continue;
+    const pins = netPinList.get(n) || [];
+    const isSupplyRail = pins.some(p =>
+      p.part.type === 'gnd' || p.part.type === 'vcc' || p.part.type === 'battery'
+      || p.rail === '−' || p.rail === '+' || /^(GND|VSS|\+5V|5V|3V3)$/i.test(p.name));
+    if (isSupplyRail) continue;
+    netInfoById.set(n, { id: n, name: claimName(userNetLabels.get(n)), kind: 'signal', userNamed: true });
   }
   // Pass 2: power / ground / clock semantic names
   for (const n of [...activeNetIds].sort((a, b) => a - b)) {
@@ -217,6 +221,7 @@ export function extractCircuitData(circuit, engine = null, index = null) {
       id: n,
       name: info.name,
       kind: info.kind || (info.name === 'GND' ? 'gnd' : /^[+V]/.test(info.name) ? 'power' : 'signal'),
+      userNamed: !!info.userNamed,
       voltage: Number.isNaN(v) ? null : +v.toFixed(3),
       state,
       pins: pins.map(p => ({ ref: p.ref, pin: p.name, num: p.pinNum, hole: p.hole })),

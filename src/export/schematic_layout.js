@@ -16,13 +16,13 @@ const TURN_COST = 6;
 const ADJ_LANE = 5;
 
 const SOURCE_TYPES = new Set([
-  'toggle', 'button', 'clock', 'dip4', 'dip8', 'slide', 'tactile',
+  'toggle', 'button', 'clock', 'dip4', 'dip8', 'slide', 'spdt', 'tactile',
   'pot', 'wokwi-slide-potentiometer', 'wokwi-analog-joystick',
   'funcgen', 'battery', 'power-supply', 'trainer-board',
   'wokwi-mpu6050', 'wokwi-ds1307', 'wokwi-bmp180',
 ]);
 const SINK_TYPES = new Set([
-  'led', 'wokwi-rgb-led', 'seg7', 'buzzer',
+  'led', 'wokwi-rgb-led', 'seg7', 'seg7x4', 'buzzer',
   'lcd16x2', 'board-ssd1306', 'wokwi-sh1107', 'wokwi-lcd1602', 'wokwi-lcd2004',
   'oscilloscope', 'wokwi-logic-analyzer', 'wokwi-relay-module',
 ]);
@@ -91,7 +91,7 @@ function assignColumns(symbols, edgesBySym, dataPartsById) {
       if (SINK_TYPES.has(nbr.sym.type)) continue; // place sinks in final layer later
       const step = nbr.dir === 1 ? 1 : (nbr.dir === 0 ? 1 : 0);
       if (!col.has(nbr.id) && step >= 0) {
-        col.set(nbr.id, Math.min(8, c + step));
+        col.set(nbr.id, Math.min(18, c + step));
         q.push(nbr.id);
       } else if (nbr.dir === 1 && (col.get(nbr.id) || 0) < c + 1 && c < 7) {
         // Nudge purely downstream non-cyclic consumer forward one stage
@@ -122,16 +122,27 @@ function routeOrthogonal(grid, sx, sy, sDir, gx, gy, gDir, sameNetEdges, sameNet
     return [{ x: sx * G, y: sy * G }, { x: gx * G, y: sy * G }, { x: gx * G, y: gy * G }];
   }
   const N = W * H * 5;
-  const gScore = new Float32Array(N).fill(Infinity);
-  const from = new Int32Array(N).fill(-1);
+  if (!grid._g || grid._g.length < N) {
+    grid._g = new Float32Array(N);
+    grid._from = new Int32Array(N);
+    grid._seen = new Int32Array(N);
+    grid._ep = 0;
+  }
+  const ep = ++grid._ep;
+  const gScore = grid._g, from = grid._from, seen = grid._seen;
+  // Constrain A* search window around endpoints to avoid scanning giant 47-IC sheets for local wires
+  const pad = 20;
+  const bx0 = Math.max(x0, Math.min(sx, gx) - pad), bx1 = Math.min(x0 + W - 1, Math.max(sx, gx) + pad);
+  const by0 = Math.max(y0, Math.min(sy, gy) - pad), by1 = Math.min(y0 + H - 1, Math.max(sy, gy) + pad);
+
   const heap = new MinHeap();
   const sIdx = at(sx, sy) * 5 + 4;
-  gScore[sIdx] = 0;
+  seen[sIdx] = ep; gScore[sIdx] = 0; from[sIdx] = -1;
   heap.push(sIdx, Math.abs(sx - gx) + Math.abs(sy - gy));
   const goalCell = at(gx, gy);
   let endState = -1, guard = 0;
 
-  while (heap.size && guard++ < 120000) {
+  while (heap.size && guard++ < 15000) {
     const s = heap.pop();
     const cell = (s / 5) | 0, d = s % 5;
     if (cell === goalCell) { endState = s; break; }
@@ -140,7 +151,7 @@ function routeOrthogonal(grid, sx, sy, sDir, gx, gy, gDir, sameNetEdges, sameNet
     for (let nd = 0; nd < 4; nd++) {
       if (d !== 4 && (nd + 2) % 4 === d) continue;
       const nx = cx + DIRS[nd][0], ny = cy + DIRS[nd][1];
-      if (nx < x0 || nx >= x0 + W || ny < y0 || ny >= y0 + H) continue;
+      if (nx < bx0 || nx > bx1 || ny < by0 || ny > by1) continue;
       const nc = at(nx, ny);
       const ek = cx < nx || cy < ny ? `${cx},${cy},${nx},${ny}` : `${nx},${ny},${cx},${cy}`;
       const isEndpointCell = (nx === gx && ny === gy) || (cx === sx && cy === sy);
@@ -156,7 +167,8 @@ function routeOrthogonal(grid, sx, sy, sDir, gx, gy, gDir, sameNetEdges, sameNet
 
       const ns = nc * 5 + nd;
       const ng = gScore[s] + step;
-      if (ng < gScore[ns]) {
+      if (seen[ns] !== ep || ng < gScore[ns]) {
+        seen[ns] = ep;
         gScore[ns] = ng;
         from[ns] = s;
         heap.push(ns, ng + Math.abs(nx - gx) + Math.abs(ny - gy));
@@ -197,11 +209,56 @@ export function computeSchematicLayout(circuit, engine = null, index = null, opt
     showValues = true,
     useNetFlags = true,
     crossingHops = true,
+    boardId = null,
   } = opts;
 
-  const data = extractCircuitData(circuit, engine, index);
+  let activeCircuit = circuit;
+  const crossBoardNetIds = new Set();
+  const targetBoard = boardId && boardId !== 'all' ? (circuit.boards || []).find(b => b.id === boardId) : null;
+  if (targetBoard && engine) {
+    const fullData = extractCircuitData(circuit, engine, index);
+    const fullNetName = new Map(fullData.nets.map(n => [n.id, n]));
+    const onTarget = (p) => targetBoard.contains(p.x, p.y) || p.worldPins().some(q => targetBoard.contains(q.x, q.y));
+    const keptParts = (circuit.parts || []).filter(p => onTarget(p));
+    const keptIds = new Set(keptParts.map(p => p.id));
+    const fullNetToPartIds = new Map();
+    for (const p of circuit.parts || []) {
+      for (const q of p.worldPins()) {
+        const n = engine.netAt(q.x, q.y);
+        if (n < 0) continue;
+        if (!fullNetToPartIds.has(n)) fullNetToPartIds.set(n, new Set());
+        fullNetToPartIds.get(n).add(p.id);
+      }
+    }
+    const injectedLabels = [];
+    for (const [n, pids] of fullNetToPartIds) {
+      const meta = fullNetName.get(n);
+      if (meta && (meta.kind === 'power' || meta.kind === 'gnd')) continue;
+      let hasIn = false, hasOut = false;
+      for (const pid of pids) { if (keptIds.has(pid)) hasIn = true; else hasOut = true; }
+      if (!hasIn || !hasOut) continue;
+      crossBoardNetIds.add(n);
+      const pinOnTarget = keptParts.flatMap(p => p.worldPins()).find(q => engine.netAt(q.x, q.y) === n);
+      if (pinOnTarget) {
+        injectedLabels.push({
+          type: 'netlabel', x: pinOnTarget.x, y: pinOnTarget.y, rot: 0,
+          props: { text: meta?.name || `N${n}` },
+          worldPins: () => [{ x: pinOnTarget.x, y: pinOnTarget.y, name: 'NET', i: 0 }],
+        });
+      }
+    }
+    activeCircuit = {
+      name: `${circuit.name || 'Circuit'} — ${targetBoard.label || targetBoard.id}`,
+      meta: circuit.meta,
+      boards: [targetBoard],
+      parts: [...keptParts, ...injectedLabels],
+      wires: (circuit.wires || []).filter(w => targetBoard.contains(w.a.x, w.a.y) && targetBoard.contains(w.b.x, w.b.y)),
+    };
+  }
+
+  const data = extractCircuitData(activeCircuit, engine, index);
   const netMetaMap = new Map(data.nets.map(n => [n.id, n]));
-  const partOrigMap = new Map((circuit.parts || []).map(p => [p.id, p]));
+  const partOrigMap = new Map((activeCircuit.parts || []).map(p => [p.id, p]));
   const dataPartMap = new Map(data.parts.map(p => [p.id, p]));
 
   const { symbols: rawSymbols, unusedNotes } = buildSchematicSymbols(data, { viewMode, hideUnwired, showValues });
@@ -304,8 +361,8 @@ export function computeSchematicLayout(circuit, engine = null, index = null, opt
       if (powerStyle === 'symbols' && (k === 'power' || k === 'gnd')) info[p.side] = true;
       else if (powerStyle !== 'rails' && useNetFlags) {
         const list = symPinNets.get(p.net) || [];
-        const netCols = new Set(list.map(it => colOf.get(it.sym.schId)));
-        if (list.length >= 5 && netCols.size >= 3) {
+        const nmP = netMetaMap.get(p.net);
+        if ((nmP?.userNamed && list.length >= 2) || crossBoardNetIds.has(p.net)) {
           if (p.side === 'L') info.lf = true;
           if (p.side === 'R') info.rf = true;
         }
@@ -316,6 +373,7 @@ export function computeSchematicLayout(circuit, engine = null, index = null, opt
 
   let curX = 140;
   const startY = powerStyle === 'rails' ? 140 : 100;
+  const maxColH = 2200;
   for (const c of colKeys) {
     const arr = colsMap.get(c);
     const maxW = Math.max(80, ...arr.map(s => s.w));
@@ -327,6 +385,10 @@ export function computeSchematicLayout(circuit, engine = null, index = null, opt
       const pm = symPortsMeta.get(s.schId);
       const topExtra = pm.T ? 60 : s.pins.some(p => p.side === 'T') ? 40 : 20;
       const botExtra = pm.B ? 60 : s.pins.some(p => p.side === 'B') ? 40 : 20;
+      if (curY > maxColH && s !== arr[0]) {
+        curX += snapG(maxW + Math.max(120, 80 + maxRight));
+        curY = startY;
+      }
       curY += topExtra;
       s.x = snapG(curX + (maxW - s.w) / 2);
       s.y = snapG(curY);
@@ -382,8 +444,10 @@ export function computeSchematicLayout(circuit, engine = null, index = null, opt
       continue;
     }
 
-    // 2. High-fanout clock / bus conversion to matching Net Flags when beneficial
-    if (powerStyle !== 'rails' && useNetFlags && kind === 'signal' && list.length >= 5 && netCols.size >= 3) {
+    // 2. Named signals & cross-board subsystem stubs convert to matching Net Flags
+    const isCross = crossBoardNetIds.has(netId);
+    const isNamedFlag = !!nm?.userNamed && list.length >= 2;
+    if (powerStyle !== 'rails' && useNetFlags && kind === 'signal' && (isCross || isNamedFlag)) {
       for (const it of list) {
         const wp = symWorldPin(it.sym, it.pin);
         netFlags.push({ netId, netName: name, x: wp.x, y: wp.y, side: wp.side, schId: it.sym.schId });

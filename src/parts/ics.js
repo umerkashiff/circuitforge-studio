@@ -6,6 +6,8 @@
  * for high-impedance. c.oc() is open-collector (only pulls low).
  */
 
+import { resolve28c16Rom, hexToNibbles } from './sap1_roms.js';
+
 const b = (v) => (v ? 1 : 0);
 const L = (s) => s.split(' ');
 
@@ -174,6 +176,40 @@ const IC_LIST = [
       const b1 = jk(c, c.s, 1, c.fall(13), 11, 12, 10, 14);
       outQ(c, c.s[1], b1, 9, 7);
     } },
+  { id: '74107', name: 'JK FF', title: 'Dual JK flip-flop with clear, falling edge', cat: 'Flip-Flops',
+    pins: L('1J 1Q̅ 1Q 1K 2Q 2Q̅ GND 2J 2CLK 2CLR 2K 1CLK 1CLR VCC'), init: () => [0, 0],
+    ev: (c) => {
+      const b0 = jk(c, c.s, 0, c.fall(12), 1, 4, null, 13);
+      outQ(c, c.s[0], b0, 3, 2);
+      const b1 = jk(c, c.s, 1, c.fall(9), 8, 11, null, 10);
+      outQ(c, c.s[1], b1, 5, 6);
+    } },
+  { id: '74109', name: 'J-K̅ FF', title: 'Dual J-K̅ flip-flop with preset and clear, rising edge', cat: 'Flip-Flops',
+    pins: L('1CLR 1J 1K̅ 1CLK 1PRE 1Q 1Q̅ GND 2Q̅ 2Q 2PRE 2CLK 2K̅ 2J 2CLR VCC'), init: () => [0, 0],
+    ev: (c) => {
+      const jkBar = (k, edge, J, Kbar, pre, clr) => {
+        const p = c.i(pre), r = c.i(clr);
+        if (!p || !r) { c.s[k] = !p ? 1 : 0; return !p && !r; }
+        if (edge) {
+          const j = c.i(J), kk = 1 - c.i(Kbar);
+          if (j && kk) c.s[k] ^= 1; else if (j) c.s[k] = 1; else if (kk) c.s[k] = 0;
+        }
+        return false;
+      };
+      const b0 = jkBar(0, c.rise(4), 2, 3, 5, 1);
+      outQ(c, c.s[0], b0, 6, 7);
+      const b1 = jkBar(1, c.rise(12), 14, 13, 11, 15);
+      outQ(c, c.s[1], b1, 10, 9);
+    } },
+  { id: '74173', name: '4× REG 3S', title: 'Quad D-type register with enable & 3-state outputs', cat: 'Flip-Flops',
+    pins: L('M N 1Q 2Q 3Q 4Q CLK GND G1̅ G2̅ 4D 3D 2D 1D CLR VCC'), init: () => [0],
+    ev: (c) => {
+      const e = c.rise(7);
+      if (c.i(15)) c.s[0] = 0;
+      else if (e && !c.i(9) && !c.i(10)) c.s[0] = bits(c, [14, 13, 12, 11]);
+      const Q = [3, 4, 5, 6];
+      if (!c.i(1) && !c.i(2)) outBits(c, Q, c.s[0]); else Q.forEach(p => c.o(p, null));
+    } },
   { id: '74175', name: '4× D FF', title: 'Quad D flip-flop with clear', cat: 'Flip-Flops',
     pins: L('CLR 1Q 1Q̅ 1D 2D 2Q̅ 2Q GND CLK 3Q 3Q̅ 3D 4D 4Q̅ 4Q VCC'), init: () => [0],
     ev: (c) => {
@@ -238,6 +274,18 @@ const IC_LIST = [
       if (c.i(2) && c.i(3)) { c.s[0] = 0; c.s[1] = 0; }
       else { if (ea) c.s[0] ^= 1; if (eb) c.s[1] = (c.s[1] + 1) & 7; }
       c.o(12, c.s[0]); c.o(9, c.s[1] & 1); c.o(8, (c.s[1] >> 1) & 1); c.o(11, (c.s[1] >> 2) & 1);
+    } },
+  { id: '74161', name: 'CTR 4', title: 'Synchronous 4-bit binary counter with async clear', cat: 'Counters',
+    pins: L('CLR̅ CLK A B C D ENP GND LOAD̅ ENT QD QC QB QA RCO VCC'), init: () => [0],
+    ev: (c) => {
+      const e = c.rise(2);
+      if (!c.i(1)) c.s[0] = 0;
+      else if (e) {
+        if (!c.i(9)) c.s[0] = bits(c, [3, 4, 5, 6]);
+        else if (c.i(7) && c.i(10)) c.s[0] = (c.s[0] + 1) & 15;
+      }
+      outBits(c, [14, 13, 12, 11], c.s[0]);
+      c.o(15, b(c.s[0] === 15 && c.i(10)));
     } },
   { id: '74193', name: 'UP/DOWN', title: 'Synchronous 4-bit up/down counter', cat: 'Counters',
     pins: L('B QB QA DOWN UP QC QD GND D C LOAD CO BO CLR A VCC'), init: () => [0],
@@ -318,6 +366,62 @@ const IC_LIST = [
     pins: L('OE1 A1 A2 A3 A4 A5 A6 A7 A8 GND Y8 Y7 Y6 Y5 Y4 Y3 Y2 Y1 OE2 VCC'),
     ev: (c) => { const en = !c.i(1) && !c.i(19); const Y = [18, 17, 16, 15, 14, 13, 12, 11];
       [2, 3, 4, 5, 6, 7, 8, 9].forEach((a, k) => c.o(Y[k], en ? c.i(a) : null)); } },
+
+  // ---------------- Memory ----------------
+  { id: '74189', name: 'RAM 16×4', title: '64-bit (16×4) static RAM with inverted 3-state outputs', cat: 'Memory',
+    pins: L('A0 CS̅ WE̅ D1 O1̅ D2 O2̅ GND O3̅ D3 O4̅ D4 A3 A2 A1 VCC'),
+    usesProps: true,
+    defaults: { initHex: '' },
+    fields: [{ key: 'initHex', label: 'Initial 16 nibbles (hex)', kind: 'text' }],
+    init: (props) => Array.from(hexToNibbles(props?.initHex)),
+    ev: (c) => {
+      const addr = bits(c, [1, 15, 14, 13]);
+      const O = [5, 7, 9, 11];
+      if (c.i(2)) {
+        O.forEach(p => c.o(p, null));
+      } else if (!c.i(3)) {
+        const v = bits(c, [4, 6, 10, 12]);
+        c.defer(() => { c.s[addr] = v; });
+        O.forEach(p => c.o(p, null));
+      } else {
+        outBits(c, O, (~c.s[addr]) & 0xf);
+      }
+    } },
+  { id: '28c16', name: 'EEPROM 2K×8', title: '16K (2K×8) parallel EEPROM · DIP-24', cat: 'Memory',
+    pins: L('A7 A6 A5 A4 A3 A2 A1 A0 D0 D1 D2 GND D3 D4 D5 D6 D7 CE̅ A10 OE̅ WE̅ A9 A8 VCC'),
+    usesProps: true,
+    defaults: { preset: 'blank', rom: '' },
+    fields: [
+      { key: 'preset', label: 'ROM Image', kind: 'select', options: [
+        ['blank', 'Blank (all 0x00 / Custom hex)'],
+        ['sap1_display', 'SAP-1 Output Display LUT'],
+        ['sap1_ucode_lo', 'SAP-1 Microcode Low Byte'],
+        ['sap1_ucode_hi', 'SAP-1 Microcode High Byte'],
+      ] },
+      { key: 'rom', label: 'Custom hex bytes', kind: 'textarea' },
+    ],
+    getRom: (props) => resolve28c16Rom(props),
+    init: () => [],
+    ev: (c) => {
+      const D = [9, 10, 11, 13, 14, 15, 16, 17];
+      const addr = bits(c, [8, 7, 6, 5, 4, 3, 2, 1, 23, 22, 19]);
+      const ce = !c.i(18), oe = !c.i(20), we = !c.i(21);
+      if (ce && we) {
+        const v = bits(c, D);
+        c.defer(() => {
+          const packed = (addr << 8) | v;
+          const slot = c.s.findIndex(e => (e >> 8) === addr);
+          if (slot >= 0) c.s[slot] = packed; else c.s.push(packed);
+        });
+        D.forEach(p => c.o(p, null));
+      } else if (ce && oe) {
+        const hit = c.s.find(e => (e >> 8) === addr);
+        const v = hit !== undefined ? (hit & 0xff) : (c.rom ? c.rom[addr] : 0);
+        outBits(c, D, v);
+      } else {
+        D.forEach(p => c.o(p, null));
+      }
+    } },
 ];
 
 function oct244(c, inv) {
@@ -369,10 +473,12 @@ export const IC_SCHEMATIC = {
   '7473':  { kind: 'ff_jk', clkFall: true, units: [{ j: 14, clk: 1, k: 3, clr: 2, clrInv: true, q: 12, qn: 13 }, { j: 7, clk: 5, k: 10, clr: 6, clrInv: true, q: 9, qn: 8 }] },
   '7476':  { kind: 'ff_jk', clkFall: true, units: [{ j: 4, clk: 1, k: 16, pre: 2, clr: 3, preInv: true, clrInv: true, q: 15, qn: 14 }, { j: 9, clk: 6, k: 12, pre: 7, clr: 8, preInv: true, clrInv: true, q: 11, qn: 10 }] },
   '74112': { kind: 'ff_jk', clkFall: true, units: [{ j: 3, clk: 1, k: 2, pre: 4, clr: 15, preInv: true, clrInv: true, q: 5, qn: 6 }, { j: 11, clk: 13, k: 12, pre: 10, clr: 14, preInv: true, clrInv: true, q: 9, qn: 7 }] },
+  '74107': { kind: 'ff_jk', clkFall: true, units: [{ j: 1, clk: 12, k: 4, clr: 13, clrInv: true, q: 3, qn: 2 }, { j: 8, clk: 9, k: 11, clr: 10, clrInv: true, q: 5, qn: 6 }] },
+  '74109': { kind: 'ff_jk', clkFall: false, units: [{ j: 2, clk: 4, k: 3, pre: 5, clr: 1, preInv: true, clrInv: true, q: 6, qn: 7 }, { j: 14, clk: 12, k: 13, pre: 11, clr: 15, preInv: true, clrInv: true, q: 10, qn: 9 }] },
   '4013':  { kind: 'ff_d', units: [{ d: 5, clk: 3, pre: 6, clr: 4, q: 1, qn: 2, preInv: false, clrInv: false }, { d: 9, clk: 11, pre: 8, clr: 10, q: 13, qn: 12, preInv: false, clrInv: false }] },
   '74279': { kind: 'latch_sr', units: [{ s: [2, 3], r: 1, q: 4, inv: true }, { s: [6], r: 5, q: 7, inv: true }, { s: [11, 12], r: 10, q: 9, inv: true }, { s: [15], r: 14, q: 13, inv: true }] },
 
-  // Arithmetic, Decoders, Muxes, Registers & Counters (functional MSI blocks)
+  // Arithmetic, Decoders, Muxes, Registers, Counters & Memory (functional MSI blocks)
   '7483':  { kind: 'msi', left: [13, 10, 8, 3, 1, 11, 7, 4, 16], right: [9, 6, 2, 15, 14] },
   '74283': { kind: 'msi', left: [7, 5, 3, 14, 12, 6, 2, 15, 11], right: [4, 1, 13, 10, 9] },
   '7485':  { kind: 'msi', left: [10, 12, 13, 15, 9, 11, 14, 1, 4, 3, 2], right: [5, 6, 7] },
@@ -386,17 +492,21 @@ export const IC_SCHEMATIC = {
   '74158': { kind: 'msi', left: [15, 1, 2, 3, 5, 6, 11, 10, 14, 13], right: [4, 7, 9, 12], negated: [15, 4, 7, 9, 12] },
   '7447':  { kind: 'msi', left: [7, 1, 2, 6, 3, 5, 4], right: [13, 12, 11, 10, 9, 15, 14], negated: [3, 4, 5, 13, 12, 11, 10, 9, 15, 14] },
   '7448':  { kind: 'msi', left: [7, 1, 2, 6, 3, 5, 4], right: [13, 12, 11, 10, 9, 15, 14], negated: [3, 4, 5] },
+  '74173': { kind: 'msi', left: [7, 15, 9, 10, 1, 2, 14, 13, 12, 11], right: [3, 4, 5, 6], clocks: [7], negated: [9, 10, 1, 2] },
   '74175': { kind: 'msi', left: [9, 1, 4, 5, 12, 13], right: [2, 3, 7, 6, 10, 11, 15, 14], clocks: [9], negated: [1, 3, 6, 11, 14] },
   '74273': { kind: 'msi', left: [11, 1, 3, 4, 7, 8, 13, 14, 17, 18], right: [2, 5, 6, 9, 12, 15, 16, 19], clocks: [11], negated: [1] },
   '74574': { kind: 'msi', left: [11, 1, 2, 3, 4, 5, 6, 7, 8, 9], right: [19, 18, 17, 16, 15, 14, 13, 12], clocks: [11], negated: [1] },
   '74373': { kind: 'msi', left: [11, 1, 3, 4, 7, 8, 13, 14, 17, 18], right: [2, 5, 6, 9, 12, 15, 16, 19], negated: [1] },
   '7490':  { kind: 'msi', left: [14, 1, 2, 3, 6, 7], right: [12, 9, 8, 11], clocks: [14, 1], negated: [14, 1] },
   '7493':  { kind: 'msi', left: [14, 1, 2, 3], right: [12, 9, 8, 11], clocks: [14, 1], negated: [14, 1] },
+  '74161': { kind: 'msi', left: [2, 1, 9, 7, 10, 3, 4, 5, 6], right: [14, 13, 12, 11, 15], clocks: [2], negated: [1, 9] },
   '74193': { kind: 'msi', left: [5, 4, 14, 11, 15, 1, 10, 9], right: [3, 2, 6, 7, 12, 13], clocks: [5, 4], negated: [11, 12, 13] },
   '4017':  { kind: 'msi', left: [14, 13, 15], right: [3, 2, 4, 7, 10, 1, 5, 6, 9, 11, 12], clocks: [14] },
   '74194': { kind: 'msi', left: [11, 1, 9, 10, 2, 7, 3, 4, 5, 6], right: [15, 14, 13, 12], clocks: [11], negated: [1] },
   '74165': { kind: 'msi', left: [2, 15, 1, 10, 11, 12, 13, 14, 3, 4, 5, 6], right: [9, 7], clocks: [2], negated: [1, 7] },
   '74595': { kind: 'msi', left: [14, 11, 12, 10, 13], right: [15, 1, 2, 3, 4, 5, 6, 7, 9], clocks: [11, 12], negated: [10, 13] },
+  '74189': { kind: 'msi', left: [2, 3, 1, 15, 14, 13, 4, 6, 10, 12], right: [5, 7, 9, 11], negated: [2, 3, 5, 7, 9, 11] },
+  '28c16': { kind: 'msi', left: [18, 20, 21, 8, 7, 6, 5, 4, 3, 2, 1, 23, 22, 19], right: [9, 10, 11, 13, 14, 15, 16, 17], negated: [18, 20, 21] },
 };
 
 export { IC_LIST, QUAD_MAP, HEX_MAP, TRI_MAP, DUAL4_MAP };

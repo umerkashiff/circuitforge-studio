@@ -47,6 +47,8 @@ class Stamps {
     this.pg = [];     // [a, b, g]   DC-passive conductance edges used by ohmmeter probe
     this.i = [];      // [a, b, i]   current i flowing a -> b through the device
     this.vc = [];     // [outP, outN, ctrlP, ctrlN, gm] dependent VCCS entries (outP -> outN)
+    this.cg = [];     // [a, b, g]   transient capacitor conductances (excluded from static dcG)
+    this.sg = [];     // [net, g]    low-impedance supply source conductances (R <= 2 Ω)
     this.anchors = [];
     this.roots = [];  // nets directly tied to a voltage source
   }
@@ -54,6 +56,13 @@ class Stamps {
     if (a >= 0 && b >= 0 && a !== b) {
       this.g.push(a, b, g);
       if (dcPassive) this.pg.push(a, b, g);
+    }
+  }
+  /** Transient capacitor companion conductance (excluded from DC passive & other-cap sum). */
+  cap(a, b, g) {
+    if (a >= 0 && b >= 0 && a !== b) {
+      this.g.push(a, b, g);
+      this.cg.push(a, b, g);
     }
   }
   /** Record a DC-passive conductance for ohmmeter probing without altering active MNA stamps. */
@@ -75,6 +84,7 @@ class Stamps {
     this.g.push(a, -2, g);
     this.i.push(-2, a, V * g);
     this.roots.push(a);
+    if (R <= 2) this.sg.push(a, g);
   }
   /** Two-terminal source (battery, diode drop): Va - Vb -> V through R. */
   vdrop(a, b, V, R) {
@@ -154,7 +164,7 @@ export class Engine {
       if (links) for (const [i, j] of links) uf.union(key(pins[i].x, pins[i].y), key(pins[j].x, pins[j].y));
     }
 
-    // Number nets for every point that matters (pins, wire ends, holes).
+    // Number active nets (wires + part pins) densely first so solve() skips unused board strips.
     const rootIdx = new Map();
     const pointNet = new Map();
     const idxOf = (k) => {
@@ -164,7 +174,6 @@ export class Engine {
       pointNet.set(k, n);
       return n;
     };
-    for (const b of circuit.boards) for (const h of b.holes()) idxOf(key(h.x, h.y));
     for (const w of circuit.wires) { idxOf(key(w.a.x, w.a.y)); idxOf(key(w.b.x, w.b.y)); }
 
     this.devices = [];
@@ -185,6 +194,8 @@ export class Engine {
     }
     this._netPartCount = new Map();
     const allPartPinNets = partPins.map(([, , pins]) => pins.map(pin => idxOf(key(pin.x, pin.y))));
+    this._activeNets = rootIdx.size;
+    for (const b of circuit.boards) for (const h of b.holes()) idxOf(key(h.x, h.y));
     for (const pinNets of allPartPinNets) {
       const seen = new Set(pinNets);
       for (const net of seen) this._netPartCount.set(net, (this._netPartCount.get(net) || 0) + 1);
@@ -213,21 +224,25 @@ export class Engine {
     this.pointNet = pointNet;
     this.nets = rootIdx.size;
     const n = this.nets;
+    const m = Math.max(1, this._activeNets);
     this._buf = {
-      n,
-      gsum: new Float64Array(n),
-      parent: new Int32Array(n),
-      touched: new Uint8Array(n),
-      isRoot: new Uint8Array(n),
-      local: new Int32Array(n),
-      islandOf: new Int32Array(n),
-      strong: new Int32Array(n),
-      live: new Uint8Array(n),
-      diag1: new Float64Array(n),
-      rhs1: new Float64Array(n),
-      groupHead: new Int32Array(n),
-      groupNext: new Int32Array(n),
-      groupSize: new Int32Array(n),
+      n: this._activeNets,
+      gsum: new Float64Array(m),
+      capG: new Float64Array(m),
+      rootG: new Float64Array(m),
+      parent: new Int32Array(m),
+      touched: new Uint8Array(m),
+      isRoot: new Uint8Array(m),
+      local: new Int32Array(m),
+      islandOf: new Int32Array(m),
+      strong: new Int32Array(m),
+      live: new Uint8Array(m),
+      diag1: new Float64Array(m),
+      rhs1: new Float64Array(m),
+      groupHead: new Int32Array(m),
+      groupNext: new Int32Array(m),
+      groupSize: new Int32Array(m),
+      rootSlot: new Int32Array(m),
       pool: [],
     };
     const oldV = this.V;
@@ -264,13 +279,21 @@ export class Engine {
     const V = this.V;
     for (const d of this.devices) if (d.stamp) d.stamp(S, V, this);
 
-    const n = this.nets;
+    const n = this._activeNets;
     const B = this._buf;
-    // Total conductance at each net; capacitors use it to estimate their RC time constant.
+    // Total conductance, capacitor conductance & stiff source conductance at each net.
     const gsum = B.gsum; gsum.fill(0);
+    const capG = B.capG; capG.fill(0);
+    const rootG = B.rootG; rootG.fill(0);
     const g = S.g;
     for (let k = 0; k < g.length; k += 3) { gsum[g[k]] += g[k + 2]; if (g[k + 1] >= 0) gsum[g[k + 1]] += g[k + 2]; }
+    const cg = S.cg;
+    for (let k = 0; k < cg.length; k += 3) { capG[cg[k]] += cg[k + 2]; capG[cg[k + 1]] += cg[k + 2]; }
+    const sg = S.sg;
+    for (let k = 0; k < sg.length; k += 2) rootG[sg[k]] += sg[k + 1];
     this.gsum = gsum;
+    this.capG = capG;
+    this.rootG = rootG;
     // Islands: union nets joined by real conductances.
     const parent = B.parent;
     const touched = B.touched; touched.fill(0);
@@ -314,7 +337,7 @@ export class Engine {
     }
 
     const pool = B.pool;
-    const rootToMat = new Map();
+    const rootSlot = B.rootSlot; rootSlot.fill(-1);
     let poolIdx = 0;
     for (let r = 0; r < n; r++) {
       const m = groupSize[r];
@@ -344,7 +367,7 @@ export class Engine {
         A[i * m + i] = LEAK;
         i++;
       }
-      rootToMat.set(r, slot);
+      rootSlot[r] = poolIdx;
       poolIdx++;
     }
 
@@ -353,14 +376,14 @@ export class Engine {
       if (r === -1) continue;
       if (r === -2) { if (!isRoot[a]) diag1[a] += 1e-3; continue; }
       if (isRoot[r]) continue;
-      const M = rootToMat.get(r);
+      const M = pool[rootSlot[r]];
       M.A[local[a] * M.m + local[a]] += 1e-3;
     }
     for (let k = 0; k < g.length; k += 3) {
       const a = g[k], b = g[k + 1], c = g[k + 2];
       const ra = islandOf[a];
       if (ra === -2) { diag1[a] += c; continue; }
-      const M = rootToMat.get(ra);
+      const M = pool[rootSlot[ra]];
       const ia = local[a];
       M.A[ia * M.m + ia] += c;
       if (b >= 0) {
@@ -376,12 +399,12 @@ export class Engine {
       if (a >= 0) {
         const ra = islandOf[a];
         if (ra === -2) rhs1[a] -= i;
-        else if (ra >= 0) rootToMat.get(ra).z[local[a]] -= i;
+        else if (ra >= 0) pool[rootSlot[ra]].z[local[a]] -= i;
       }
       if (b >= 0) {
         const rb = islandOf[b];
         if (rb === -2) rhs1[b] += i;
-        else if (rb >= 0) rootToMat.get(rb).z[local[b]] += i;
+        else if (rb >= 0) pool[rootSlot[rb]].z[local[b]] += i;
       }
     }
     for (let k = 0; k < vc.length; k += 5) {
@@ -400,7 +423,7 @@ export class Engine {
         }
         continue;
       }
-      const M = rootToMat.get(r);
+      const M = pool[rootSlot[r]];
       const m = M.m, A = M.A;
       const ia = a >= 0 ? local[a] : -1, ib = b >= 0 ? local[b] : -1;
       const icp = cp >= 0 ? local[cp] : -1, icn = cn >= 0 ? local[cn] : -1;
@@ -415,8 +438,7 @@ export class Engine {
     }
 
     const defined = this.defined;
-    defined.fill(0);
-    V.fill(NaN);
+    for (let k = 0; k < n; k++) { defined[k] = 0; V[k] = NaN; }
     for (let k = 0; k < n; k++) {
       if (islandOf[k] === -2) V[k] = diag1[k] < 1e-300 ? 0 : rhs1[k] / diag1[k];
     }

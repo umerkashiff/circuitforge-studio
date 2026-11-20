@@ -104,6 +104,7 @@ export function openExportStudio(app, initialTab = 'breadboard', initialDataView
       showGrid: false,
       showTitleBlock: true,
       showFrame: true,
+      boardId: 'all',
       scale: 3,
     },
     rep: {
@@ -145,7 +146,7 @@ export function openExportStudio(app, initialTab = 'breadboard', initialDataView
     x: 0,
     y: 0,
     z: 1,
-    minZ: 0.2,
+    minZ: 0.08,
     maxZ: 5,
     contentW: 0,
     contentH: 0,
@@ -193,7 +194,7 @@ export function openExportStudio(app, initialTab = 'breadboard', initialDataView
     const availW = Math.max(120, sw - padX * 2);
     const availH = Math.max(120, sh - padTop - padBottom);
     const rawFit = Math.min(availW / cam.contentW, availH / cam.contentH);
-    const fitZ = Math.max(0.25, Math.min(1.5, rawFit));
+    const fitZ = Math.max(0.1, Math.min(1.5, rawFit));
     cam.z = +fitZ.toFixed(3);
     cam.x = (sw - cam.contentW * cam.z) / 2;
     cam.y = padTop + Math.max(0, (availH - cam.contentH * cam.z) / 2);
@@ -609,11 +610,16 @@ export function openExportStudio(app, initialTab = 'breadboard', initialDataView
 
     if (state.tab === 'schematic') {
       const hasCustom = (circuit.parts || []).some(p => p.sch);
+      const boards = circuit.boards || [];
       appendClean(panelScroll,
         metaSection(),
         h('div', { class: 'exp-sec' },
           h('div', { class: 'group-label' }, 'Schematic Style'),
           h('div', { class: 'set-box' },
+            boards.length > 1 ? h('div', { class: 'set-row' }, h('span', { class: 'set-label' }, 'Sheet'),
+              h('select', { class: 'input exp-in', value: state.sch.boardId || 'all', onchange: (e) => { state.sch.boardId = e.target.value; cam.hasFit = false; render(false); } },
+                h('option', { value: 'all', selected: state.sch.boardId === 'all' }, `Full Sheet (${boards.length} boards)`),
+                ...boards.map((b, i) => h('option', { value: b.id, selected: state.sch.boardId === b.id }, b.label || `Board ${i + 1}`)))) : null,
             h('div', { class: 'set-row' }, h('span', { class: 'set-label' }, 'Standard'),
               seg(state.sch.standard, [['ieee', 'IEEE / ANSI'], ['iec', 'IEC / DIN']], (v) => { state.sch.standard = v; render(true); })),
             h('div', { class: 'set-row' }, h('span', { class: 'set-label' }, 'IC View'),

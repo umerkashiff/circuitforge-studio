@@ -143,18 +143,21 @@ function drawDip(g, env, n, partNo, sub, pinLabels) {
 }
 
 for (const ic of IC_LIST) {
+  const pkgTitle = ic.id.startsWith('74') ? '74LS' + ic.id.slice(2) : ic.id.startsWith('40') ? 'CD' + ic.id : ic.id.toUpperCase();
   register({
     type: 'ic' + ic.id,
-    name: `${ic.id} ${ic.name}`,
-    short: ic.id,
+    name: `${ic.id.toUpperCase()} ${ic.name}`,
+    short: ic.id.toUpperCase(),
     title: ic.title,
     cat: ic.cat,
     desc: `${ic.title} · DIP-${ic.n}`,
+    defaults: ic.defaults,
+    fields: ic.fields,
     ic,
     pins: () => dipPins(ic.n).map((p, i) => ({ ...p, name: ic.pins[i] })),
     bounds: () => [-0.6, -3.2, ic.n / 2 - 0.4, 0.2],
-    draw: (g, part, env) => drawDip(g, env, ic.n, ic.id.startsWith('74') ? '74LS' + ic.id.slice(2) : 'CD' + ic.id, ic.name, ic.pins),
-    device: (part, nets) => dev.icDevice(ic, nets),
+    draw: (g, part, env) => drawDip(g, env, ic.n, pkgTitle, ic.name, ic.pins),
+    device: (part, nets) => dev.icDevice(ic, nets, part),
   });
 }
 
@@ -376,6 +379,27 @@ register({
   links: (part) => (part.props.on ? [[0, 1]] : []),
 });
 register({
+  type: 'spdt', name: 'SPDT Slide Switch', short: 'SPDT', cat: 'Inputs', desc: 'Single-pole double-throw switch: COM connects to either A or B.',
+  defaults: { pos: 'A' },
+  fields: [{ key: 'pos', label: 'Position', kind: 'select', options: [['A', 'Position A (Left)'], ['B', 'Position B (Right)']] }],
+  pins: () => [{ x: 0, y: 0, name: 'A' }, { x: 1, y: 0, name: 'COM' }, { x: 2, y: 0, name: 'B' }],
+  bounds: () => [-0.6, -2.1, 2.6, 0.3],
+  draw(g, part) {
+    for (let i = 0; i < 3; i++) lead(g, i, -0.6, i, 0);
+    shadow(g, 5, 2, 0.25);
+    rr(g, -0.55 * U, -2 * U, 3.1 * U, 1.45 * U, 3);
+    g.fillStyle = lin(g, 0, -2 * U, 0, -0.55 * U, [[0, '#5b5f66'], [1, '#3a3d42']]); g.fill();
+    noShadow(g);
+    rr(g, 0, -1.6 * U, 2 * U, 0.65 * U, 3); g.fillStyle = '#26282c'; g.fill();
+    const bPos = part.props.pos === 'B';
+    rr(g, (bPos ? 1.05 : 0.05) * U, -1.68 * U, 0.9 * U, 0.8 * U, 3);
+    g.fillStyle = bPos ? '#30d158' : '#0a84ff'; g.fill();
+  },
+  control: () => 'toggle',
+  click(part) { part.props.pos = part.props.pos === 'B' ? 'A' : 'B'; return true; },
+  links: (part) => (part.props.pos === 'B' ? [[1, 2]] : [[0, 1]]),
+});
+register({
   type: 'tactile', name: 'Tactile Button', cat: 'Inputs', desc: '4-pin 6 mm push button. Straddle the centre gap; pressing connects left and right.',
   aliases: ['wokwi-pushbutton'],
   defaults: { bounce: false },
@@ -511,6 +535,69 @@ register({
       if (hint) this.notes = [...(this.notes || []), hint];
     };
     return d;
+  },
+});
+// Standard 12-pin 5641AS / 3461AS 4-digit multiplexed 7-segment display (D1=leftmost .. D4=rightmost)
+const SEG7X4_SEG_IDX = [10, 6, 3, 1, 0, 9, 4, 2]; // a, b, c, d, e, f, g, dp
+const SEG7X4_DIG_IDX = [11, 8, 7, 5];             // D1, D2, D3, D4
+register({
+  type: 'seg7x4', name: '4-Digit 7-Segment Display', short: '7-SEG×4', cat: 'Outputs',
+  desc: 'Multiplexed 12-pin 4-digit display (5641AS pinout). Bottom e d DP c g D4, top D1 a f D2 D3 b. Straddle rows c and h.',
+  defaults: { common: 'cathode', color: 'red', persist: 0.05 },
+  fields: [
+    { key: 'common', label: 'Type', kind: 'select', options: [['cathode', 'Common cathode'], ['anode', 'Common anode']] },
+    { key: 'color', label: 'Color', kind: 'select', options: Object.entries(LED_COLORS).map(([k, v]) => [k, v.name]) },
+    PROTECT_FIELD,
+  ],
+  pins: () => [
+    { x: 0, y: 0, name: 'e' }, { x: 1, y: 0, name: 'd' }, { x: 2, y: 0, name: 'DP' },
+    { x: 3, y: 0, name: 'c' }, { x: 4, y: 0, name: 'g' }, { x: 5, y: 0, name: 'D4' },
+    { x: 5, y: -7, name: 'b' }, { x: 4, y: -7, name: 'D3' }, { x: 3, y: -7, name: 'D2' },
+    { x: 2, y: -7, name: 'f' }, { x: 1, y: -7, name: 'a' }, { x: 0, y: -7, name: 'D1' },
+  ],
+  bounds: () => [-2.05, -7.3, 7.05, 0.3],
+  draw(g, part, env) {
+    const c = LED_COLORS[part.props.color] || LED_COLORS.red;
+    for (let i = 0; i < 6; i++) { lead(g, i, -0.5, i, 0); lead(g, i, -6.5, i, -7); }
+    shadow(g, 8, 3, 0.3);
+    rr(g, -1.95 * U, -6.6 * U, 8.9 * U, 6.2 * U, 4);
+    g.fillStyle = '#1b1c1f'; g.fill(); noShadow(g);
+    const d = env.dev;
+    const h = 0.14 * U, gap = 0.04 * U, slant = 0.09;
+    const T = -5.5 * U, B = -1.5 * U, M = (T + B) / 2;
+    for (let dig = 0; dig < 4; dig++) {
+      const ox = (-1.45 + dig * 2.15) * U;
+      const L = ox, R = ox + 1.45 * U;
+      const sk = (x, y) => [x + slant * (M - y), y];
+      const poly = (pts) => { g.beginPath(); pts.forEach(([x, y], i) => { const [px, py] = sk(x, y); if (i) g.lineTo(px, py); else g.moveTo(px, py); }); g.closePath(); };
+      const hseg = (y) => poly([[L + gap, y], [L + gap + h, y - h], [R - gap - h, y - h], [R - gap, y], [R - gap - h, y + h], [L + gap + h, y + h]]);
+      const vseg = (x, y0, y1) => poly([[x, y0 + gap], [x + h, y0 + gap + h], [x + h, y1 - gap - h], [x, y1 - gap], [x - h, y1 - gap - h], [x - h, y0 + gap + h]]);
+      const shapes = { a: () => hseg(T), b: () => vseg(R, T, M), c: () => vseg(R, M, B), d: () => hseg(B), e: () => vseg(L, M, B), f: () => vseg(L, T, M), g: () => hseg(M) };
+      ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'dp'].forEach((s, k) => {
+        const lit = d ? ledLevel(d.avg[dig * 8 + k]) : 0;
+        if (s === 'dp') { const [px, py] = sk(R + 0.3 * U, B); g.beginPath(); g.arc(px, py, 0.13 * U, 0, TAU); }
+        else shapes[s]();
+        if (lit > 0) {
+          g.shadowColor = `rgba(${c.rgb},1)`; g.shadowBlur = 10 * lit;
+          g.fillStyle = mixHex(c.off, c.lit, 0.4 + 0.6 * lit); g.fill();
+          noShadow(g);
+          g.fillStyle = `rgba(255,255,255,${0.32 * lit})`; g.fill();
+        } else { g.fillStyle = 'rgba(255,255,255,0.07)'; g.fill(); }
+      });
+    }
+  },
+  device: (part, nets) => {
+    const c = LED_COLORS[part.props.color] || LED_COLORS.red;
+    const anode = part.props.common === 'anode';
+    const pairs = [];
+    for (let dig = 0; dig < 4; dig++) {
+      const com = nets[SEG7X4_DIG_IDX[dig]];
+      for (let seg = 0; seg < 8; seg++) {
+        const sNet = nets[SEG7X4_SEG_IDX[seg]];
+        pairs.push(anode ? [com, sNet, c.vf, c.rs * 2] : [sNet, com, c.vf, c.rs * 2]);
+      }
+    }
+    return dev.diodes(pairs, { maxA: LED_MAX_A, protect: ledProtected(part), protectR: TRAINER_R, name: 'Digit segment', avgTau: part.props.persist || 0.05 });
   },
 });
 register({
@@ -1059,7 +1146,7 @@ register({
   type: 'pot', name: 'Potentiometer', cat: 'Inputs', desc: 'Variable resistor. Outer pins to + and −, the middle pin (wiper) gives 0 – 5 V. Drag or scroll the knob.',
   aliases: ['wokwi-potentiometer'],
   defaults: { ohms: 10000, pos: 0.5 },
-  fields: [{ key: 'ohms', label: 'Resistance', kind: 'select', options: [[1000, '1 kΩ'], [10000, '10 kΩ'], [100000, '100 kΩ']] }],
+  fields: [{ key: 'ohms', label: 'Resistance', kind: 'select', options: [[1000, '1 kΩ'], [10000, '10 kΩ'], [100000, '100 kΩ'], [1000000, '1 MΩ']] }],
   pins: () => [{ x: 0, y: 0, name: '1' }, { x: 1, y: 0, name: 'Wiper' }, { x: 2, y: 0, name: '3' }],
   bounds: () => [-0.6, -3.5, 2.6, 0.3],
   draw(g, part, env) {
@@ -1150,7 +1237,7 @@ register({
   type: 'wokwi-slide-potentiometer', name: 'Slide Potentiometer', cat: 'Inputs', desc: 'Linear fader potentiometer. Pins: 1 (VCC), WIPER, 2 (GND).',
   aliases: ['slide-potentiometer'],
   defaults: { ohms: 10000, pos: 0.5 },
-  fields: [{ key: 'ohms', label: 'Resistance', kind: 'select', options: [[1000, '1 kΩ'], [10000, '10 kΩ'], [100000, '100 kΩ']] }],
+  fields: [{ key: 'ohms', label: 'Resistance', kind: 'select', options: [[1000, '1 kΩ'], [10000, '10 kΩ'], [100000, '100 kΩ'], [1000000, '1 MΩ']] }],
   pins: () => [{ x: 0, y: 0, name: '1' }, { x: 1, y: 0, name: 'WIPER' }, { x: 2, y: 0, name: '2' }],
   bounds: () => [-0.6, -5.2, 2.6, 0.3],
   draw(g, part, env) {

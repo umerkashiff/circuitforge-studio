@@ -27,6 +27,7 @@ const REF_PREFIX = {
   led: 'LED',
   'wokwi-rgb-led': 'LED',
   seg7: 'DS',
+  seg7x4: 'DS',
   bargraph: 'DS',
   lcd16x2: 'DS',
   'board-ssd1306': 'DS',
@@ -38,6 +39,7 @@ const REF_PREFIX = {
   toggle: 'SW',
   button: 'SW',
   slide: 'SW',
+  spdt: 'SW',
   tactile: 'SW',
   dip4: 'SW',
   dip8: 'SW',
@@ -224,6 +226,7 @@ export function formatPartValue(part) {
   }
   if (t === 'wokwi-rgb-led') return p.common === 'anode' ? 'RGB (CA)' : 'RGB (CC)';
   if (t === 'seg7') return p.common === 'anode' ? '7-Seg CA' : '7-Seg CC';
+  if (t === 'seg7x4') return p.common === 'anode' ? '4-Dig 7-Seg CA' : '4-Dig 7-Seg CC';
   if (t === 'bargraph') return '8× LED Bar';
   if (t === 'buzzer') return 'Buzzer';
   if (t === 'clock') {
@@ -235,11 +238,12 @@ export function formatPartValue(part) {
   if (t === 'gnd') return 'GND';
   if (t === 'toggle' || t === 'button') return p.label || (t === 'toggle' ? 'Switch' : 'Button');
   if (t === 'slide') return 'SPST';
+  if (t === 'spdt') return 'SPDT';
   if (t === 'tactile') return 'Pushbtn';
   if (t === 'dip4') return 'DIP ×4';
   if (t === 'dip8') return 'DIP ×8';
   if (t === 'ne555') return 'NE555';
-  if (def && def.ic) return def.ic.id;
+  if (def && def.ic) return def.ic.id.toUpperCase();
   if (def && def.mcu) return def.short || def.name;
   const fmtHex = (addr, fb) => '0x' + String(addr || fb).replace(/^0x/i, '').toUpperCase();
   if (t === 'board-ssd1306' || t === 'wokwi-sh1107') return `OLED ${fmtHex(p.i2cAddress, '0x3c')}`;

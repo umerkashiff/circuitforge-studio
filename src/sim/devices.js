@@ -79,7 +79,7 @@ export function capacitor(nets, part) {
     stamp(S, V, e) {
       if (part.props.damaged) return;
       const geq = (part.props.uf * 1e-6) / e.dt;
-      S.G(nets[0], nets[1], geq, false);
+      S.cap(nets[0], nets[1], geq);
       S.I(nets[0], nets[1], -geq * this.vc);
     },
     i: 0,
@@ -90,9 +90,11 @@ export function capacitor(nets, part) {
       const prev = this.vc;
       if (ok(a) && ok(c)) this.vc = a - c;
       this.i = (C * (this.vc - prev)) / dt;   // > 0 while + side is charging up
-      if (e && e.gsum && nets[0] >= 0 && nets[1] >= 0) {
-        const geq = C / dt;
-        const ga = e.gsum[nets[0]] - geq, gb = e.gsum[nets[1]] - geq;
+      const isRailBypass = e && e.rootG && nets[0] >= 0 && nets[1] >= 0 && e.rootG[nets[0]] > 0.5 && e.rootG[nets[1]] > 0.5;
+      if (!isRailBypass && e && e.gsum && nets[0] >= 0 && nets[1] >= 0) {
+        const c0 = e.capG ? e.capG[nets[0]] : (C / dt);
+        const c1 = e.capG ? e.capG[nets[1]] : (C / dt);
+        const ga = e.gsum[nets[0]] - c0, gb = e.gsum[nets[1]] - c1;
         const r = (ga > 1e-9 ? 1 / ga : 1e9) + (gb > 1e-9 ? 1 / gb : 1e9);
         e.minTau = Math.min(e.minTau, C * r);
       }
@@ -181,8 +183,8 @@ export function diodes(pairs, opts = {}) {
             } else if (opts.led && i > 0.03) notes.push(`${(i * 1000).toFixed(0)} mA is above the 20 mA rating — ${hasR(e, k) ? 'use a bigger resistor' : 'add a series resistor'}.`);
           }
         }
-        // smoothed current for drawing (PWM looks dim instead of flickering)
-        const t = Math.min(1, (dt || 0.016) / 0.03);
+        // smoothed current for drawing (PWM / muxed LEDs fade over avgTau)
+        const t = Math.min(1, (dt || 0.016) / (opts.avgTau || 0.03));
         this.avg[k] += (this.cur[k] - this.avg[k]) * t;
       }
       this.warning = this.blown.some(Boolean) ? (this.burnText || opts.blownText || 'Burned out.') : null;
@@ -195,23 +197,27 @@ export function diodes(pairs, opts = {}) {
 
 // ---------------------------------------------------------------------------
 /** Generic digital IC driven by a datasheet model (see parts/ics.js). */
-export function icDevice(ic, nets) {
+export function icDevice(ic, nets, part = null) {
   const N = ic.n;
   const net = (p) => nets[p - 1];
+  const propsSnap = ic.usesProps ? Object.freeze(structuredClone(part?.props || ic.defaults || {})) : undefined;
+  const initState = () => (ic.init ? ic.init(propsSnap) : []);
   const d = {
     powered: false,
     vh: 5, vl: 0,
-    s: ic.init ? ic.init() : [],
-    committed: ic.init ? ic.init() : [],
+    s: initState(),
+    committed: initState(),
     lvl: new Int8Array(N + 1),
     prev: new Int8Array(N + 1).fill(-1),
     seen: new Uint8Array(N + 1),
     out: new Array(N + 1).fill(undefined),   // undefined = not an output this round
+    _oldOut: new Array(N + 1).fill(undefined),
     mode: new Array(N + 1).fill('pp'),
     floatingInputs: [],
-    reset() { this.s = ic.init ? ic.init() : []; this.committed = this.s.slice(); this.prev.fill(-1); this.out.fill(undefined); },
-    adopt(o) { this.s = o.committed.slice(); this.committed = o.committed.slice(); this.prev.set(o.prev); },
-    begin() { this.s = this.committed.slice(); this.seen.fill(0); },
+    pending: null,
+    reset() { this.s = initState(); this.committed = this.s.slice(); this.prev.fill(-1); this.out.fill(undefined); this.pending = null; },
+    adopt(o) { this.s = o.committed.slice(); this.committed = o.committed.slice(); this.prev.set(o.prev); this.pending = null; },
+    begin() { if (this.s.length) this.s = this.committed.slice(); this.seen.fill(0); this.pending = null; },
     stamp(S, V) {
       if (!this.powered) return;
       if (net(ic.vcc) >= 0 && net(ic.gnd) >= 0) S.G(net(ic.vcc), net(ic.gnd), 1 / 1250);
@@ -240,8 +246,10 @@ export function icDevice(ic, nets) {
       let changed = powered !== this.powered;
       this.powered = powered;
       if (powered) { this.vh = vcc; this.vl = gnd; }
-      const old = this.out.slice();
+      const old = this._oldOut;
+      for (let p = 1; p <= N; p++) old[p] = this.out[p];
       this.out.fill(undefined);
+      this.pending = null;
       if (powered) {
         for (let p = 1; p <= N; p++) this.lvl[p] = this.level(p, V);
         ic.ev(ctx);
@@ -250,8 +258,9 @@ export function icDevice(ic, nets) {
       return changed;
     },
     commit(V) {
-      if (!this.powered) { this.prev.fill(-1); this.warning = this.anyConnected() ? `No power — pin ${ic.vcc} (${ic.cmos ? 'VDD' : 'VCC'}) needs +5 V and pin ${ic.gnd} (${ic.cmos ? 'VSS' : 'GND'}) needs ground.` : null; return; }
-      this.committed = this.s.slice();
+      if (!this.powered) { this.pending = null; this.prev.fill(-1); this.warning = this.anyConnected() ? `No power — pin ${ic.vcc} (${ic.cmos ? 'VDD' : 'VCC'}) needs +5 V and pin ${ic.gnd} (${ic.cmos ? 'VSS' : 'GND'}) needs ground.` : null; return; }
+      if (this.pending) { for (const fn of this.pending) fn(); this.pending = null; }
+      if (this.s.length) this.committed = this.s.slice();
       for (let p = 1; p <= N; p++) this.prev[p] = this.lvl[p];
       this.warning = null;
       const floating = [], fights = [];
@@ -268,8 +277,11 @@ export function icDevice(ic, nets) {
     },
     anyConnected() { return nets.some(n => n >= 0); },
   };
+  const baseRom = ic.getRom ? ic.getRom(propsSnap) : undefined;
   const ctx = {
     get s() { return d.s; },
+    get props() { return propsSnap; },
+    get rom() { return baseRom; },
     i: (p) => d.lvl[p],
     rise(p) {
       if (d.seen[p] || d.prev[p] !== 0 || d.lvl[p] !== 1) return false;
@@ -282,6 +294,7 @@ export function icDevice(ic, nets) {
     o(p, v) { d.out[p] = v; d.mode[p] = 'pp'; },
     oc(p, v) { d.out[p] = v; d.mode[p] = 'oc'; },
     pu(p, v) { d.out[p] = v; d.mode[p] = 'pu'; },
+    defer(fn) { (d.pending ||= []).push(fn); },
   };
   return d;
 }

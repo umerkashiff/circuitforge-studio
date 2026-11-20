@@ -116,11 +116,12 @@ export function renderSchematicSVG(circuit, engine = null, index = null, opts = 
     showTitleBlock = true,
     crossingHops = true,
     useNetFlags = true,
+    boardId = null,
   } = opts;
 
   const pal = THEMES[theme] || THEMES.color;
   const layout = computeSchematicLayout(circuit, engine, index, {
-    viewMode, powerStyle, hideUnwired, showValues, useNetFlags, crossingHops,
+    viewMode, powerStyle, hideUnwired, showValues, useNetFlags, crossingHops, boardId,
   });
   const netMetaMap = new Map(layout.data.nets.map(n => [n.id, n]));
 

@@ -29,6 +29,7 @@ import { computeSchematicLayout } from '../src/export/schematic_layout.js';
 import { renderSchematicSVG } from '../src/export/schematic_svg.js';
 import { SCH_GRID } from '../src/export/symbols.js';
 import { buildLabReportHTML, buildLabReportMarkdown } from '../src/export/report.js';
+import { buildSap1CpuCircuit } from '../src/examples/sap1_cpu.js';
 
 const results = [];
 function test(id, name, fn) {
@@ -839,6 +840,52 @@ test('P4.8', 'New analog parts, op-amps, comparators, regulators, optocoupler & 
   const opSym = renderSchematicSVG(c, eng, null, { viewMode: 'functional' }).layout.symbols.find(s => s.type === 'lm358');
   assert.ok(opSym && /polygon/.test(opSym.renderSVG('ieee', { fill: '#fff', stroke: '#000', pin: '#000', ref: '#000', sub: '#666', num: '#666' }, true)), 'LM358 renders triangular op-amp symbol');
   return 'All 13 new types aligned to GRID=20 across functional & package views + SPICE verified';
+});
+
+test('P4.9', '14-board 47-IC SAP-1 CPU exports full & per-board filtered schematics (Net Flags + seg7x4/spdt), BOM, SPICE & Lab Report', () => {
+  const { circuit } = buildSap1CpuCircuit({ program: 'fibonacci', potPos: 0.015 });
+  const eng = new Engine();
+  eng.build(circuit);
+  eng.step(2e-4);
+
+  // 1) Full top-level sheet: custom spdt & seg7x4 symbols, GRID=20 alignment, Net Flag promotion for labeled bus/ctrl
+  const full = renderSchematicSVG(circuit, eng, null, { viewMode: 'functional', standard: 'ieee', hideUnwired: true });
+  assert.ok(!/NaN|Infinity|undefined/.test(full.svg), 'Full SAP-1 SVG must not contain NaN/undefined');
+  for (const sym of full.layout.symbols) {
+    for (const p of sym.pins) {
+      assert.equal((sym.x + p.lx) % SCH_GRID, 0, `${sym.ref}.${p.name} x off grid`);
+      assert.equal((sym.y + p.ly) % SCH_GRID, 0, `${sym.ref}.${p.name} y off grid`);
+    }
+  }
+  const spdtSym = full.layout.symbols.find(s => s.type === 'spdt');
+  assert.ok(spdtSym && spdtSym.pins.length === 3, 'SPDT symbol should render 3 pins (A, B, COM)');
+  const dispSym = full.layout.symbols.find(s => s.type === 'seg7x4');
+  assert.ok(dispSym && dispSym.pins.length === 11, `seg7x4 with DP unwired should show 11 wired pins (7 segs + 4 digits), got ${dispSym?.pins.length}`);
+
+  const flagNames = new Set(full.layout.netFlags.map(nf => nf.netName));
+  for (const req of ['BUS0', 'BUS7', 'CLK', 'RST', 'HLT', 'MI\u0305', 'CO\u0305']) {
+    assert.ok(flagNames.has(req), `Full schematic should promote labeled net '${req}' to Net Flag`);
+  }
+  // Ensure unlabeled internal nets were NOT indiscriminately turned into Net Flags
+  assert.ok(![...flagNames].some(n => /^N\d+$/.test(n)), 'Full schematic must leave unlabeled internal nodes as wires, not N## flags');
+
+  // 2) Subsystem board filter: R4 Output Module sheet with cross-board flagged stubs
+  const r4 = renderSchematicSVG(circuit, eng, null, { boardId: 'b_r4', viewMode: 'functional', standard: 'ieee' });
+  assert.ok(!/NaN|Infinity|undefined/.test(r4.svg), 'Filtered R4 SVG clean');
+  assert.ok(r4.layout.symbols.some(s => s.type === 'seg7x4'), 'R4 sheet includes seg7x4');
+  assert.ok(!r4.layout.symbols.some(s => s.type === 'ic74189'), 'R4 sheet excludes parts from other boards');
+  const r4Flags = new Set(r4.layout.netFlags.map(nf => nf.netName));
+  assert.ok(r4Flags.has('BUS0') && r4Flags.has('BUS7'), `Filtered R4 sheet should show cross-board BUS Net Flag stubs, got ${[...r4Flags].join(',')}`);
+
+  // 3) BOM, SPICE, Wiring, Netlist JSON & Lab Report HTML/MD on 47-IC CPU
+  const data = extractCircuitData(circuit, eng);
+  assert.ok(data.bom.length >= 10 && data.partCount >= 300);
+  const spice = toSpiceNetlist(data);
+  assert.ok(spice.includes('.end') && spice.includes('R'));
+  const html = buildLabReportHTML({ circuit, engine: eng }, { includeBreadboard: false, boardId: 'b_r4' });
+  const md = buildLabReportMarkdown({ circuit, engine: eng }, {});
+  assert.ok(html.includes('<svg') && !html.includes('NaN') && md.includes('Fibonacci'));
+  return `Full: ${full.layout.symbols.length} syms (${flagNames.size} flagged nets); R4 sheet: ${r4.layout.symbols.length} syms (${r4Flags.size} stubs)`;
 });
 
 let failed = 0;
