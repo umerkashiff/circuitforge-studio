@@ -1,160 +1,704 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CircuitForge Studio</title>
-  <meta name="description" content="Breadboard circuit simulator for 74xx logic, 555 timers, LEDs and switches.">
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <meta name="author" content="Umer Kashif">
+  <title>CircuitForge Studio — Real Breadboard &amp; Mixed-Signal Circuit Simulator</title>
+  <meta name="description" content="Build on virtual breadboards with real Kirchhoff physics, 74xx logic, op-amps, lab instruments, and a working 14-board 8-bit CPU. No install.">
   <meta name="theme-color" content="#0a84ff">
-  <meta property="og:title" content="CircuitForge Studio">
-  <meta property="og:description" content="Build and simulate breadboard circuits — 74xx logic, 555 timers, Arduino, ESP32 and STM32 — right in your browser.">
-  <meta property="og:type" content="website">
-  <link rel="stylesheet" href="css/app.css">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&family=Urbanist:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/landing.css">
+  <script defer src="src/landing.js"></script>
 </head>
 <body>
-  <header class="toolbar">
-    <div class="tb-left">
-      <button class="icon-btn" id="btn-library" title="Toggle library">
-        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
-      </button>
-      <div class="brand"><button class="logo" id="brand-logo" title="About CircuitForge"></button><input id="project-name" class="project-name" spellcheck="false" aria-label="Circuit name"></div>
-    </div>
 
-    <div class="tb-center">
-      <div class="mode-seg" role="tablist" title="Build ↔ Simulate  ⌘↵">
-        <button id="mode-build" class="on">
-          <svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>Build
-        </button>
-        <button id="mode-sim">
-          <svg class="fill" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg>Simulate
-        </button>
-      </div>
-      <div class="sim-ctrls">
-        <button id="btn-pause" class="icon-btn" title="Pause  (.)">
-          <svg class="i-pause fill" viewBox="0 0 24 24"><rect x="7" y="5.5" width="3.6" height="13" rx="1"/><rect x="13.4" y="5.5" width="3.6" height="13" rx="1"/></svg>
-          <svg class="i-play fill" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg>
-        </button>
-        <span id="sim-time" class="sim-time">0.0 s</span>
-        <select id="speed" class="speed" title="Simulation speed">
-          <option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option>
-          <option value="1" selected>1×</option><option value="2">2×</option>
-        </select>
-        <button id="btn-reset" class="icon-btn" title="Power cycle (restart chips, boards &amp; capacitors)">
-          <svg viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.3 7.2a8 8 0 1 0 11.4 0"/></svg>
-        </button>
-      </div>
-    </div>
+  <!-- ============================ NAVBAR ============================ -->
+  <header class="band site-header">
+    <div class="frame">
+      <div class="rail-box">
+        <div class="nav-bar">
+          <a href="#" class="brand-link" aria-label="CircuitForge Studio">
+            <span class="cf-logo" aria-hidden="true"></span>
+            <span>CircuitForge</span>
+          </a>
 
-    <div class="tb-right">
-      <div class="seg">
-        <button class="icon-btn" id="btn-undo" title="Undo  ⌘Z"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
-        <button class="icon-btn" id="btn-redo" title="Redo  ⇧⌘Z"><svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
-      </div>
-      <div class="pop-wrap">
-        <button class="icon-btn color-btn" id="btn-color" data-pop title="Wire color"><span id="color-dot"></span></button>
-        <div class="popover" id="color-pop">
-          <div class="pop-title">Wire color</div>
-          <div class="swatches"></div>
-          <label class="check"><input type="checkbox" id="auto-color"> Red / black for power &amp; ground</label>
-          <label class="check"><input type="checkbox" id="auto-route"> Route new wires neatly <kbd>⇧T</kbd></label>
-          <button class="btn wide" id="btn-tidy">Tidy wires <kbd>T</kbd></button>
+          <nav class="nav-links" aria-label="Primary navigation">
+            <a href="#engine">Engine</a>
+            <a href="#showcase">Showcase</a>
+            <a href="#parts">Parts</a>
+            <a href="#examples">Examples</a>
+          </nav>
+
+          <div>
+            <a href="/studio" class="btn-white btn-white--expand btn-white--nav">
+              <span>Open Studio</span>
+              <span class="arrow-slot" aria-hidden="true">
+                <svg class="arrow-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>
+              </span>
+            </a>
+            <button id="open-menu" class="nav-mobile-btn" type="button" aria-label="Open menu">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+          </div>
         </div>
+
+        <svg class="tick-l" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+        <svg class="tick-r" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
       </div>
-      <button class="icon-btn" id="btn-analyzer" title="Logic analyzer">
-        <svg viewBox="0 0 24 24"><path d="M3 17h4V7h5v10h4V7h5"/></svg>
-      </button>
-      <div class="sep"></div>
-      <button class="text-btn" id="btn-new" title="New circuit">New</button>
-      <div class="pop-wrap">
-        <button class="text-btn" id="btn-examples" data-pop>Examples</button>
-        <div class="popover menu-pop" id="examples-pop"></div>
-      </div>
-      <button class="icon-btn" id="btn-open" title="Open  ⌘O"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
-      <button class="icon-btn" id="btn-save" title="Save  ⌘S"><svg viewBox="0 0 24 24"><path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M5 19h14"/></svg></button>
-      <button class="text-btn export-cta" id="btn-export" title="Export diagrams, schematics, BOM &amp; reports  ⌘E">Export</button>
-      <button class="icon-btn" id="btn-help" title="Keyboard shortcuts  ?"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><path d="M12 17.2v.1"/></svg></button>
-      <button class="icon-btn" id="btn-settings" title="Settings  ⌘,"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
-      <button class="icon-btn" id="btn-theme" title="Light / dark"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></button>
-      <button class="icon-btn" id="btn-panel" title="Toggle inspector"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg></button>
     </div>
   </header>
 
-  <aside class="library">
-    <div class="search-wrap">
-      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
-      <input id="search" placeholder="Search parts" spellcheck="false" autocomplete="off">
-      <kbd>/</kbd>
-    </div>
-    <div id="library" class="lib-list"></div>
-    <div class="pane-resizer lib-resizer" id="lib-resizer" title="Drag to resize Library · Double-click to reset"></div>
-  </aside>
+  <div id="mobile-drawer" class="mobile-drawer" aria-hidden="true">
+    <button id="close-menu" class="mobile-drawer-close" type="button" aria-label="Close menu">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+    <a href="#engine">Engine</a>
+    <a href="#showcase">Showcase</a>
+    <a href="#parts">Parts</a>
+    <a href="#examples">Examples</a>
+    <a href="#faqs">FAQs</a>
+    <a href="/studio" class="btn-white btn-white--rot">
+      <span>Open Studio</span>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>
+    </a>
+  </div>
 
-  <main class="stage">
-    <div class="canvas-wrap"><canvas id="canvas"></canvas></div>
-    <div id="hint" class="hint"></div>
-    <div class="legend" aria-hidden="true"><span><i class="hi"></i>HIGH</span><span><i class="lo"></i>LOW</span><span><i class="mid"></i>In between</span><span><i class="fl"></i>No power</span></div>
-    <div class="stage-controls">
-      <div class="lbl-bar" id="lbl-bar" role="group" aria-label="Canvas labels" title="Component labels (⇧L)">
-        <button data-lbl="off" class="on">Off</button>
-        <button data-lbl="refs">Refs</button>
-        <button data-lbl="values">Values</button>
-        <button data-lbl="full">Full</button>
-      </div>
-      <div class="zoom">
-        <button id="zoom-out" title="Zoom out">−</button>
-        <button id="zoom-label" class="zl" title="Fit (F)">100%</button>
-        <button id="zoom-in" title="Zoom in">+</button>
-        <button id="zoom-fit" title="Fit to screen (F)"><svg viewBox="0 0 24 24"><path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4"/></svg></button>
-      </div>
-    </div>
-    <section id="analyzer" class="analyzer">
-      <div class="an-head">
-        <span class="an-title">Logic Analyzer</span>
-        <select id="an-window" class="speed"><option value="1">1 s</option><option value="2" selected>2 s</option><option value="5">5 s</option><option value="10">10 s</option></select>
-        <span class="grow"></span>
-        <button class="text-btn small" id="an-export" title="Export SVG / PNG / CSV">Export</button>
-        <button class="text-btn small" id="an-clear">Clear</button>
-        <button class="icon-btn small" id="an-close" title="Close">✕</button>
-      </div>
-      <div class="an-body">
-        <div id="an-list" class="an-list"></div>
-        <div class="an-plot"><canvas id="an-canvas"></canvas></div>
-      </div>
-    </section>
-    <section id="code" class="code-drawer" aria-label="Code editor">
-      <header class="cd-head">
-        <div class="cd-title"><b id="cd-board">Board</b><span id="cd-status" class="cd-status"></span></div>
-        <select id="cd-examples" class="input small"></select>
-        <button id="cd-upload" class="btn primary" title="Upload  ⌘S">Upload</button>
-        <button id="cd-close" class="icon-btn" title="Close  Esc">✕</button>
-      </header>
-      <div class="cd-editor"><div id="cd-gutter" class="cd-gutter"></div><textarea id="cd-text" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea></div>
-      <div class="cd-serial">
-        <div class="cd-serial-head"><b>Serial Monitor</b><span id="cd-baud" class="muted"></span><span class="grow"></span><button id="cd-clear" class="text-btn small">Clear</button></div>
-        <div id="cd-out" class="cd-out"></div>
-        <form id="cd-send" class="cd-send"><input id="cd-in" class="input" placeholder="Send to the board…" autocomplete="off"><button class="btn">Send</button></form>
+  <main>
+
+    <!-- ============================ HERO ============================ -->
+    <section class="band">
+      <div class="frame">
+        <div class="rail-box hero-inner">
+          <div class="beams-layer" data-beams="36" aria-hidden="true"></div>
+          <div class="hero-vignette" aria-hidden="true"></div>
+
+          <a href="#showcase" class="hero-pill reveal" style="--d:120ms">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="#fafafa" stroke="#fafafa" stroke-width="1.5"><path d="M12 3l1.8 6.2L20 11l-6.2 1.8L12 19l-1.8-6.2L4 11l6.2-1.8z"/></svg>
+            <span>117+ parts · MNA analog + 74xx digital</span>
+          </a>
+
+          <div class="warp-host reveal" id="warp-host" style="--d:90ms" data-line1="Wire real circuits" data-line2="in your browser.">
+            <h1 class="warp-fallback">
+              Wire real circuits<br>
+              <span class="warp-fallback-box">in your browser.</span>
+            </h1>
+          </div>
+
+          <p class="hero-sub reveal" style="--d:160ms">
+            Build on virtual breadboards with real Kirchhoff physics, 74xx logic, op-amps, lab instruments, and a working 14-board 8-bit CPU. No install.
+          </p>
+
+          <div class="hero-ctas reveal" style="--d:200ms">
+            <a href="/studio" class="btn-white btn-white--rot">
+              <span>Open Studio</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>
+            </a>
+
+            <a href="/studio?example=powers" class="btn-ghost-roll">
+              <span class="roll-clip">
+                <span class="roll-a">Run 8-Bit CPU</span>
+                <span class="roll-b">Run 8-Bit CPU</span>
+              </span>
+            </a>
+          </div>
+
+          <svg class="tick-l" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+          <svg class="tick-r" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+        </div>
       </div>
     </section>
+
+    <!-- ============================ HARDWARE STRIP ============================ -->
+    <section class="band" aria-label="Supported hardware families">
+      <div class="frame">
+        <div class="rail-box">
+          <div class="trust-top">
+            <p class="reveal">Real electrical models across discrete parts, TTL, analog ICs, and microcontrollers.</p>
+          </div>
+          <div class="trust-marquee-wrap">
+            <div class="marquee-mask">
+              <div class="marquee-track">
+                <span class="hw-item"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 1v5M15 1v5M9 18v5M15 18v5"/></svg>74HC / 74LS</span>
+                <span class="hw-item"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12h4l3-7 6 14 3-7h4"/></svg>NE555 Timer</span>
+                <span class="hw-item"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="5,4 19,12 5,20"/></svg>LM358 / LM317</span>
+                <span class="hw-item"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 12h2l2-4 3 8 2-4h3"/></svg>UT2062B Scope</span>
+                <span class="hw-item"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>ATmega · ESP32 · STM32</span>
+                <span class="hw-item"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/></svg>14-Board SAP-1</span>
+                <!-- Duplicate for seamless -50% loop -->
+                <span class="hw-item" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 1v5M15 1v5M9 18v5M15 18v5"/></svg>74HC / 74LS</span>
+                <span class="hw-item" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12h4l3-7 6 14 3-7h4"/></svg>NE555 Timer</span>
+                <span class="hw-item" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="5,4 19,12 5,20"/></svg>LM358 / LM317</span>
+                <span class="hw-item" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 12h2l2-4 3 8 2-4h3"/></svg>UT2062B Scope</span>
+                <span class="hw-item" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>ATmega · ESP32 · STM32</span>
+                <span class="hw-item" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/></svg>14-Board SAP-1</span>
+              </div>
+            </div>
+          </div>
+
+          <svg class="tick-l" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+          <svg class="tick-r" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ 2x3 ENGINE MATRIX ============================ -->
+    <section id="engine" class="band">
+      <div class="frame">
+        <div class="rail-box">
+          <div class="sec-head-center">
+            <span class="eyebrow reveal reveal--drop" style="--d:120ms">- HOW IT WORKS</span>
+            <h2 class="sec-title reveal">Real circuit physics on a virtual breadboard.</h2>
+          </div>
+
+          <div class="feature-grid">
+            <article class="feature-cell reveal reveal--card" style="--d:0ms">
+              <div class="feature-head">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l3-8 6 16 3-8h4"/></svg>
+                <h3>Modified Nodal Analysis</h3>
+              </div>
+              <p>Solves real node voltages and currents across resistors, capacitors, inductors, diodes, BJTs, MOSFETs, and op-amps.</p>
+            </article>
+
+            <article class="feature-cell reveal reveal--card" style="--d:80ms">
+              <div class="feature-head">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/></svg>
+                <h3>74xx TTL, Analog &amp; MCUs</h3>
+              </div>
+              <p>Wire real pinouts for 74xx gates, counters, muxes, 555 timers, LM358, LM317, ATmega328P, ESP32, and STM32 boards.</p>
+            </article>
+
+            <article class="feature-cell reveal reveal--card" style="--d:160ms">
+              <div class="feature-head">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 12h2l2-4 3 8 2-4h3"/></svg>
+                <h3>Bench Instruments</h3>
+              </div>
+              <p>Probe any hole with a dual-trace UT2062B oscilloscope, auto-ranging multimeter, function generator, or logic analyzer.</p>
+            </article>
+
+            <article class="feature-cell reveal reveal--card" style="--d:240ms">
+              <div class="feature-head">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 6.2L20 11l-6.2 1.8L12 19l-1.8-6.2L4 11l6.2-1.8z"/></svg>
+                <h3>AI Copilot</h3>
+              </div>
+              <p>Ask for a circuit in plain English. Copilot places parts across the breadboard trench, routes wires, and checks voltages.</p>
+            </article>
+
+            <article class="feature-cell reveal reveal--card" style="--d:320ms">
+              <div class="feature-head">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                <h3>14-Board 8-Bit SAP-1 CPU</h3>
+              </div>
+              <p>Run or single-step a 47-IC discrete breadboard computer executing Fibonacci, Powers of 2, and hardware multiplication.</p>
+            </article>
+
+            <article class="feature-cell reveal reveal--card" style="--d:400ms">
+              <div class="feature-head">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></svg>
+                <h3>Schematic &amp; Report Export</h3>
+              </div>
+              <p>Export IEEE or IEC vector schematics, BOM tables, wiring diagrams, and printable A4 lab reports directly from your board.</p>
+            </article>
+          </div>
+
+          <svg class="tick-l" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+          <svg class="tick-r" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ REAL SIMULATOR SHOWCASE (GIFS) ============================ -->
+    <section id="showcase" class="band">
+      <div class="frame">
+        <div class="rail-box pad-section">
+          <div class="showcase-header">
+            <span class="eyebrow reveal reveal--drop" style="--d:120ms">- INSIDE THE STUDIO</span>
+            <h2 class="sec-title reveal">See the actual simulator run.</h2>
+          </div>
+
+          <div class="workbench-shell reveal">
+            <!-- Left 5-col Accordion Tabs -->
+            <div class="wb-tabs" role="tablist" aria-label="CircuitForge Studio captures">
+              <div class="wb-tab open selected" data-caption="Captured live · 74LS93 Binary Counter + LED Bargraph" data-href="/studio?example=counter">
+                <button class="wb-tab-btn" type="button" role="tab" aria-expanded="true">
+                  <div class="wb-tab-top">
+                    <div class="wb-tab-title-wrap">
+                      <span class="wb-tab-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4"/></svg>
+                      </span>
+                      <span class="wb-tab-title">Live breadboard simulation</span>
+                    </div>
+                    <svg class="wb-tab-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="m9 18 6-6-6-6"/></svg>
+                  </div>
+                  <div class="wb-tab-body">
+                    <div>
+                      <p>Wires color-code HIGH (red) and LOW (blue) in real time as LEDs, counters, and switches respond on the board.</p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              <div class="wb-tab" data-caption="Captured live · 14-Board 47-IC 8-Bit SAP-1 CPU" data-href="/studio?example=powers">
+                <button class="wb-tab-btn" type="button" role="tab" aria-expanded="false">
+                  <div class="wb-tab-top">
+                    <div class="wb-tab-title-wrap">
+                      <span class="wb-tab-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                      </span>
+                      <span class="wb-tab-title">Boot an 8-bit breadboard CPU</span>
+                    </div>
+                    <svg class="wb-tab-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="m9 18 6-6-6-6"/></svg>
+                  </div>
+                  <div class="wb-tab-body">
+                    <div>
+                      <p>Fourteen linked breadboards, 47 TTL chips, and 773 wires executing Powers of 2 and Fibonacci programs live.</p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              <div class="wb-tab" data-caption="Captured live · RC Charge Curve + Analog Logic Analyzer" data-href="/studio?example=rc">
+                <button class="wb-tab-btn" type="button" role="tab" aria-expanded="false">
+                  <div class="wb-tab-top">
+                    <div class="wb-tab-title-wrap">
+                      <span class="wb-tab-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 12h4l3-7 6 14 3-7h4"/></svg>
+                      </span>
+                      <span class="wb-tab-title">Probe live analog waveforms</span>
+                    </div>
+                    <svg class="wb-tab-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="m9 18 6-6-6-6"/></svg>
+                  </div>
+                  <div class="wb-tab-body">
+                    <div>
+                      <p>Press buttons on the board and watch real capacitor charge and discharge curves plot live on the analyzer.</p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              <div class="wb-tab" data-caption="Captured live · Export Studio (IEEE Schematic &amp; Lab Report)" data-href="/studio?example=555">
+                <button class="wb-tab-btn" type="button" role="tab" aria-expanded="false">
+                  <div class="wb-tab-top">
+                    <div class="wb-tab-title-wrap">
+                      <span class="wb-tab-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                      </span>
+                      <span class="wb-tab-title">Export schematics &amp; lab sheets</span>
+                    </div>
+                    <svg class="wb-tab-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="m9 18 6-6-6-6"/></svg>
+                  </div>
+                  <div class="wb-tab-body">
+                    <div>
+                      <p>Switch between breadboard views, IEEE/IEC schematics, BOM tables, and printable A4 lab reports in one modal.</p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <!-- Right 7-col Real Recorded Simulator GIF Stage -->
+            <div class="wb-stage-wrap">
+              <div class="beams-layer beams-layer--stage" data-beams="36" aria-hidden="true"></div>
+              <div class="wb-stage-vignette" aria-hidden="true"></div>
+
+              <div class="wb-media-frame">
+                <video class="wb-media-item active" autoplay loop muted playsinline preload="auto" poster="assets/demos/showcase-breadboard.webp" aria-label="CircuitForge Studio simulating a tidy 74LS93 binary counter on a breadboard">
+                  <source src="assets/demos/showcase-breadboard.mp4" type="video/mp4">
+                </video>
+                <video class="wb-media-item" loop muted playsinline preload="metadata" poster="assets/demos/showcase-sap1.webp" aria-label="CircuitForge Studio simulating the tidy 14-board 8-bit SAP-1 breadboard computer">
+                  <source src="assets/demos/showcase-sap1.mp4" type="video/mp4">
+                </video>
+                <video class="wb-media-item" loop muted playsinline preload="metadata" poster="assets/demos/showcase-instruments.webp" aria-label="CircuitForge Studio plotting live RC capacitor charge and discharge waveforms on the Logic Analyzer">
+                  <source src="assets/demos/showcase-instruments.mp4" type="video/mp4">
+                </video>
+                <video class="wb-media-item" loop muted playsinline preload="metadata" poster="assets/demos/showcase-export.webp" aria-label="CircuitForge Export Studio rendering IEEE schematics and A4 engineering lab reports">
+                  <source src="assets/demos/showcase-export.mp4" type="video/mp4">
+                </video>
+              </div>
+
+              <div class="wb-stage-bar">
+                <span class="wb-live-label">
+                  <i class="wb-live-dot" aria-hidden="true"></i>
+                  <span id="wb-live-text">Captured live · 74LS93 Binary Counter + LED Bargraph</span>
+                </span>
+                <a id="wb-open-link" href="/studio?example=counter" class="wb-open-link">
+                  <span>Open in Studio</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <svg class="tick-l" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+          <svg class="tick-r" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ PARTS CATALOG MARQUEE ============================ -->
+    <section id="parts" class="band">
+      <div class="frame">
+        <div class="rail-box pad-section">
+          <div class="split-12">
+            <div class="lib-copy">
+              <span class="eyebrow reveal reveal--drop" style="--d:120ms">- PARTS LIBRARY</span>
+              <h2 class="sec-title reveal">117 parts ready to drop on the board.</h2>
+              <p class="desc reveal" style="--d:120ms">
+                Passives, diodes, transistors, 74xx logic, op-amps, regulators, displays, microcontrollers, and bench instruments with accurate pin labels.
+              </p>
+              <a href="/studio" class="btn-white reveal">Browse Library</a>
+            </div>
+
+            <div class="tile-rows" aria-label="Component families in CircuitForge Studio">
+              <!-- Row 1: reverse (right) -->
+              <div class="tile-row-wrap">
+                <div class="marquee-track marquee-track--tiles marquee-track--reverse">
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="5" width="12" height="14" rx="2"/><path d="M3 9h3M3 15h3M18 9h3M18 15h3"/></svg><span>NE555</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h7a6 6 0 0 1 0 12H4z"/><circle cx="19" cy="12" r="2"/></svg><span>74HC00</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 6h7a6 6 0 0 1 0 12H5z"/></svg><span>74HC08</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 12h6M12 9v6"/></svg><span>74LS74</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="6" width="16" height="12" rx="2"/><path d="M8 10v4M12 10v4M16 10v4"/></svg><span>74LS93</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4"/></svg><span>74LS161</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12h16M15 7l5 5-5 5M9 7l-5 5 5 5"/></svg><span>74LS245</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 9h8M8 15h8"/></svg><span>28C16</span></div>
+                  <!-- Duplicate -->
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="5" width="12" height="14" rx="2"/><path d="M3 9h3M3 15h3M18 9h3M18 15h3"/></svg><span>NE555</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h7a6 6 0 0 1 0 12H4z"/><circle cx="19" cy="12" r="2"/></svg><span>74HC00</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 6h7a6 6 0 0 1 0 12H5z"/></svg><span>74HC08</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 12h6M12 9v6"/></svg><span>74LS74</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="6" width="16" height="12" rx="2"/><path d="M8 10v4M12 10v4M16 10v4"/></svg><span>74LS93</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4"/></svg><span>74LS161</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12h16M15 7l5 5-5 5M9 7l-5 5 5 5"/></svg><span>74LS245</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 9h8M8 15h8"/></svg><span>28C16</span></div>
+                </div>
+              </div>
+
+              <!-- Row 2: normal (left) -->
+              <div class="tile-row-wrap">
+                <div class="marquee-track marquee-track--tiles">
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="5,4 19,12 5,20"/></svg><span>LM358</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="4" width="12" height="10" rx="1.5"/><path d="M9 14v6M12 14v6M15 14v6"/></svg><span>LM317</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M9 8v8M9 12H5M9 10l5-4M9 14l5 4"/></svg><span>2N2222</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12h5M9 6v12M13 6v12M13 8h7M13 16h7"/></svg><span>2N7000</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h6M15 12h6"/><polygon points="9,7 15,12 9,17"/><path d="M15 7v10"/></svg><span>1N4148</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12h4l1.5-4 3 8 3-8 3 8 1.5-4h4"/></svg><span>RES</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h7M14 12h7M10 6v12M14 6v12"/></svg><span>CAP</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="7"/><path d="M12 12l4-4"/></svg><span>POT</span></div>
+                  <!-- Duplicate -->
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="5,4 19,12 5,20"/></svg><span>LM358</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="4" width="12" height="10" rx="1.5"/><path d="M9 14v6M12 14v6M15 14v6"/></svg><span>LM317</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M9 8v8M9 12H5M9 10l5-4M9 14l5 4"/></svg><span>2N2222</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12h5M9 6v12M13 6v12M13 8h7M13 16h7"/></svg><span>2N7000</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h6M15 12h6"/><polygon points="9,7 15,12 9,17"/><path d="M15 7v10"/></svg><span>1N4148</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12h4l1.5-4 3 8 3-8 3 8 1.5-4h4"/></svg><span>RES</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h7M14 12h7M10 6v12M14 6v12"/></svg><span>CAP</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="7"/><path d="M12 12l4-4"/></svg><span>POT</span></div>
+                </div>
+              </div>
+
+              <!-- Row 3: reverse (right) -->
+              <div class="tile-row-wrap">
+                <div class="marquee-track marquee-track--tiles marquee-track--reverse">
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 12h2l2-4 3 8 2-4h3"/></svg><span>UT2062B</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="2" width="14" height="20" rx="2"/><rect x="8" y="5" width="8" height="5" rx="1"/><circle cx="12" cy="16" r="3"/></svg><span>DMM</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M2 8h3M2 12h3M2 16h3M19 8h3M19 12h3M19 16h3"/></svg><span>ATMEGA</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 9h6M9 13h6"/></svg><span>ESP32</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M9 7h6M9 12h6M9 17h6"/></svg><span>7-SEG</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10v4M11 10v4M15 10v4"/></svg><span>BAR10</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 16h4V8h5v8h5V8h4"/></svg><span>CLOCK</span></div>
+                  <div class="part-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="11" r="5"/><path d="M10 16v4M14 16v4"/></svg><span>LED</span></div>
+                  <!-- Duplicate -->
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 12h2l2-4 3 8 2-4h3"/></svg><span>UT2062B</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="2" width="14" height="20" rx="2"/><rect x="8" y="5" width="8" height="5" rx="1"/><circle cx="12" cy="16" r="3"/></svg><span>DMM</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M2 8h3M2 12h3M2 16h3M19 8h3M19 12h3M19 16h3"/></svg><span>ATMEGA</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 9h6M9 13h6"/></svg><span>ESP32</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M9 7h6M9 12h6M9 17h6"/></svg><span>7-SEG</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10v4M11 10v4M15 10v4"/></svg><span>BAR10</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 16h4V8h5v8h5V8h4"/></svg><span>CLOCK</span></div>
+                  <div class="part-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="11" r="5"/><path d="M10 16v4M14 16v4"/></svg><span>LED</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <svg class="tick-l" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+          <svg class="tick-r" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ STARTER CIRCUITS (3-COL GRID) ============================ -->
+    <section id="examples" class="band">
+      <div class="frame">
+        <div class="rail-box examples-pad">
+          <div class="examples-top">
+            <div>
+              <span class="eyebrow reveal reveal--drop" style="--d:120ms">- STARTER BOARDS</span>
+              <h2 class="sec-title reveal">Open a working board in one click.</h2>
+
+              <div class="filter-pills reveal" role="group" aria-label="Filter starter circuits">
+                <button type="button" class="filter-pill active" data-track-filter="all">All <span class="tag-pill">7 BOARDS</span></button>
+                <button type="button" class="filter-pill" data-track-filter="digital">Digital</button>
+                <button type="button" class="filter-pill" data-track-filter="analog">Analog</button>
+              </div>
+            </div>
+
+            <div class="examples-note reveal" style="--d:120ms">
+              <p>Each starter circuit loads straight onto the breadboard with designators, wires, and probes attached.</p>
+              <div class="examples-badge">
+                <span class="examples-badge-icon" aria-hidden="true">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg>
+                </span>
+                <span>Free in browser · No sign-up</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="tiers-grid">
+            <article class="tier-card reveal" data-track="digital">
+              <div>
+                <a href="/studio?example=counter" class="tier-thumb" aria-label="Preview Digital Logic board">
+                  <img src="assets/demos/showcase-breadboard.webp" alt="74LS93 Binary Counter on CircuitForge breadboard" loading="lazy">
+                </a>
+                <div class="tier-head">
+                  <h3>Digital Logic</h3>
+                </div>
+                <div class="tier-stat">
+                  <strong data-count="117" data-suffix="+">117+</strong>
+                  <span>catalog parts</span>
+                </div>
+                <p class="tier-desc">Gates, flip-flops, and 4-bit ripple counters wired on a half breadboard.</p>
+                <ul class="tier-list">
+                  <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg><span>7408 AND gate + switches</span></li>
+                  <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg><span>7493 4-bit binary counter</span></li>
+                  <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg><span>LED bargraph &amp; 7-segment</span></li>
+                  <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg><span>Multi-channel logic analyzer</span></li>
+                </ul>
+              </div>
+              <a href="/studio?example=counter" class="tier-btn">Load Binary Counter</a>
+            </article>
+
+            <article class="tier-card tier-card--featured reveal" data-track="digital" style="--d:80ms">
+              <div>
+                <a href="/studio?example=powers" class="tier-thumb" aria-label="Preview 8-Bit SAP-1 CPU">
+                  <img src="assets/demos/showcase-sap1.webp" alt="14-Board 8-Bit SAP-1 Breadboard CPU in CircuitForge Studio" loading="lazy">
+                </a>
+                <div class="tier-head">
+                  <h3>8-Bit SAP-1 CPU</h3>
+                  <span class="tier-badge">Flagship</span>
+                </div>
+                <div class="tier-stat">
+                  <strong data-count="14">14</strong>
+                  <span>breadboards · 47 ICs</span>
+                </div>
+                <p class="tier-desc">Full discrete TTL computer with ALU, RAM, EEPROM microcode, and 7-segment output.</p>
+                <ul class="tier-list">
+                  <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg><span>Powers of 2 doubling loop</span></li>
+                  <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg><span>Fibonacci (0 to 233)</span></li>
+                  <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg><span>Hardware multiply (7 × 9)</span></li>
+                  <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg><span>Manual step &amp; speed pot</span></li>
+                </ul>
+              </div>
+              <a href="/studio?example=powers" class="tier-btn tier-btn--solid">Boot SAP-1 CPU</a>
+            </article>
+
+            <article class="tier-card reveal" data-track="analog" style="--d:160ms">
+              <div>
+                <a href="/studio?example=rc" class="tier-thumb" aria-label="Preview Analog & Timing lab">
+                  <img src="assets/demos/showcase-instruments.webp" alt="RC Charge and Discharge transient waveform in CircuitForge Studio" loading="lazy">
+                </a>
+                <div class="tier-head">
+                  <h3>Analog &amp; Timing</h3>
+                </div>
+                <div class="tier-stat">
+                  <strong data-count="60">60</strong>
+                  <span>FPS MNA solver</span>
+                </div>
+                <p class="tier-desc">RC transients, 555 oscillators, op-amps, and voltage regulators probed live.</p>
+                <ul class="tier-list">
+                  <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg><span>NE555 astable LED blinker</span></li>
+                  <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg><span>RC charge &amp; discharge lab</span></li>
+                  <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg><span>UT2062B scope &amp; DMM</span></li>
+                  <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6 9 17l-5-5"/></svg><span>IEEE/IEC schematic export</span></li>
+                </ul>
+              </div>
+              <a href="/studio?example=555" class="tier-btn">Load 555 Blinker</a>
+            </article>
+          </div>
+
+          <svg class="tick-l" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+          <svg class="tick-r" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ FAQs ============================ -->
+    <section id="faqs" class="band">
+      <div class="frame">
+        <div class="rail-box pad-section">
+          <div class="faq-layout">
+            <div>
+              <span class="eyebrow reveal reveal--drop" style="--d:120ms">- FAQs</span>
+              <h2 class="sec-title reveal">Questions about CircuitForge?</h2>
+            </div>
+
+            <div class="faq-list">
+              <div class="faq-item reveal reveal--card" style="--d:0ms">
+                <button class="faq-q" type="button" aria-expanded="false">
+                  <span>Does it simulate real voltages or only digital 1s and 0s?</span>
+                  <svg class="faq-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="faq-a">
+                  <div>
+                    <p>It solves real node voltages and currents using Modified Nodal Analysis alongside 74xx digital and MCU models. Capacitors follow RC curves, LEDs enforce forward drop and burnout limits, and op-amps saturate at their supply rails.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="faq-item reveal reveal--card" style="--d:80ms">
+                <button class="faq-q" type="button" aria-expanded="false">
+                  <span>Do I need to install anything or create an account?</span>
+                  <svg class="faq-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="faq-a">
+                  <div>
+                    <p>No. CircuitForge runs locally in your browser, auto-saves to local storage, and exports circuits as .cforge.json files.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="faq-item reveal reveal--card" style="--d:160ms">
+                <button class="faq-q" type="button" aria-expanded="false">
+                  <span>Is the 8-bit SAP-1 computer actually built from discrete chips?</span>
+                  <svg class="faq-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="faq-a">
+                  <div>
+                    <p>Yes. All 14 breadboards contain 47 real 74xx ICs and 773 wires: clock, program counter, MAR, 16-byte RAM, instruction register, ALU, output decoder, and EEPROM control logic.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="faq-item reveal reveal--card" style="--d:240ms">
+                <button class="faq-q" type="button" aria-expanded="false">
+                  <span>What formats can Export Studio generate?</span>
+                  <svg class="faq-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="faq-a">
+                  <div>
+                    <p>IEEE/ANSI and IEC/DIN vector SVGs, 3× PNGs, BOM tables, CSV waveform captures, and A4 engineering lab reports ready to save as PDF.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="faq-item reveal reveal--card" style="--d:320ms">
+                <button class="faq-q" type="button" aria-expanded="false">
+                  <span>What can the built-in AI Copilot do?</span>
+                  <svg class="faq-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="faq-a">
+                  <div>
+                    <p>It can place any of the 117 parts on the breadboard, wire nets cleanly, inspect your existing circuit for shorts or missing power, and probe output voltages.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <svg class="tick-l" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+          <svg class="tick-r" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ BOTTOM CTA ============================ -->
+    <section id="cta" class="band">
+      <div class="frame">
+        <div class="rail-box cta-inner">
+          <div class="beams-layer" data-beams="36" aria-hidden="true"></div>
+          <div class="cta-vignette" aria-hidden="true"></div>
+
+          <div class="cta-content">
+            <h2 class="reveal">Ready to wire something real?</h2>
+            <p class="reveal" style="--d:120ms">Open an empty breadboard or boot a 14-board 8-bit CPU directly in your browser.</p>
+            <a href="/studio" class="btn-white btn-white--nudge reveal" style="--d:160ms">
+              <span>Open Studio</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>
+            </a>
+          </div>
+
+          <svg class="tick-l" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+          <svg class="tick-r" width="10" height="9" viewBox="0 0 10 9" aria-hidden="true"><path d="M0 0L10 0L5 9Z" fill="currentColor"/></svg>
+        </div>
+      </div>
+    </section>
+
   </main>
 
-  <aside class="inspector" id="inspector">
-    <div class="pane-resizer insp-resizer" id="insp-resizer" title="Drag to resize Inspector · Double-click to reset"></div>
-    <div class="insp-tabs" role="tablist">
-      <button class="insp-tab on" id="tab-inspector" role="tab" aria-selected="true">Inspector</button>
-      <button class="insp-tab" id="tab-ai" role="tab" aria-selected="false" title="AI Copilot (⌘K)">
-        <span class="ai-spark">✦</span> AI Copilot
-      </button>
+  <!-- ============================ FOOTER ============================ -->
+  <footer class="band band--footer">
+    <div class="frame">
+      <div class="rail-box">
+        <div class="footer-top">
+          <div class="footer-brand">
+            <a href="#" class="brand-link reveal">
+              <span class="cf-logo" aria-hidden="true"></span>
+              <span>CircuitForge</span>
+            </a>
+            <p class="reveal" style="--d:120ms">Real-time breadboard circuit simulator with MNA analog physics, 74xx logic, bench instruments, and Export Studio.</p>
+          </div>
+
+          <div class="footer-cols">
+            <div class="footer-col">
+              <h4>Studio</h4>
+              <ul>
+                <li><a href="/studio">New Circuit</a></li>
+                <li><a href="/studio?example=powers">SAP-1 Powers of 2</a></li>
+                <li><a href="/studio?example=fibonacci">SAP-1 Fibonacci</a></li>
+                <li><a href="/studio?example=multiply">SAP-1 Multiply</a></li>
+              </ul>
+            </div>
+
+            <div class="footer-col">
+              <h4>Examples</h4>
+              <ul>
+                <li><a href="/studio?example=555">555 Blinker</a></li>
+                <li><a href="/studio?example=counter">Binary Counter</a></li>
+                <li><a href="/studio?example=rc">RC Charge Lab</a></li>
+                <li><a href="/studio?example=and">AND Gate</a></li>
+              </ul>
+            </div>
+
+            <div class="footer-col">
+              <h4>Sections</h4>
+              <ul>
+                <li><a href="#engine">Engine</a></li>
+                <li><a href="#showcase">Showcase</a></li>
+                <li><a href="#parts">Parts</a></li>
+                <li><a href="#faqs">FAQs</a></li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- Dashed-outline lowercase watermark matching Relay's /footer-watermark.svg -->
+          <svg class="footer-watermark" viewBox="0 0 920 180" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <text x="905" y="148" text-anchor="end" font-family="Urbanist, sans-serif" font-size="146" font-weight="600" letter-spacing="-4" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="1.2" stroke-dasharray="4 4">circuitforge</text>
+          </svg>
+        </div>
+
+        <div class="footer-bottom">
+          <span>© 2026 CircuitForge Studio.</span>
+          <div class="footer-legal">
+            <a href="/studio">Open Studio</a>
+            <a href="#engine">Engine</a>
+            <a href="#examples">Examples</a>
+          </div>
+        </div>
+      </div>
     </div>
-    <div id="inspector-body"></div>
-    <div id="ai-body" class="ai-body" hidden></div>
-  </aside>
+  </footer>
 
-  <div id="tip" class="tip"></div>
-  <div id="toast" class="toast"></div>
-  <div id="menu" class="menu"></div>
-
-  <script type="module" src="src/main.js"></script>
 </body>
 </html>

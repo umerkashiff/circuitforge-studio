@@ -137,26 +137,72 @@ const cssFileName = `app.${cssHash}.css`;
 fs.writeFileSync(path.join(assetsDir, cssFileName), finalCss, 'utf8');
 console.log(`✅ Minified CSS generated: assets/${cssFileName} (${(finalCss.length / 1024).toFixed(1)} KB)`);
 
-// 6. Copy static assets (favicon, etc.)
+// 6. Copy static assets (favicon, recorded demo GIFs, etc.)
 if (fs.existsSync(path.join(root, 'favicon.svg'))) {
   fs.copyFileSync(path.join(root, 'favicon.svg'), path.join(dist, 'favicon.svg'));
 }
+const demosSrc = path.join(root, 'assets', 'demos');
+if (fs.existsSync(demosSrc)) {
+  const demosDest = path.join(assetsDir, 'demos');
+  fs.mkdirSync(demosDest, { recursive: true });
+  for (const f of fs.readdirSync(demosSrc)) {
+    fs.copyFileSync(path.join(demosSrc, f), path.join(demosDest, f));
+  }
+  console.log(`✅ Copied ${fs.readdirSync(demosSrc).length} demo media files to dist/assets/demos/`);
+}
 
-// 7. Generate production index.html
-console.log('📄 Generating production index.html...');
-let html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+// 7. Generate production studio.html (Simulator)
+console.log('📄 Generating production studio.html (Simulator)...');
+let studioHtml = fs.readFileSync(path.join(root, 'studio.html'), 'utf8');
 
 // Replace CSS link and script module
-html = html.replace(/<link\s+rel="stylesheet"\s+href="css\/app\.css">/i, `<link rel="stylesheet" href="assets/${cssFileName}">`);
-html = html.replace(/<script\s+type="module"\s+src="src\/main\.js"><\/script>/i, `<script type="module" src="assets/${jsFileName}"></script>`);
+studioHtml = studioHtml.replace(/<link\s+rel="stylesheet"\s+href="css\/app\.css">/i, `<link rel="stylesheet" href="assets/${cssFileName}">`);
+studioHtml = studioHtml.replace(/<script\s+type="module"\s+src="src\/main\.js"><\/script>/i, `<script type="module" src="assets/${jsFileName}"></script>`);
 
 // Add oncontextmenu="return false;" to body tag
-html = html.replace(/<body([^>]*)>/i, '<body$1 oncontextmenu="return false;">');
+studioHtml = studioHtml.replace(/<body([^>]*)>/i, '<body$1 oncontextmenu="return false;">');
 
 // Strip HTML comments
-html = html.replace(/<!--[\s\S]*?-->/g, '');
+studioHtml = studioHtml.replace(/<!--[\s\S]*?-->/g, '');
 
-fs.writeFileSync(path.join(dist, 'index.html'), html, 'utf8');
-console.log('✅ Production index.html created!');
+fs.writeFileSync(path.join(dist, 'studio.html'), studioHtml, 'utf8');
+console.log('✅ Production studio.html created!');
+
+// 8. Build lightweight, fast landing page (dist/index.html)
+console.log('✨ Bundling & minifying landing page assets...');
+const landingJsRes = await esbuild.build({
+  entryPoints: [path.join(root, 'src', 'landing.js')],
+  bundle: true,
+  minify: true,
+  sourcemap: false,
+  legalComments: 'none',
+  write: false,
+});
+const landingJs = landingJsRes.outputFiles[0].text;
+const landingJsHash = crypto.createHash('md5').update(landingJs).digest('hex').slice(0, 8);
+const landingJsName = `landing.${landingJsHash}.js`;
+fs.writeFileSync(path.join(assetsDir, landingJsName), landingJs, 'utf8');
+console.log(`✅ Built landing JS: assets/${landingJsName} (${(landingJs.length / 1024).toFixed(1)} KB)`);
+
+const landingCssRes = await esbuild.build({
+  entryPoints: [path.join(root, 'css', 'landing.css')],
+  bundle: true,
+  minify: true,
+  sourcemap: false,
+  legalComments: 'none',
+  write: false,
+});
+const landingCss = landingCssRes.outputFiles[0].text;
+const landingCssHash = crypto.createHash('md5').update(landingCss).digest('hex').slice(0, 8);
+const landingCssName = `landing.${landingCssHash}.css`;
+fs.writeFileSync(path.join(assetsDir, landingCssName), landingCss, 'utf8');
+console.log(`✅ Built landing CSS: assets/${landingCssName} (${(landingCss.length / 1024).toFixed(1)} KB)`);
+
+let landingHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+landingHtml = landingHtml.replace(/<link\s+rel="stylesheet"\s+href="css\/landing\.css">/i, `<link rel="stylesheet" href="assets/${landingCssName}">`);
+landingHtml = landingHtml.replace(/<script\s+defer\s+src="src\/landing\.js"><\/script>/i, `<script defer src="assets/${landingJsName}"></script>`);
+landingHtml = landingHtml.replace(/<!--[\s\S]*?-->/g, '');
+fs.writeFileSync(path.join(dist, 'index.html'), landingHtml, 'utf8');
+console.log('✅ Production landing index.html created!');
 
 console.log('🎉 Production build complete! Ready for Vercel deployment in dist/');

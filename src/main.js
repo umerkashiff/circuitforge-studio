@@ -111,8 +111,13 @@ class App {
 
     const urlParams = new URLSearchParams(window.location.search);
     const forceReset = urlParams.has('reset') || urlParams.has('new');
+    const exampleQuery = (urlParams.get('example') || '').trim().toLowerCase();
+    const matchedEx = exampleQuery ? EXAMPLES.find(e => e.name.toLowerCase().includes(exampleQuery)) : null;
 
-    if (forceReset || !this.restore()) {
+    if (matchedEx) {
+      this.loadExample(matchedEx, true);
+      this._restoredCam = false;
+    } else if (forceReset || !this.restore()) {
       if (forceReset) {
         try {
           localStorage.removeItem(STORE);
@@ -124,6 +129,10 @@ class App {
     this.resize();
     if (!this._restoredCam) {
       this.fit();
+      if (matchedEx) {
+        if (this.circuit.probes.length) this.ui.toggleAnalyzer(true);
+        this.ui.toast(`Loaded “${matchedEx.name}”`);
+      }
     } else {
       this.ui.syncToolbar();
       this.redraw();
