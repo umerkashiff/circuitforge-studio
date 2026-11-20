@@ -801,6 +801,17 @@ export function probeCircuitLedBehavior(sim, circuit) {
         sampleLeds();
       }
       exercisePressables(sim);
+      if (pressables.length && !allNonOpenLit()) {
+        pressables.forEach(p => { p.ui = { ...(p.ui || {}), pressed: true }; });
+        if (tactiles.length) sim.build(circuit);
+        for (const pat of pats) {
+          pat.forEach((v, k) => setters[k](v));
+          if (switchNeedsRebuild) sim.build(circuit);
+          for (let i = 0; i < 4; i++) sim.step(0.005);
+          sampleLeds();
+          if (allNonOpenLit()) break;
+        }
+      }
     } else if (hasMcu) {
       for (let i = 0; i < 180; i++) {
         sim.step(0.025);

@@ -104,7 +104,7 @@ const PART_HINTS = {
   nmos: ' // Unified pins G,D,S: S->"-", D->load->"+", G > Vth turns on with low Rds(on)',
   pmos: ' // Unified pins G,D,S: S->"+", D->load->"-", pull G below S by >|Vth| to turn on',
   lm7805: ' // Pins IN,GND,OUT: feed IN >= Vreg+2V for steady regulated OUT',
-  lm317: ' // Pins ADJ,OUT,IN: R1(OUT->ADJ, ~240Ω) + R2(ADJ->GND) sets Vout=1.25*(1+R2/R1)',
+  lm317: ' // Pins ADJ,OUT,IN: needs IN>=Vout+2V (use 9V battery/PSU, never 5V, to drive LEDs!). Vreg: R1(OUT->ADJ,240Ω)+R2(ADJ->-); Const-current LED: R(OUT->ADJ,68-100Ω), ADJ->LED.A->-',
   pc817: ' // Isolated DIP-4 A,K,E,C: drive LED (A->K via R) to switch separate ground phototransistor (C->E)',
   lm741: ' // DIP-8 op-amp: power V+(7) & V-(4) (>=4.5V span); supports negative feedback followers & amplifiers',
   lm358: ' // Dual single-supply DIP-8 op-amp: power V+(8) & V-(4); outputs swing down to V-(0.05V)',

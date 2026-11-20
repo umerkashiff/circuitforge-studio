@@ -791,13 +791,16 @@ test('A1.20', '2026-11-20 eval fixes: SI prop parsing, PSU/seg7 aliases, 7414 os
   wire(c151, v2.worldPins()[0], p151[15]); wire(c151, g2.worldPins()[0], p151[7]);
   wire(c151, g2.worldPins()[0], p151[6]); // Strobe G -> GND
   wire(c151, swA.worldPins()[0], p151[10]); wire(c151, swB.worldPins()[0], p151[9]); wire(c151, swC.worldPins()[0], p151[8]);
-  // D0..D7 tied to button (index 3,2,1,0,15? no: D0=pin4(3), D1=3(2), D2=2(1), D3=1(0), D4=15(14), D5=14(13), D6=13(12), D7=12(11))
-  for (const di of [3, 2, 1, 0, 14, 13, 12, 11]) wire(c151, btn.worldPins()[0], p151[di]);
+  // D2 (pin 2, idx 1) wired ONLY to button; other data inputs grounded -> requires toggle=010 + button pressed simultaneously!
+  wire(c151, btn.worldPins()[0], p151[1]);
+  for (const di of [3, 2, 0, 14, 13, 12, 11]) wire(c151, g2.worldPins()[0], p151[di]);
   wire(c151, p151[4], rLed.worldPins()[0]); wire(c151, rLed.worldPins()[1], led.worldPins()[0]); wire(c151, led.worldPins()[1], g2.worldPins()[0]);
   const e151 = new Engine();
   e151.build(c151);
   const combErrs = verifyCombinationalSwitchLiveness(e151, c151);
   assert.equal(combErrs.length, 0, `74151 with toggle+button must pass combinational liveness, got: ${combErrs.join('; ')}`);
+  const muxLedStats = probeCircuitLedBehavior(e151, c151);
+  assert.equal(muxLedStats.filter(s => s.litOnce).length, 1, `74151 with toggle select + single-channel button data must illuminate LED in probeCircuitLedBehavior`);
 
   // 5) LM358 + DC pot + oscilloscope without AC source flagged cleanly
   const cOp = new Circuit();
