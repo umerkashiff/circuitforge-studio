@@ -87,9 +87,6 @@
           "resistor"
         ],
         [
-          "capacitor"
-        ],
-        [
           "vcc",
           "battery",
           "power-supply",
@@ -118,9 +115,6 @@
           "diode"
         ],
         [
-          "capacitor"
-        ],
-        [
           "vcc",
           "battery",
           "power-supply",
@@ -132,7 +126,15 @@
           "bluepill"
         ],
         [
-          "gnd"
+          "gnd",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
         ]
       ],
       "check": "built_clean"
@@ -166,7 +168,15 @@
           "bluepill"
         ],
         [
-          "gnd"
+          "gnd",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
         ]
       ],
       "check": "led_multi"
@@ -251,7 +261,15 @@
           "bluepill"
         ],
         [
-          "gnd"
+          "gnd",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
         ]
       ],
       "check": "built_clean"
@@ -341,7 +359,15 @@
           "bluepill"
         ],
         [
-          "gnd"
+          "gnd",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
         ]
       ],
       "check": "led_multi"
@@ -362,9 +388,6 @@
         ],
         [
           "resistor"
-        ],
-        [
-          "capacitor"
         ],
         [
           "led"
@@ -390,9 +413,6 @@
           "resistor"
         ],
         [
-          "capacitor"
-        ],
-        [
           "buzzer"
         ]
       ],
@@ -414,9 +434,6 @@
         ],
         [
           "resistor"
-        ],
-        [
-          "capacitor"
         ],
         [
           "led"
@@ -746,9 +763,6 @@
         ],
         [
           "resistor"
-        ],
-        [
-          "capacitor"
         ]
       ],
       "check": "scope_ac"
@@ -792,18 +806,9 @@
       "requireTypes": [
         [
           "ic7400"
-        ],
-        [
-          "resistor"
-        ],
-        [
-          "capacitor"
-        ],
-        [
-          "led"
         ]
       ],
-      "check": "led_active"
+      "check": "built_clean"
     },
     "createdAt": "2026-11-19"
   },
@@ -1038,10 +1043,20 @@
           "resistor"
         ],
         [
-          "battery"
+          "battery",
+          "vcc",
+          "power-supply"
         ],
         [
-          "gnd"
+          "gnd",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
         ]
       ],
       "check": "built_clean"
@@ -1145,12 +1160,9 @@
         ],
         [
           "resistor"
-        ],
-        [
-          "capacitor"
         ]
       ],
-      "check": "dmm_valid"
+      "check": "built_clean"
     },
     "createdAt": "2026-11-19"
   },
@@ -1200,7 +1212,15 @@
           "resistor"
         ],
         [
-          "gnd"
+          "gnd",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
         ]
       ],
       "check": "mcu_run"
@@ -1244,9 +1264,6 @@
       "requireTypes": [
         [
           "npn"
-        ],
-        [
-          "capacitor"
         ],
         [
           "resistor"
@@ -1314,5 +1331,339 @@
       "check": "mcu_run"
     },
     "createdAt": "2026-11-19"
+  },
+  {
+    "id": "idea_mwobx3wc_0",
+    "bucket": "curriculum",
+    "name": "Diode Clamping Circuit DC Restoration",
+    "prompt": "Can you build a diode clamping circuit with a function generator and an oscilloscope to show DC restoration on an AC signal?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "funcgen"
+        ],
+        [
+          "oscilloscope"
+        ],
+        [
+          "diode"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwobx3wc_1",
+    "bucket": "curriculum",
+    "name": "BJT Common Base Amplifier",
+    "prompt": "I need to test a BJT common base amplifier circuit on the breadboard and measure its high frequency response with a scope.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "npn"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "vcc",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwobx3wc_2",
+    "bucket": "curriculum",
+    "name": "555 Monostable Timer Touch Switch",
+    "prompt": "Design a 555 timer configured in monostable mode triggered by a button to act as a one-shot pulse generator lighting an LED.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ne555"
+        ],
+        [
+          "button",
+          "tactile",
+          "toggle"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwobx3wc_3",
+    "bucket": "curriculum",
+    "name": "74HC85 4-Bit Magnitude Comparator",
+    "prompt": "Please set up a 7485 4-bit magnitude comparator using DIP switches to compare two 4-bit binary inputs and light up LEDs for greater than, less than, or equal.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7485"
+        ],
+        [
+          "dip4"
+        ],
+        [
+          "dip8"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwobx3wc_4",
+    "bucket": "curriculum",
+    "name": "Op-Amp Voltage Follower Buffer",
+    "prompt": "Can we build an op-amp voltage follower using an LM358 to buffer a high impedance signal source and verify unity gain on the oscilloscope?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "lm358"
+        ],
+        [
+          "funcgen"
+        ],
+        [
+          "oscilloscope"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwobx3wc_5",
+    "bucket": "curriculum",
+    "name": "Adjustable Dual Tracking Power Supply with LM317 and LM337",
+    "prompt": "I want to build a variable voltage regulator circuit using an adjustable regulator and a potentiometer, and check the output with a multimeter.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "lm317"
+        ],
+        [
+          "pot"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "built_clean"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwobx3wc_6",
+    "bucket": "curriculum",
+    "name": "Arduino Uno RGB LED Mood Light",
+    "prompt": "Write an Arduino sketch and hook up an RGB LED with current limiting resistors to create a smooth color fading mood light.",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "wokwi-rgb-led"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "gnd",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwobx3wc_7",
+    "bucket": "curriculum",
+    "name": "Arduino Uno Data Logger with Potentiometer",
+    "prompt": "Connect a slide potentiometer to an analog input on the Arduino Uno and print the mapped values to the serial monitor.",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "wokwi-slide-potentiometer"
+        ],
+        [
+          "gnd",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwobx3wc_8",
+    "bucket": "curriculum",
+    "name": "Schmitt Trigger Inverter Oscillator",
+    "prompt": "Build a square wave relaxation oscillator using a 74HC14 Schmitt trigger inverter, a resistor, and a capacitor, and observe the waveform on the oscilloscope.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7414"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "oscilloscope"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwobx3wc_9",
+    "bucket": "curriculum",
+    "name": "74HC151 8-to-1 Multiplexer Logic Selector",
+    "prompt": "Set up a 74151 8-input multiplexer with toggle switches for select lines and a button for data input, displaying the output on an LED.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic74151"
+        ],
+        [
+          "toggle"
+        ],
+        [
+          "button",
+          "tactile",
+          "toggle"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwobx3wc_10",
+    "bucket": "curriculum",
+    "name": "BJT Darlington Pair High Current Driver",
+    "prompt": "Construct a Darlington pair transistor driver circuit to switch a high-current buzzer using a low-power control switch and a protection diode.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "npn"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "buzzer"
+        ],
+        [
+          "diode"
+        ]
+      ],
+      "check": "buzzer_active"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwobx3wc_11",
+    "bucket": "curriculum",
+    "name": "Arduino Uno Frequency Counter Gate",
+    "prompt": "Use an Arduino Uno to measure the frequency of a square wave pulse train generated by a 555 timer circuit.",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 2,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "ne555"
+        ],
+        [
+          "capacitor"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-20"
   }
 ]

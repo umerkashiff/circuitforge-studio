@@ -27,54 +27,6 @@
       "lastFailed": "2026-11-17"
     },
     {
-      "id": "autoreg_wild_decade_dice",
-      "name": "Electronic 6-LED Roulette / Dice",
-      "prompt": "make an electronic 6-LED roulette wheel with a fast 555 astable clocked thru a pushbutton into cd4017 Q0..Q5 outputs each lighting one LED via 220ohm resistor",
-      "scopes": [],
-      "oracle": {
-        "minParts": 14,
-        "requireTypes": [
-          [
-            "ne555"
-          ],
-          [
-            "ic4017"
-          ],
-          [
-            "led"
-          ]
-        ],
-        "check": "led_multi",
-        "minActiveLeds": 2
-      },
-      "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=<val>) — fix its resistor/driver wiring, check counter/gate inputs, and ensure",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-17",
-      "lastFailed": "2026-11-17"
-    },
-    {
-      "id": "autoreg_wild_7402_nor_sr",
-      "name": "Active-HIGH NOR SR Latch (7402)",
-      "prompt": "make an active-HIGH SR flip-flop latch using 7402 quad NOR chip, two pushbutton switches with pulldown resistors, and two LEDs for Q and Qbar",
-      "scopes": [],
-      "oracle": {
-        "minParts": 7,
-        "requireTypes": [
-          [
-            "ic7402"
-          ],
-          [
-            "led"
-          ]
-        ],
-        "check": "led_active"
-      },
-      "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=<val>) — fix its resistor/driver wiring, check counter/gate inputs, and ensure",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-17",
-      "lastFailed": "2026-11-17"
-    },
-    {
       "id": "autoreg_comb_bool_006",
       "name": "Boolean Y = A' + B' * C (nand)",
       "prompt": "bild Y = A' + B' * C using ONLY NAND gates (ic7400) with a DIP4 switch and an output LED + 220ohm resister",
@@ -130,18 +82,9 @@
         "requireTypes": [
           [
             "ic7400"
-          ],
-          [
-            "resistor"
-          ],
-          [
-            "capacitor"
-          ],
-          [
-            "led"
           ]
         ],
-        "check": "led_active"
+        "check": "built_clean"
       },
       "signature": "missing expected type (resistor)",
       "tier": "T2_SILENT_DEAD",
@@ -168,145 +111,6 @@
       "lastFailed": "2026-11-19"
     },
     {
-      "id": "autoreg_reg_555_blinker",
-      "name": "555 Astable LED Blinker + Scope",
-      "prompt": "Build a 555 timer astable LED blinker around 2Hz with resistors, capacitor, red LED and oscilloscope on the output",
-      "scopes": [],
-      "oracle": {
-        "minParts": 5,
-        "requireTypes": [
-          [
-            "ne555"
-          ],
-          [
-            "led"
-          ],
-          [
-            "oscilloscope"
-          ]
-        ],
-        "check": "scope_ac"
-      },
-      "signature": "IC \"<ref>\" (ne555): No power — pin # (VCC) needs +<val> and pin # (GND) needs ground.. Ensure \"V*.#\"->\"+\", \"G*.#\"->\"-\", \"U*.VCC\"->\"+\", \"U*.G",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-19",
-      "lastFailed": "2026-11-19"
-    },
-    {
-      "id": "autoreg_idea_mwnd6cwb_1",
-      "name": "BJT Common Collector Emitter Follower",
-      "prompt": "I need a transistor circuit where the output follows the input voltage with high input impedance. Let's use an NPN transistor in a common collector configuration.",
-      "scopes": [],
-      "oracle": {
-        "minParts": 3,
-        "requireTypes": [
-          [
-            "npn"
-          ],
-          [
-            "resistor"
-          ],
-          [
-            "battery"
-          ],
-          [
-            "gnd"
-          ]
-        ],
-        "check": "built_clean"
-      },
-      "signature": "missing expected type (battery)",
-      "tier": "T2_SILENT_DEAD",
-      "firstFailed": "2026-11-19",
-      "lastFailed": "2026-11-19"
-    },
-    {
-      "id": "autoreg_idea_mwnd6cwb_5",
-      "name": "Adjustable Dual-Rail Supply with LM317",
-      "prompt": "Design a regulated power supply circuit using an LM317 adjustable voltage regulator along with resistors and a potentiometer to tune the output voltage.",
-      "scopes": [],
-      "oracle": {
-        "minParts": 3,
-        "requireTypes": [
-          [
-            "lm317"
-          ],
-          [
-            "pot"
-          ],
-          [
-            "resistor"
-          ],
-          [
-            "capacitor"
-          ]
-        ],
-        "check": "dmm_valid"
-      },
-      "signature": "multimeter produced no valid finite reading (---- / OL / LIVE V!)",
-      "tier": "T2_SILENT_DEAD",
-      "firstFailed": "2026-11-19",
-      "lastFailed": "2026-11-19"
-    },
-    {
-      "id": "autoreg_idea_mwnd6cwb_5_typo",
-      "name": "Adjustable Dual-Rail Supply with LM317 (typos)",
-      "prompt": "Design a regulated power supply circuit uisng an LM317 adjustable voltage regulator along with resistors and a potentiometer to tune the output voltage.",
-      "scopes": [],
-      "oracle": {
-        "minParts": 3,
-        "requireTypes": [
-          [
-            "lm317"
-          ],
-          [
-            "pot"
-          ],
-          [
-            "resistor"
-          ],
-          [
-            "capacitor"
-          ]
-        ],
-        "check": "dmm_valid"
-      },
-      "signature": "missing expected type (capacitor)",
-      "tier": "T2_SILENT_DEAD",
-      "firstFailed": "2026-11-19",
-      "lastFailed": "2026-11-19"
-    },
-    {
-      "id": "autoreg_idea_mwnd6cwb_7",
-      "name": "Arduino Uno I2C Temperature and Humidity Logger Simulation",
-      "prompt": "Set up an Arduino Uno to interface with a sensor module and print telemetry data, using an LED indicator to show successful readings.",
-      "scopes": [
-        "uno"
-      ],
-      "oracle": {
-        "minParts": 3,
-        "requireTypes": [
-          [
-            "uno"
-          ],
-          [
-            "led"
-          ],
-          [
-            "resistor"
-          ],
-          [
-            "gnd"
-          ]
-        ],
-        "check": "mcu_run"
-      },
-      "signature": "missing expected type (gnd)",
-      "tier": "T2_SILENT_DEAD",
-      "firstFailed": "2026-11-19",
-      "lastFailed": "2026-11-19"
-    },
-    {
       "id": "autoreg_idea_mwnd6cwb_9",
       "name": "BJT Astable Multivibrator LED Flasher",
       "prompt": "Create a classic two-transistor astable multivibrator circuit that alternately flashes two LEDs using capacitors and resistors.",
@@ -316,9 +120,6 @@
         "requireTypes": [
           [
             "npn"
-          ],
-          [
-            "capacitor"
           ],
           [
             "resistor"
@@ -344,9 +145,6 @@
         "requireTypes": [
           [
             "npn"
-          ],
-          [
-            "capacitor"
           ],
           [
             "resistor"
@@ -388,31 +186,6 @@
       "lastFailed": "2026-11-19"
     },
     {
-      "id": "autoreg_comb_chain_034",
-      "name": "Combinatorial chain #34",
-      "prompt": "design 50Hz funcgen sine wave through a recifier diode bridge rectifier and filter electrolytic cap into 1k 220ohm resiter measured on ut2062b cro scope",
-      "scopes": [],
-      "oracle": {
-        "minParts": 7,
-        "requireTypes": [
-          [
-            "funcgen"
-          ],
-          [
-            "diode"
-          ],
-          [
-            "oscilloscope"
-          ]
-        ],
-        "check": "scope_ac"
-      },
-      "signature": "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC*.CH",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-19",
-      "lastFailed": "2026-11-19"
-    },
-    {
       "id": "autoreg_comb_bool_039",
       "name": "Boolean F = A'B + AB' (nand)",
       "prompt": "make F = A'B + AB' using ONLY NAND gates (ic7400) with a DIP4 switch and an output LED + 220ohm current limiter",
@@ -427,32 +200,6 @@
         "check": "led_active"
       },
       "signature": "Output pins #, #, # are shorted to another output or a supply.",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-19",
-      "lastFailed": "2026-11-19"
-    },
-    {
-      "id": "autoreg_mut_chaser_v004",
-      "name": "Mutated chaser #4",
-      "prompt": "build a knight rider 8 led chaser using lm555 clock chip, cd4017 chip, and 8 indicator leds with resistors",
-      "scopes": [],
-      "oracle": {
-        "minParts": 18,
-        "requireTypes": [
-          [
-            "ne555"
-          ],
-          [
-            "ic4017"
-          ],
-          [
-            "led"
-          ]
-        ],
-        "check": "led_multi",
-        "minActiveLeds": 4
-      },
-      "signature": "IC \"<ref>\" (ne555): No power — pin # (VCC) needs +<val> and pin # (GND) needs ground.. Ensure \"V*.#\"->\"+\", \"G*.#\"->\"-\", \"U*.VCC\"->\"+\", \"U*.G",
       "tier": "T1_BUILD_FAIL",
       "firstFailed": "2026-11-19",
       "lastFailed": "2026-11-19"
@@ -496,30 +243,6 @@
       "lastFailed": "2026-11-19"
     },
     {
-      "id": "autoreg_comb_chain_050",
-      "name": "Combinatorial chain #50",
-      "prompt": "wirre an arduino atmega328 uno sketch scanning 4 LEDs with resistor controlled by a tact button button or trimpot knob",
-      "scopes": [
-        "uno"
-      ],
-      "oracle": {
-        "minParts": 6,
-        "requireTypes": [
-          [
-            "uno"
-          ],
-          [
-            "led"
-          ]
-        ],
-        "check": "mcu_run"
-      },
-      "signature": "MCU runtime error: p10126: i is not defined",
-      "tier": "T2_SILENT_DEAD",
-      "firstFailed": "2026-11-19",
-      "lastFailed": "2026-11-19"
-    },
-    {
       "id": "autoreg_comb_bool_051",
       "name": "Boolean Y = A' + B' * C (nand)",
       "prompt": "wirre Y = A' + B' * C using ONLY NAND gates (ic7400) with toggle switches and an output LED + 220ohm resister",
@@ -558,25 +281,6 @@
       "lastFailed": "2026-11-19"
     },
     {
-      "id": "autoreg_comb_bool_063",
-      "name": "Boolean F = (A & B) | (B & C) | (A & C) (mixed)",
-      "prompt": "design F = (A & B) | (B & C) | (A & C) using 74xx logic gates with a DIP4 switch and an output LED + 220ohm 220ohm resiter",
-      "scopes": [],
-      "oracle": {
-        "minParts": 4,
-        "requireTypes": [
-          [
-            "led"
-          ]
-        ],
-        "check": "led_active"
-      },
-      "signature": "DIP Switch ×# (ref \"<ref>\") S* is an active <val>/<val> output switch; do NOT wire it directly to +<val> or GND (wire \"S*.S*\" directly to yo",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-19",
-      "lastFailed": "2026-11-19"
-    },
-    {
       "id": "autoreg_mut_siren_v006",
       "name": "Mutated siren #6",
       "prompt": "setup a police wailing siren using 2 555 timmer chips where slow timer modulates CV pin of fast timer driving a buzzer",
@@ -597,6 +301,339 @@
       "tier": "T1_BUILD_FAIL",
       "firstFailed": "2026-11-19",
       "lastFailed": "2026-11-19"
+    },
+    {
+      "id": "autoreg_idea_mwobx3wc_3",
+      "name": "74HC85 4-Bit Magnitude Comparator",
+      "prompt": "Please set up a 7485 4-bit magnitude comparator using DIP switches to compare two 4-bit binary inputs and light up LEDs for greater than, less than, or equal.",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "ic7485"
+          ],
+          [
+            "dip4"
+          ],
+          [
+            "dip8"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "missing expected type (dip8)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-20",
+      "lastFailed": "2026-11-20"
+    },
+    {
+      "id": "autoreg_idea_mwobx3wc_4",
+      "name": "Op-Amp Voltage Follower Buffer",
+      "prompt": "Can we build an op-amp voltage follower using an LM358 to buffer a high impedance signal source and verify unity gain on the oscilloscope?",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "lm358"
+          ],
+          [
+            "funcgen"
+          ],
+          [
+            "oscilloscope"
+          ],
+          [
+            "resistor"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "missing expected type (funcgen)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-20",
+      "lastFailed": "2026-11-20"
+    },
+    {
+      "id": "autoreg_idea_mwobx3wc_8",
+      "name": "Schmitt Trigger Inverter Oscillator",
+      "prompt": "Build a square wave relaxation oscillator using a 74HC14 Schmitt trigger inverter, a resistor, and a capacitor, and observe the waveform on the oscilloscope.",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "ic7414"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "capacitor"
+          ],
+          [
+            "oscilloscope"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "oscilloscope captured flat/no AC waveform (vpp <= <val>)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-20",
+      "lastFailed": "2026-11-20"
+    },
+    {
+      "id": "autoreg_idea_mwobx3wc_9",
+      "name": "74HC151 8-to-1 Multiplexer Logic Selector",
+      "prompt": "Set up a 74151 8-input multiplexer with toggle switches for select lines and a button for data input, displaying the output on an LED.",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "ic74151"
+          ],
+          [
+            "toggle"
+          ],
+          [
+            "button",
+            "tactile",
+            "toggle"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "Combinational logic check failed: output LED(s) stayed stuck (always OFF) across all # tested switch input patterns! Verify gate/IC wiring a",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-20",
+      "lastFailed": "2026-11-20"
+    },
+    {
+      "id": "autoreg_idea_mwobx3wc_10",
+      "name": "BJT Darlington Pair High Current Driver",
+      "prompt": "Construct a Darlington pair transistor driver circuit to switch a high-current buzzer using a low-power control switch and a protection diode.",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "npn"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "buzzer"
+          ],
+          [
+            "diode"
+          ]
+        ],
+        "check": "buzzer_active"
+      },
+      "signature": "buzzer stayed silent / unconnected (dV <= <val>)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-20",
+      "lastFailed": "2026-11-20"
+    },
+    {
+      "id": "autoreg_idea_mwobx3wc_10_typo",
+      "name": "BJT Darlington Pair High Current Driver (typos)",
+      "prompt": "Construct a Darlington pair transistor driver circuit to switch a high-current bozzer using a low-power control switch and a protection diode.",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "npn"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "buzzer"
+          ],
+          [
+            "diode"
+          ]
+        ],
+        "check": "buzzer_active"
+      },
+      "signature": "buzzer stayed silent / unconnected (dV <= <val>)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-20",
+      "lastFailed": "2026-11-20"
+    },
+    {
+      "id": "autoreg_mut_bar595_v006",
+      "name": "Mutated bar595 #6",
+      "prompt": "build a serial chaser on uno r3 with 74hc595 shift registor shift IC driving an 8 segment bar led array disply",
+      "scopes": [
+        "uno"
+      ],
+      "oracle": {
+        "minParts": 5,
+        "requireTypes": [
+          [
+            "uno"
+          ],
+          [
+            "ic74595"
+          ],
+          [
+            "bargraph"
+          ]
+        ],
+        "check": "bargraph_active"
+      },
+      "signature": "too few parts (# < #)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-20",
+      "lastFailed": "2026-11-20"
+    },
+    {
+      "id": "autoreg_comb_chain_073",
+      "name": "Combinatorial chain #73",
+      "prompt": "bild a 5Hz clock feeding a 7493 counter + 7447 BCD decoder driving a common-anode 7-segment display",
+      "scopes": [],
+      "oracle": {
+        "minParts": 5,
+        "requireTypes": [
+          [
+            "ic7493"
+          ],
+          [
+            "ic7447"
+          ],
+          [
+            "seg7"
+          ]
+        ],
+        "check": "seg7_active"
+      },
+      "signature": "Unknown pin \"COM.#\" on part \"<ref>\" (seg7). Valid pins: [e(##), d(##), COM(##), c(##), DP(##), b(##), a(##), COM(##), f(##), g(##)]",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-20",
+      "lastFailed": "2026-11-20"
+    },
+    {
+      "id": "autoreg_mut_siren_v007",
+      "name": "Mutated siren #7",
+      "prompt": "cretae a police weiling siren using 2 555 chips where slow timer modulates CV pin of fast timer driving a beeper",
+      "scopes": [],
+      "oracle": {
+        "minParts": 8,
+        "requireTypes": [
+          [
+            "ne555"
+          ],
+          [
+            "buzzer"
+          ]
+        ],
+        "check": "buzzer_active"
+      },
+      "signature": "IC \"<ref>\" (ne555): No power — pin # (VCC) needs +<val> and pin # (GND) needs ground.. Ensure \"V*.#\"->\"+\", \"G*.#\"->\"-\", \"U*.VCC\"->\"+\", \"U*.G",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-20",
+      "lastFailed": "2026-11-20"
+    },
+    {
+      "id": "autoreg_comb_bool_090",
+      "name": "Boolean F = A'B'C + ABC' (nand)",
+      "prompt": "make F = A'B'C + ABC' using ONLY NAND gates (ic7400) with a DIP4 switch and an output LED + 220ohm resistor",
+      "scopes": [],
+      "oracle": {
+        "minParts": 4,
+        "requireTypes": [
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "Output pin # is shorted to another output or a supply.",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-20",
+      "lastFailed": "2026-11-20"
+    },
+    {
+      "id": "autoreg_comb_chain_092",
+      "name": "Combinatorial chain #92",
+      "prompt": "bild a 5Hz lm555 astable oscillator drviing cd4017 decde cntr counting 4 LEDs with resister in sequence",
+      "scopes": [],
+      "oracle": {
+        "minParts": 10,
+        "requireTypes": [
+          [
+            "ne555"
+          ],
+          [
+            "ic4017"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_multi",
+        "minActiveLeds": 2
+      },
+      "signature": "IC \"<ref>\" (ne555): No power — pin # (VCC) needs +<val> and pin # (GND) needs ground.. Ensure \"V*.#\"->\"+\", \"G*.#\"->\"-\", \"U*.VCC\"->\"+\", \"U*.G",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-20",
+      "lastFailed": "2026-11-20"
+    },
+    {
+      "id": "autoreg_comb_bool_093",
+      "name": "Boolean F = A(B + C') (nand)",
+      "prompt": "bild F = A(B + C') using ONLY NAND gates (ic7400) with a DIP4 switch and an output LED + 220ohm 220ohm resiter",
+      "scopes": [],
+      "oracle": {
+        "minParts": 4,
+        "requireTypes": [
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "Boolean logic verification failed for F = A(B + C'): when (A=#, B=#, C=#): expected #, got LED ON (#); when (A=#, B=#, C=#): expected #, got",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-20",
+      "lastFailed": "2026-11-20"
+    },
+    {
+      "id": "autoreg_mut_rectifier_v008",
+      "name": "Mutated rectifier #8",
+      "prompt": "design a half-wave rectifier with function generator sine input, 1n4007 1n4007, 1k resistor, capcitor and cro",
+      "scopes": [],
+      "oracle": {
+        "minParts": 5,
+        "requireTypes": [
+          [
+            "funcgen"
+          ],
+          [
+            "diode"
+          ],
+          [
+            "oscilloscope"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "too few parts (# < #)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-20",
+      "lastFailed": "2026-11-20"
     }
   ],
   "resolved": [
@@ -754,6 +791,61 @@
       "id": "autoreg_mut_bjt_driver_v003",
       "signature": "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"BT*.OUT\" directly to its destina",
       "resolvedAt": "2026-11-19"
+    },
+    {
+      "id": "autoreg_wild_decade_dice",
+      "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=<val>) — fix its resistor/driver wiring, check counter/gate inputs, and ensure",
+      "resolvedAt": "2026-11-20"
+    },
+    {
+      "id": "autoreg_wild_7402_nor_sr",
+      "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=<val>) — fix its resistor/driver wiring, check counter/gate inputs, and ensure",
+      "resolvedAt": "2026-11-20"
+    },
+    {
+      "id": "autoreg_reg_555_blinker",
+      "signature": "IC \"<ref>\" (ne555): No power — pin # (VCC) needs +<val> and pin # (GND) needs ground.. Ensure \"V*.#\"->\"+\", \"G*.#\"->\"-\", \"U*.VCC\"->\"+\", \"U*.G",
+      "resolvedAt": "2026-11-20"
+    },
+    {
+      "id": "autoreg_idea_mwnd6cwb_1",
+      "signature": "missing expected type (battery)",
+      "resolvedAt": "2026-11-20"
+    },
+    {
+      "id": "autoreg_idea_mwnd6cwb_5",
+      "signature": "multimeter produced no valid finite reading (---- / OL / LIVE V!)",
+      "resolvedAt": "2026-11-20"
+    },
+    {
+      "id": "autoreg_idea_mwnd6cwb_5_typo",
+      "signature": "missing expected type (capacitor)",
+      "resolvedAt": "2026-11-20"
+    },
+    {
+      "id": "autoreg_idea_mwnd6cwb_7",
+      "signature": "missing expected type (gnd)",
+      "resolvedAt": "2026-11-20"
+    },
+    {
+      "id": "autoreg_comb_chain_034",
+      "signature": "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC*.CH",
+      "resolvedAt": "2026-11-20"
+    },
+    {
+      "id": "autoreg_mut_chaser_v004",
+      "signature": "IC \"<ref>\" (ne555): No power — pin # (VCC) needs +<val> and pin # (GND) needs ground.. Ensure \"V*.#\"->\"+\", \"G*.#\"->\"-\", \"U*.VCC\"->\"+\", \"U*.G",
+      "resolvedAt": "2026-11-20"
+    },
+    {
+      "id": "autoreg_comb_chain_050",
+      "signature": "MCU runtime error: p10126: i is not defined",
+      "resolvedAt": "2026-11-20"
+    },
+    {
+      "id": "autoreg_comb_bool_063",
+      "signature": "DIP Switch ×# (ref \"<ref>\") S* is an active <val>/<val> output switch; do NOT wire it directly to +<val> or GND (wire \"S*.S*\" directly to yo",
+      "resolvedAt": "2026-11-20"
     }
   ]
 }

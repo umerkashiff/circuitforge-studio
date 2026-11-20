@@ -1,8 +1,8 @@
 {
   "cursors": {
-    "wild": 46,
-    "mutation": 65,
-    "combinatorial": 67
+    "wild": 62,
+    "mutation": 101,
+    "combinatorial": 103
   },
   "history": [
     {
@@ -44,6 +44,16 @@
       "totalTokens": 915837,
       "graduated": 25,
       "stopReason": "reached daily call cap (300)"
+    },
+    {
+      "date": "2026-11-20",
+      "dryRun": false,
+      "cases": 154,
+      "pass": 120,
+      "httpCalls": 302,
+      "totalTokens": 858462,
+      "graduated": 11,
+      "stopReason": "reached daily call cap (300)"
     }
   ],
   "signatures": {
@@ -70,9 +80,9 @@
     },
     "oscilloscope captured flat/no AC waveform (vpp <= <val>)": {
       "tier": "T2_SILENT_DEAD",
-      "count": 7,
+      "count": 8,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-19",
+      "lastSeen": "2026-11-20",
       "sampleId": "idea_mwl354p0_4_typo"
     },
     "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"B*.OUT\" directly to its destinat": {
@@ -119,16 +129,16 @@
     },
     "Output pins #, # are shorted to another output or a supply.": {
       "tier": "T1_BUILD_FAIL",
-      "count": 5,
+      "count": 7,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-19",
+      "lastSeen": "2026-11-20",
       "sampleId": "wild_traffic_light_4017"
     },
     "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=<val>) — fix its resistor/driver wiring, check counter/gate inputs, and ensure": {
       "tier": "T1_BUILD_FAIL",
-      "count": 14,
+      "count": 15,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-19",
+      "lastSeen": "2026-11-20",
       "sampleId": "wild_decade_dice"
     },
     "LED \"<ref>\" has an unconnected pin — wire Anode (via #–#Ω resistor) to its driver/signal and Cathode to \"-\".": {
@@ -140,9 +150,9 @@
     },
     "Boolean logic verification failed for Y = A' + B' * C: when (A=#, B=#, C=#): expected #, got LED OFF (#); when (A=#, B=#, C=#): expected #, ": {
       "tier": "T1_BUILD_FAIL",
-      "count": 5,
+      "count": 8,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-19",
+      "lastSeen": "2026-11-20",
       "sampleId": "comb_bool_006"
     },
     "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"BT*.OUT\" directly to its destina": {
@@ -161,9 +171,9 @@
     },
     "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=NC) — fix its resistor/driver wiring, check counter/gate inputs, and ensure se": {
       "tier": "T1_BUILD_FAIL",
-      "count": 8,
+      "count": 9,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-19",
+      "lastSeen": "2026-11-20",
       "sampleId": "comb_chain_013"
     },
     "Short circuit on the supply — it is wired straight to another supply or ground.": {
@@ -287,9 +297,9 @@
     },
     "too few parts (# < #)": {
       "tier": "T2_SILENT_DEAD",
-      "count": 1,
+      "count": 3,
       "firstSeen": "2026-11-19",
-      "lastSeen": "2026-11-19",
+      "lastSeen": "2026-11-20",
       "sampleId": "idea_mwmwtu2f_10"
     },
     "missing expected type (button)": {
@@ -301,16 +311,16 @@
     },
     "Clocked counter ic4017 (\"<ref>\") LED output(s) never toggled over #.#+ clock cycles! Check clock pin, active-high/low resets (tie #/# R*(#)/": {
       "tier": "T1_BUILD_FAIL",
-      "count": 1,
+      "count": 2,
       "firstSeen": "2026-11-19",
-      "lastSeen": "2026-11-19",
+      "lastSeen": "2026-11-20",
       "sampleId": "wild_traffic_light_4017"
     },
     "IC \"<ref>\" (ne555): No power — pin # (VCC) needs +<val> and pin # (GND) needs ground.. Ensure \"V*.#\"->\"+\", \"G*.#\"->\"-\", \"U*.VCC\"->\"+\", \"U*.G": {
       "tier": "T1_BUILD_FAIL",
-      "count": 7,
+      "count": 12,
       "firstSeen": "2026-11-19",
-      "lastSeen": "2026-11-19",
+      "lastSeen": "2026-11-20",
       "sampleId": "comb_chain_032"
     },
     "Shorted outputs / driver contention: U*.1Y and U*.2Y are both driving the same node — never wire two outputs directly together.": {
@@ -357,9 +367,9 @@
     },
     "None of the # wired LED(s) lit up (all <val>)! Check that \"vcc\"->\"+\", \"gnd\"->\"-\", and LED Anodes reach \"+\" (via resistor) and Cathodes reach": {
       "tier": "T1_BUILD_FAIL",
-      "count": 2,
+      "count": 4,
       "firstSeen": "2026-11-19",
-      "lastSeen": "2026-11-19",
+      "lastSeen": "2026-11-20",
       "sampleId": "idea_mwnd6cwb_9"
     },
     "Output pins #, #, # are shorted to another output or a supply.": {
@@ -371,9 +381,9 @@
     },
     "Boolean logic verification failed for Y = (A ^ B) & C: when (A=#, B=#, C=#): expected #, got LED ON (#); when (A=#, B=#, C=#): expected #, g": {
       "tier": "T1_BUILD_FAIL",
-      "count": 1,
+      "count": 2,
       "firstSeen": "2026-11-19",
-      "lastSeen": "2026-11-19",
+      "lastSeen": "2026-11-20",
       "sampleId": "comb_bool_042"
     },
     "MCU runtime error: p10126: i is not defined": {
@@ -403,6 +413,90 @@
       "firstSeen": "2026-11-19",
       "lastSeen": "2026-11-19",
       "sampleId": "mut_siren_v006"
+    },
+    "Unknown pin \"OUT\" on part \"<ref>\" (power-supply). Valid pins: [SLAVE −(##), SLAVE GND(##), SLAVE +(##), MASTER −(##), MASTER GND(##), MASTER": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-20",
+      "lastSeen": "2026-11-20",
+      "sampleId": "autoreg_idea_mwmwtu2e_1"
+    },
+    "Invalid connection endpoint \"<ref>\"": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-20",
+      "lastSeen": "2026-11-20",
+      "sampleId": "autoreg_idea_mwnd6cwb_9"
+    },
+    "Boolean logic verification failed for F = A'B + AB': when (A=#, B=#): expected #, got LED ON (#); when (A=#, B=#): expected #, got LED OFF (": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-20",
+      "lastSeen": "2026-11-20",
+      "sampleId": "autoreg_comb_bool_039"
+    },
+    "Boolean logic verification failed for F = (A & B) | (B & C) | (A & C): when (A=#, B=#, C=#): expected #, got LED OFF (#). Double-check your ": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-20",
+      "lastSeen": "2026-11-20",
+      "sampleId": "autoreg_comb_bool_048"
+    },
+    "missing expected type (dip8)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 2,
+      "firstSeen": "2026-11-20",
+      "lastSeen": "2026-11-20",
+      "sampleId": "idea_mwobx3wc_3"
+    },
+    "missing expected type (funcgen)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 2,
+      "firstSeen": "2026-11-20",
+      "lastSeen": "2026-11-20",
+      "sampleId": "idea_mwobx3wc_4"
+    },
+    "IC \"<ref>\" (ic7414): No power — pin # (VCC) needs +<val> and pin # (GND) needs ground.. Ensure \"V*.#\"->\"+\", \"G*.#\"->\"-\", \"U*.VCC\"->\"+\", \"U*.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-20",
+      "lastSeen": "2026-11-20",
+      "sampleId": "idea_mwobx3wc_8_typo"
+    },
+    "Combinational logic check failed: output LED(s) stayed stuck (always OFF) across all # tested switch input patterns! Verify gate/IC wiring a": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-20",
+      "lastSeen": "2026-11-20",
+      "sampleId": "idea_mwobx3wc_9"
+    },
+    "buzzer stayed silent / unconnected (dV <= <val>)": {
+      "tier": "T2_SILENT_DEAD",
+      "count": 2,
+      "firstSeen": "2026-11-20",
+      "lastSeen": "2026-11-20",
+      "sampleId": "idea_mwobx3wc_10"
+    },
+    "Unknown pin \"COM.#\" on part \"<ref>\" (seg7). Valid pins: [e(##), d(##), COM(##), c(##), DP(##), b(##), a(##), COM(##), f(##), g(##)]": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-20",
+      "lastSeen": "2026-11-20",
+      "sampleId": "comb_chain_073"
+    },
+    "Output pin # is shorted to another output or a supply.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-20",
+      "lastSeen": "2026-11-20",
+      "sampleId": "comb_bool_090"
+    },
+    "Boolean logic verification failed for F = A(B + C'): when (A=#, B=#, C=#): expected #, got LED ON (#); when (A=#, B=#, C=#): expected #, got": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-20",
+      "lastSeen": "2026-11-20",
+      "sampleId": "comb_bool_093"
     }
   }
 }
