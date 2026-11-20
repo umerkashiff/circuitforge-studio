@@ -484,7 +484,9 @@
           "ic7483"
         ],
         [
-          "dip8"
+          "dip8",
+          "dip4",
+          "toggle"
         ],
         [
           "led"
@@ -1430,10 +1432,14 @@
           "ic7485"
         ],
         [
-          "dip4"
+          "dip8",
+          "dip4",
+          "toggle"
         ],
         [
-          "dip8"
+          "dip8",
+          "dip4",
+          "toggle"
         ],
         [
           "led"
@@ -1663,6 +1669,329 @@
         ]
       ],
       "check": "mcu_run"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwp0z4jr_0",
+    "bucket": "curriculum",
+    "name": "Precision Full-Wave Precision Rectifier",
+    "prompt": "Can you build a precision full-wave rectifier using dual op-amps to eliminate diode drop errors for small AC signals?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "lm358"
+        ],
+        [
+          "diode"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "oscilloscope"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwp0z4jr_1",
+    "bucket": "curriculum",
+    "name": "BJT Colpitts RF Oscillator",
+    "prompt": "I need to design a Colpitts oscillator using an NPN transistor and an LC tank circuit to generate a stable sine wave.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "npn"
+        ],
+        [
+          "inductor"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwp0z4jr_2",
+    "bucket": "curriculum",
+    "name": "555 Timer Linear Ramp Generator",
+    "prompt": "Can we create a sawtooth waveform generator by charging a capacitor with a constant current source built around a 555 timer?",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ne555"
+        ],
+        [
+          "npn"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ]
+      ],
+      "check": "built_clean"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwp0z4jr_3",
+    "bucket": "curriculum",
+    "name": "74HC14 Schmitt Trigger Square Wave Generator",
+    "prompt": "Build a classic relaxation oscillator using a single hex schmitt trigger inverter, a resistor, and a capacitor to produce a clean square wave.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7414"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "oscilloscope"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwp0z4jt_4",
+    "bucket": "curriculum",
+    "name": "74HC164 8-Bit Serial-In Parallel-Out Shift Register",
+    "prompt": "Set up a shift register with a clock input and data toggle switch, attaching LEDs to all eight parallel outputs to watch serial data propagate.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "clock"
+        ],
+        [
+          "toggle"
+        ],
+        [
+          "led"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "led_multi"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwp0z4jt_5",
+    "bucket": "curriculum",
+    "name": "Op-Amp Wien Bridge Sine Wave Oscillator",
+    "prompt": "Design an audio-frequency Wien bridge oscillator using an LM358 op-amp and RC feedback network to generate a clean sine wave output.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "lm358"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "oscilloscope"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwp0z4jt_6",
+    "bucket": "curriculum",
+    "name": "Benchtop Variable Current Source with LM317",
+    "prompt": "I want to build a constant current regulator circuit using an LM317 adjustable voltage regulator and a sense resistor to drive high-power LEDs.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "lm317"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "led"
+        ],
+        [
+          "pot",
+          "wokwi-slide-potentiometer",
+          "resistor"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwp0z4jt_7",
+    "bucket": "curriculum",
+    "name": "Arduino Uno Ultrasonic Distance Alarm",
+    "prompt": "Program an Arduino Uno to interface with a distance sensor simulator and sound a buzzer when an obstacle gets too close.",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 2,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "buzzer"
+        ],
+        [
+          "gnd",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwp0z4jt_8",
+    "bucket": "curriculum",
+    "name": "Arduino Uno I2C OLED Stopwatch Timer",
+    "prompt": "Create a lap timer application on the Arduino Uno featuring start/stop tactile buttons and an I2C display interface.",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 2,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "button",
+          "tactile",
+          "toggle"
+        ],
+        [
+          "gnd",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwp0z4jt_9",
+    "bucket": "curriculum",
+    "name": "Op-Amp Active Low-Pass Butterworth Filter",
+    "prompt": "Construct a second-order Sallen-Key active low-pass filter using an operational amplifier and test its frequency response on an oscilloscope.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "lm358"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "funcgen"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwp0z4jt_10",
+    "bucket": "curriculum",
+    "name": "Arduino Uno Keypad Password Door Lock",
+    "prompt": "Simulate a secure digital keypad lock with an Arduino Uno that drives a relay module and indicates status via RGB LEDs.",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 2,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "wokwi-rgb-led"
+        ],
+        [
+          "wokwi-relay-module"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwp0z4jt_11",
+    "bucket": "curriculum",
+    "name": "BJT Astable Multivibrator Touch-Activated Flasher",
+    "prompt": "Build a classic two-transistor astable multivibrator circuit that starts flashing dual LEDs when a touch button completes the bias network.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "npn"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "led_multi"
     },
     "createdAt": "2026-11-20"
   }
