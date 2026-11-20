@@ -6,7 +6,7 @@ import { checkServerKey, fetchModels, callGemini, PREFERRED_GEMINI_MODELS, isGem
 import { buildSystemPrompt, serializeCircuitState } from './context.js';
 import { applyAiBuildPlan } from './builder.js';
 import { createSandbox } from './guide.js';
-import { extractGateConstraints } from './logic_verify.js';
+import { extractBooleanSpec, extractGateConstraints } from './logic_verify.js';
 
 export class AiCopilot {
   constructor(app) {
@@ -104,7 +104,7 @@ export class AiCopilot {
       ];
 
       const waitHook = ({ model, waitMs, reason }) => this._setStatus(`${reason === 'high demand' ? 'High demand' : 'Rate limit'} — retrying ${model} in ${Math.max(1, Math.round(waitMs / 1000))}s…`);
-      const isLogicPuzzle = /\b(boolean|k[-\s]?map|karnaugh|minterm|sop|pos|truth\s*table|demorgan)\b/i.test(prompt)
+      const isLogicPuzzle = (Boolean(extractBooleanSpec(prompt)) || /\b(boolean|k[-\s]?map|karnaugh|minterm|sop|pos|truth\s*table|demorgan|only\s+nand|nand[-\s]+only)\b/i.test(prompt))
         && !/\b(\d+\s+(?:nand|nor|chips?|ics?|leds?)|phases?|stages?|most\s+complex)\b/i.test(prompt);
       const explicitAction = activeMode === 'build' || activeMode === 'guide';
       const hardwareRequest = /\b(build|make|create|wire|connect|add|remove|delete|fix|repair|update|change|modify|guide|walk|step|555|ne555|led|resistor|capacitor|gate|nand|nor|and|or|xor|adder|mux|decoder|encoder|counter|flip|arduino|uno|nano|esp32|scope|oscilloscope|funcgen|psu|circuit|boolean|truth|lab|pin|breadboard|ic|chip|switch|oled|lcd|display|matrix|name|text)\b/i.test(prompt);

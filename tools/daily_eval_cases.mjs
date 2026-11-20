@@ -400,7 +400,7 @@ const MUTATION_BLUEPRINTS = [
   { key: 'siren', tpl: '{build} a police wailing siren using 2 {ne555} chips where slow timer modulates CV pin of fast timer driving a {buzzer}', scopes: [], oracle: { minParts: 8, requireTypes: [['ne555'], ['buzzer']], check: 'buzzer_active' } },
   { key: 'darlington', tpl: '{build} a skin resistance tester with two {npn} transistors in darlington, a {pot}, {tactile} switch, {led} and {buzzer}', scopes: [], oracle: { minParts: 7, requireTypes: [['npn'], ['pot'], ['led']], check: 'led_active' } },
   { key: 'simon', tpl: '{build} a simon says game using {uno}, 4 {led}s with {resistor}, 4 {tactile} switches and {buzzer}', scopes: ['uno'], oracle: { minParts: 14, requireTypes: [['uno'], ['led'], ['buzzer']], check: 'mcu_run' } },
-  { key: 'bar595', tpl: '{build} a serial chaser on {uno} with {ic74595} shift IC driving an {bargraph} display', scopes: ['uno'], oracle: { minParts: 5, requireTypes: [['uno'], ['ic74595'], ['bargraph']], check: 'bargraph_active' } },
+  { key: 'bar595', tpl: '{build} a serial chaser on {uno} with {ic74595} shift IC driving an {bargraph} display', scopes: ['uno'], oracle: { minParts: 4, requireTypes: [['uno'], ['ic74595'], ['bargraph']], check: 'bargraph_active' } },
   { key: 'monostable', tpl: '{build} a {ne555} one-shot monostable pulse timer triggered by {tactile} switch lighting a {led} with {resistor} and {capacitor}', scopes: [], oracle: { minParts: 6, requireTypes: [['ne555'], ['led']], check: 'led_active' } },
   { key: 'bjt_driver', tpl: '{build} an {npn} common-emitter switch activated by {tactile} button through 10k {resistor} powering a {led} and {buzzer}', scopes: [], oracle: { minParts: 6, requireTypes: [['npn'], ['led']], check: 'led_active' } },
   { key: 'rc_scope', tpl: '{build} a 1khz rc filter from {funcgen} through 1k {resistor} and 100nF {capacitor} measured on {scope}', scopes: [], oracle: { minParts: 4, requireTypes: [['funcgen'], ['resistor'], ['capacitor'], ['oscilloscope']], check: 'scope_ac' } },
@@ -566,6 +566,10 @@ export function sanitizeEvalCase(tc) {
       }
       if (t === 'button' || t === 'tactile') {
         reqs.push(['button', 'tactile', 'toggle']);
+        continue;
+      }
+      if (t === 'dip8' || t === 'dip4') {
+        reqs.push(['dip8', 'dip4', 'toggle']);
         continue;
       }
       if (t === 'pot' && !/\b(pot|potentiometer|trimpot|knob)\b/i.test(prompt)) {

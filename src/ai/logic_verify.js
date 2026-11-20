@@ -562,7 +562,7 @@ export function verifyOutputContention(sim, circuit, refById = null) {
 const COUNTER_SEQ_TYPES = new Set(['ic4017', 'ic7490', 'ic7493', 'ic74193', 'ic74194', 'ic74165', 'ic74595']);
 const ALL_SEQ_TYPES = new Set(['ic7474', 'ic7473', 'ic7476', 'ic74112', 'ic4013', ...COUNTER_SEQ_TYPES]);
 
-function collectBinarySwitchSetters(sim, circuit) {
+function collectBinarySwitchSetters(sim, circuit, { includeButtons = false } = {}) {
   const dips = circuit.parts.filter(p => p.type === 'dip4' || p.type === 'dip8');
   const toggles = circuit.parts.filter(p => {
     if (p.type !== 'toggle') return false;
@@ -574,6 +574,16 @@ function collectBinarySwitchSetters(sim, circuit) {
     const ent = sim.byPart.get(p.id);
     return ent && sim.isNetConnected(ent.pinNets[0]) && sim.isNetConnected(ent.pinNets[1]);
   });
+  const buttons = includeButtons ? circuit.parts.filter(p => {
+    if (p.type !== 'button') return false;
+    const ent = sim.byPart.get(p.id);
+    return ent && sim.isNetConnected(ent.pinNets[0]);
+  }) : [];
+  const tactiles = includeButtons ? circuit.parts.filter(p => {
+    if (p.type !== 'tactile') return false;
+    const ent = sim.byPart.get(p.id);
+    return ent && ent.pinNets.some(n => sim.isNetConnected(n));
+  }) : [];
   const setters = [];
   for (const dip of dips) {
     const ent = sim.byPart.get(dip.id);
@@ -584,16 +594,22 @@ function collectBinarySwitchSetters(sim, circuit) {
   }
   for (const sw of toggles) setters.push(v => { sw.props.on = v; });
   for (const sw of slides) setters.push(v => { sw.props.on = v; });
+  for (const b of buttons) setters.push(v => { b.ui = { ...(b.ui || {}), pressed: v }; });
+  for (const t of tactiles) setters.push(v => { t.ui = { ...(t.ui || {}), pressed: v }; });
 
   const savedDipBits = dips.map(d => d.props.bits.slice());
   const savedToggles = toggles.map(t => Boolean(t.props.on));
   const savedSlides = slides.map(s => Boolean(s.props.on));
+  const savedButtons = buttons.map(b => Boolean(b.ui?.pressed));
+  const savedTactiles = tactiles.map(t => Boolean(t.ui?.pressed));
   const restore = () => {
     dips.forEach((d, idx) => { d.props.bits = savedDipBits[idx]; });
     toggles.forEach((t, idx) => { t.props.on = savedToggles[idx]; });
     slides.forEach((s, idx) => { s.props.on = savedSlides[idx]; });
+    buttons.forEach((b, idx) => { b.ui = { ...(b.ui || {}), pressed: savedButtons[idx] }; });
+    tactiles.forEach((t, idx) => { t.ui = { ...(t.ui || {}), pressed: savedTactiles[idx] }; });
   };
-  return { setters, needsRebuild: slides.length > 0, restore };
+  return { setters, needsRebuild: slides.length > 0 || tactiles.length > 0, restore };
 }
 
 /** Probe peak/min currents and voltages across DC, switch states, and clock/counter/555 cycles. */
@@ -859,7 +875,7 @@ export function verifyCombinationalSwitchLiveness(sim, circuit) {
   });
   if (!leds.length) return [];
 
-  const { setters, needsRebuild, restore } = collectBinarySwitchSetters(sim, circuit);
+  const { setters, needsRebuild, restore } = collectBinarySwitchSetters(sim, circuit, { includeButtons: true });
   if (!setters.length) return [];
 
   const ledSeen = leds.map(() => ({ hi: false, lo: false }));
@@ -1024,10 +1040,11 @@ export function verifyMcuSketchPinCrossCheck(sim, circuit, refById = null) {
 /**
  * Archetype 5: Verify placed instruments & multi-segment loads (oscilloscope, seg7, bargraph, buzzer) actually receive signals.
  */
-export function verifyInstrumentAndLoadLiveness(sim, circuit, refById = null) {
+export function verifyInstrumentAndLoadLiveness(sim, circuit, refById = null, prompt = '') {
   const errors = [];
   const hasSwitches = circuit.parts.some(p => ['toggle', 'button', 'tactile', 'slide', 'pot', 'wokwi-slide-potentiometer', 'dip4', 'dip8', 'wokwi-analog-joystick', 'wokwi-mpu6050'].includes(p.type));
-  const hasDynamic = circuit.parts.some(p => getDef(p.type).mcu || ['clock', 'funcgen', 'ne555'].includes(p.type));
+  const hasOsc7414 = circuit.parts.some(p => p.type === 'ic7414') && circuit.parts.some(p => p.type === 'capacitor');
+  const hasDynamic = circuit.parts.some(p => getDef(p.type).mcu || ['clock', 'funcgen', 'ne555'].includes(p.type)) || hasOsc7414;
   const scopes = circuit.parts.filter(p => p.type === 'oscilloscope');
   const buzzers = circuit.parts.filter(p => p.type === 'buzzer');
   const segs = circuit.parts.filter(p => p.type === 'seg7');
@@ -1042,6 +1059,12 @@ export function verifyInstrumentAndLoadLiveness(sim, circuit, refById = null) {
     if (!c1 && !c2) {
       errors.push(`Oscilloscope "${tag}" CH1+ and CH2+ probes are both unconnected — connect "${tag}.CH1+" to the signal node and "${tag}.CH1 GND" to "-".`);
     }
+  }
+
+  // Catch op-amp/filter + oscilloscope circuits fed only by a static DC pot instead of an AC funcgen
+  if (scopes.length && !hasDynamic && circuit.parts.some(p => ['lm358', 'lm741', 'lm393'].includes(p.type)) && circuit.parts.some(p => p.type === 'pot' || p.type === 'wokwi-slide-potentiometer') && /\b(scope|oscilloscope|cro|unity\s+gain|waveform|buffer|follower|amp|filter|ac\b)\b/i.test(String(prompt || ''))) {
+    const tag = refById?.get(scopes[0].id) || scopes[0].id;
+    errors.push(`Oscilloscope "${tag}" has only a static DC potentiometer input (0.00 Vpp) — use a "funcgen" AC source (e.g. 100Hz sine, vpp=2, offsetOn=true, offset=2.5) instead of a DC pot so the oscilloscope displays a live AC waveform.`);
   }
 
   for (const bz of buzzers) {
@@ -1076,13 +1099,18 @@ export function verifyInstrumentAndLoadLiveness(sim, circuit, refById = null) {
 
   if (needDynamicWindow || segs.length || bars.length) {
     const useAcWindow = needDynamicWindow && maxSrcHz >= 15 && !hasSlowLogic;
-    const dt = useAcWindow
+    let dt = useAcWindow
       ? Math.max(2e-5, Math.min(0.002, 1 / (20 * maxSrcHz)))
       : (needDynamicWindow && maxSrcHz >= 15 ? Math.max(5e-5, Math.min(0.005, 1 / (16 * maxSrcHz))) : 0.01);
-    const totalT = useAcWindow
-      ? Math.min(maxSpan, Math.max(0.04, 8 / Math.max(15, minSrcHz || maxSrcHz)))
-      : (needDynamicWindow ? maxSpan : 0.06);
-    const steps = Math.min(640, Math.max(useAcWindow ? 80 : (needDynamicWindow ? 60 : 6), Math.ceil(totalT / dt)));
+    if (hasOsc7414 && sim.suggestDt) {
+      dt = Math.min(dt, Math.max(5e-5, sim.suggestDt()));
+    }
+    const totalT = hasOsc7414
+      ? Math.min(maxSpan, Math.max(0.02, dt * 360))
+      : useAcWindow
+        ? Math.min(maxSpan, Math.max(0.04, 8 / Math.max(15, minSrcHz || maxSrcHz)))
+        : (needDynamicWindow ? maxSpan : 0.06);
+    const steps = Math.min(640, Math.max(useAcWindow || hasOsc7414 ? 80 : (needDynamicWindow ? 60 : 6), Math.ceil(totalT / dt)));
     const stepSize = totalT / steps;
     for (let s = 0; s < steps; s++) {
       sim.step(stepSize);

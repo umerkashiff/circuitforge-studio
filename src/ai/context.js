@@ -121,16 +121,20 @@ const PART_HINTS = {
   ic7490: ' // R0(1)&R0(2)->"-" to count (NEVER "+"); QA->CKB',
   ic7447: ' // Active-LOW -> seg7 common:"anode"; LT,RBI,BI/RBO->"+"',
   ic7448: ' // Active-HIGH -> seg7 common:"cathode"; LT,RBI,BI/RBO->"+"',
+  ic7400: ' // Quad 2-in NAND (1Y=3,2Y=6,3Y=8,4Y=11). NEVER wire two outputs together (short!); combine terms via NAND: NOT(X)=NAND(X,X), A&B=NOT(NAND(A,B)), A+B=NAND(NOT(A),NOT(B))',
+  ic7414: ' // Hex Schmitt inverter: RC relaxation osc = R(1A->1Y, 10kΩ) + C(1A->-, 1µF), probe 1Y on scope',
   ic7402: ' // Outputs precede inputs: 1Y(1),1A(2),1B(3); 2Y(4),2A(5),2B(6)',
   'board-ssd1306': ' // I2C OLED: VCC->"+", GND->"-", SDA->U1.A4, SCL->U1.A5',
   'wokwi-lcd1602': ' // I2C LCD: VCC->"+", GND->"-", SDA->U1.A4, SCL->U1.A5',
   npn: ' // Low-side load: "+"->R->LED.A, LED.K->C, E->"-"; Base via R (never K to "+")',
   tactile: ' // 1.l==1.r & 2.l==2.r permanently bridged; press bridges 1<->2 (always wire 1.l & 2.l)',
-  led: ' // Forward: Anode(+/R)->Cathode(-/NPN.C); never reverse A<K; wire multiple LEDs in parallel branches on 5V (each w/ R), never series',
-  oscilloscope: ' // ~1Hz timeDiv=0.2; 1kHz timeDiv=0.0005; connect CH1 GND->"-"',
+  led: ' // Forward: Anode(+/R)->Cathode(-/NPN.C); white/blue Vf≈3.2V so on 5V ALWAYS wire multiple LEDs in PARALLEL branches (each w/ own 220Ω R), NEVER series',
+  oscilloscope: ' // ~1Hz timeDiv=0.2; 1kHz timeDiv=0.0005; connect CH1 GND->"-"; always drive op-amp/filter scopes with AC funcgen, never DC pot',
 };
 
 const TOPOLOGY_RECIPES = [
+  [/\b(voltage\s+follower|unity\s+gain|buffer\s+.*op[-\s]?amp|op[-\s]?amp.*follower)\b/i, 'RECIPE lm358-follower: funcgen(100Hz sine, vpp:2, offsetOn:true, offset:2.5) OUT+->U1.1IN+, OUT- ->-; U1.1OUT->U1.1IN-, U1.1OUT->10k->-; scope CH1+->FG.OUT+, CH2+->U1.1OUT, CH1 GND->-.'],
+  [/\b(two[-\s]?transistor|2[-\s]?transistor|bjt\s+astable|transistor\s+astable)\b/i, 'RECIPE 2-bjt-astable: Q1/Q2 npn E->-; +->470Ω->LED1.A, LED1.K->Q1.C; +->470Ω->LED2.A, LED2.K->Q2.C; +->47kΩ->Q1.B; +->51kΩ->Q2.B (asymmetric Rb breaks ideal symmetry); C1(10µF, Q1.C->Q2.B); C2(10µF, Q2.C->Q1.B).'],
   [/\b(bridge\s*rectif|full[\s-]*wave|4[-\s]*diode)\b/i, 'RECIPE bridge-rectifier: 4 diodes + funcgen(100Hz sine): D1.A=D2.K=FG.+, D3.A=D4.K=FG.-, D1.K=D3.K=OUT+, D2.A=D4.A=GND(-); load R + filter C across OUT+<->GND.'],
   [/\b(clip|overdrive|fuzz|distort)\b/i, 'RECIPE diode-clipper: funcgen.+->C->R->OUT; antiparallel diodes D1(A->OUT,K->-) & D2(K->OUT,A->-); scope CH1->FG.+, CH2->OUT, CH1 GND->-.'],
   [/\b(atari|punk|apc|stepped\s*tone)\b/i, 'RECIPE atari-punk: U1 ne555 astable OUT->U2.TRIG; U2 ne555 monostable DIS->THR->C->-, pot2/R(+->DIS), OUT->buzzer.+->-.'],

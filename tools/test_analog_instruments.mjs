@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { Board, Circuit, Wire, Part } from '../src/model.js';
 import { Engine } from '../src/sim/engine.js';
-import { parseRailToken, resolvePinIndex } from '../src/ai/builder.js';
-import { verifyInstrumentAndLoadLiveness, probeCircuitLedBehavior } from '../src/ai/logic_verify.js';
+import { parseRailToken, resolvePinIndex, parseEngNumber, resolvePartType } from '../src/ai/builder.js';
+import { verifyInstrumentAndLoadLiveness, probeCircuitLedBehavior, verifyCombinationalSwitchLiveness } from '../src/ai/logic_verify.js';
 import { sanitizeEvalCase } from './daily_eval_cases.mjs';
 import '../src/parts/library.js';
 import '../src/parts/ics.js';
@@ -737,6 +737,93 @@ test('A1.19', 'Slide switches + 74138 decoder and manual-button 74193 counter pr
 
   assert.equal(resolvePinIndex(new Part('power-supply', 0, 0), '5V FIXED +8'), 7);
   return `Slide+74138 lit ${s1.filter(s => s.litOnce).length}/8, button+74193 lit ${s2.filter(s => s.litOnce).length}/4, "5V FIXED +8" resolved`;
+});
+
+test('A1.20', '2026-11-20 eval fixes: SI prop parsing, PSU/seg7 aliases, 7414 osc, 74151+button, LM358+pot guard, dip8 oracle', () => {
+  // 1) SI string props never produce NaN or poison MNA
+  assert.equal(parseEngNumber('10k', 'ohms'), 10000);
+  assert.equal(parseEngNumber('4k7', 'ohms'), 4700);
+  assert.equal(parseEngNumber('10uF', 'uf'), 10);
+  assert.equal(parseEngNumber('100nF', 'uf'), 0.1);
+  assert.equal(parseEngNumber('100uH', 'mh'), 0.1);
+  assert.equal(parseEngNumber('1kHz', 'hz'), 1000);
+  const capRes = resolvePartType('capacitor', { uf: '100nF' });
+  assert.equal(capRes.props.uf, 0.1);
+  const resRes = resolvePartType('resistor', { resistance: '4.7kΩ' });
+  assert.equal(resRes.props.ohms, 4700);
+
+  // 2) Pin aliases: power-supply OUT & seg7 COM.2
+  assert.equal(resolvePinIndex(new Part('power-supply', 0, 0), 'OUT'), 5);
+  assert.equal(resolvePinIndex(new Part('seg7', 0, 0), 'COM.2'), 7);
+
+  // 3) 7414 Schmitt trigger relaxation oscillator oscillates cleanly on oscilloscope
+  const c7414 = new Circuit();
+  const v1 = new Part('vcc', 0, 0), g1 = new Part('gnd', 0, 2);
+  const u14 = new Part('ic7414', 6, 4);
+  const r14 = new Part('resistor', 20, 4, 0, { ohms: 10000 });
+  const cap14 = new Part('capacitor', 26, 4, 0, { kind: 'ceramic', uf: 1 });
+  const sc14 = new Part('oscilloscope', 0, -14, 0, { timeDiv: 0.005 });
+  c7414.parts.push(v1, g1, u14, r14, cap14, sc14);
+  const p14 = u14.worldPins();
+  wire(c7414, v1.worldPins()[0], p14[13]);
+  wire(c7414, g1.worldPins()[0], p14[6]);
+  wire(c7414, p14[0], r14.worldPins()[0]);
+  wire(c7414, p14[1], r14.worldPins()[1]);
+  wire(c7414, p14[0], cap14.worldPins()[0]);
+  wire(c7414, cap14.worldPins()[1], g1.worldPins()[0]);
+  wire(c7414, p14[1], sc14.worldPins()[0]);
+  wire(c7414, g1.worldPins()[0], sc14.worldPins()[1]);
+  const e7414 = new Engine();
+  e7414.build(c7414);
+  const oscErrs = verifyInstrumentAndLoadLiveness(e7414, c7414, null, '74HC14 relaxation oscillator on oscilloscope');
+  assert.equal(oscErrs.length, 0, `7414 relaxation oscillator should pass scope check, got: ${oscErrs.join('; ')}`);
+
+  // 4) 74151 MUX with toggle select + button data input passes verifyCombinationalSwitchLiveness
+  const c151 = new Circuit();
+  const v2 = new Part('vcc', 0, 0), g2 = new Part('gnd', 0, 2);
+  const u151 = new Part('ic74151', 10, 4);
+  const btn = new Part('button', 2, 10);
+  const swA = new Part('toggle', 2, 14), swB = new Part('toggle', 5, 14), swC = new Part('toggle', 8, 14);
+  const rLed = new Part('resistor', 24, 4, 0, { ohms: 220 });
+  const led = new Part('led', 28, 4, 0, { color: 'red', protect: 'off' });
+  c151.parts.push(v2, g2, u151, btn, swA, swB, swC, rLed, led);
+  const p151 = u151.worldPins();
+  wire(c151, v2.worldPins()[0], p151[15]); wire(c151, g2.worldPins()[0], p151[7]);
+  wire(c151, g2.worldPins()[0], p151[6]); // Strobe G -> GND
+  wire(c151, swA.worldPins()[0], p151[10]); wire(c151, swB.worldPins()[0], p151[9]); wire(c151, swC.worldPins()[0], p151[8]);
+  // D0..D7 tied to button (index 3,2,1,0,15? no: D0=pin4(3), D1=3(2), D2=2(1), D3=1(0), D4=15(14), D5=14(13), D6=13(12), D7=12(11))
+  for (const di of [3, 2, 1, 0, 14, 13, 12, 11]) wire(c151, btn.worldPins()[0], p151[di]);
+  wire(c151, p151[4], rLed.worldPins()[0]); wire(c151, rLed.worldPins()[1], led.worldPins()[0]); wire(c151, led.worldPins()[1], g2.worldPins()[0]);
+  const e151 = new Engine();
+  e151.build(c151);
+  const combErrs = verifyCombinationalSwitchLiveness(e151, c151);
+  assert.equal(combErrs.length, 0, `74151 with toggle+button must pass combinational liveness, got: ${combErrs.join('; ')}`);
+
+  // 5) LM358 + DC pot + oscilloscope without AC source flagged cleanly
+  const cOp = new Circuit();
+  const v3 = new Part('vcc', 0, 0), g3 = new Part('gnd', 0, 2);
+  const op = new Part('lm358', 8, 4);
+  const pot = new Part('pot', 18, 4, 0, { ohms: 10000, pos: 0.5 });
+  const scOp = new Part('oscilloscope', 0, -14);
+  cOp.parts.push(v3, g3, op, pot, scOp);
+  const pop = op.worldPins();
+  wire(cOp, v3.worldPins()[0], pop[7]); wire(cOp, g3.worldPins()[0], pop[3]);
+  wire(cOp, v3.worldPins()[0], pot.worldPins()[0]); wire(cOp, g3.worldPins()[0], pot.worldPins()[2]);
+  wire(cOp, pot.worldPins()[1], pop[2]); wire(cOp, pop[0], pop[1]);
+  wire(cOp, pop[0], scOp.worldPins()[0]); wire(cOp, g3.worldPins()[0], scOp.worldPins()[1]);
+  const eOp = new Engine();
+  eOp.build(cOp);
+  const opErrs = verifyInstrumentAndLoadLiveness(eOp, cOp, null, 'verify LM358 unity gain voltage follower on oscilloscope');
+  assert.ok(opErrs.some(e => /funcgen/i.test(e)), `Expected DC pot + scope op-amp error, got: ${opErrs.join('; ')}`);
+
+  // 6) sanitizeEvalCase allows dip4 for dip8 requirement on curriculum ideas
+  const cmpCase = sanitizeEvalCase({
+    id: 'idea_mwobx3wc_3',
+    prompt: 'Please set up a 7485 4-bit magnitude comparator using DIP switches...',
+    oracle: { minParts: 3, requireTypes: [['ic7485'], ['dip8'], ['led']], check: 'led_active' },
+  });
+  assert.ok(cmpCase.oracle.requireTypes[1].includes('dip4'), 'dip8 idea oracle must also accept dip4');
+  return 'SI props, PSU OUT / seg7 COM.2, 7414 osc, 74151+button, LM358+pot guard & dip8 oracle all verified';
 });
 
 let failed = 0;

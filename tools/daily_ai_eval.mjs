@@ -203,18 +203,22 @@ function evaluateCircuit(app, tc) {
   const maxSrcHz = srcHzList.length ? Math.max(...srcHzList) : 0;
   const minSrcHz = srcHzList.length ? Math.min(...srcHzList) : 0;
   const has555 = app.circuit.parts.some(p => p.type === 'ne555');
+  const hasOsc7414 = app.circuit.parts.some(p => p.type === 'ic7414') && app.circuit.parts.some(p => p.type === 'capacitor');
   const hasSlow = has555 || app.circuit.parts.some(p => p.type === 'uno' || p.type === 'nano' || p.type === 'esp32' || p.type === 'esp32s3' || p.type === 'bluepill')
     || (minSrcHz > 0 && minSrcHz < 15);
   const useAcWindow = maxSrcHz >= 15 && !hasSlow;
-  const evalSteps = useAcWindow
+  let evalSteps = useAcWindow
     ? Math.min(480, Math.max(96, Math.ceil((8 / Math.max(15, minSrcHz || maxSrcHz)) / Math.max(2e-5, Math.min(0.002, 1 / (20 * maxSrcHz))))))
     : (maxSrcHz >= 15 ? 360 : (has555 ? 300 : 120));
-  const evalDt = useAcWindow
+  let evalDt = useAcWindow
     ? Math.max(2e-5, Math.min(0.002, 1 / (20 * maxSrcHz)))
     : (maxSrcHz >= 15 ? (1.2 / evalSteps) : (has555 ? 0.02 : 0.01));
+  if (hasOsc7414 && app.engine.suggestDt) {
+    evalDt = Math.min(evalDt, Math.max(5e-5, app.engine.suggestDt()));
+    evalSteps = Math.max(evalSteps, 360);
+  }
 
-  for (let s = 0; s < evalSteps; s++) {
-    app.engine.step(evalDt);
+  const sampleStep = () => {
     for (const p of app.circuit.parts) {
       const ent = app.engine.byPart.get(p.id);
       if (!ent) continue;
@@ -238,6 +242,48 @@ function evaluateCircuit(app, tc) {
           if (ma > 0.5) active++;
         }
         barActiveSegs = Math.max(barActiveSegs, active);
+      }
+    }
+  };
+
+  for (let s = 0; s < evalSteps; s++) {
+    app.engine.step(evalDt);
+    sampleStep();
+  }
+
+  // Exercise interactive switches/buttons/pots when evaluating gated loads (e.g. toggle-controlled Darlington buzzer)
+  const oracleCheck = tc.oracle?.check;
+  const needInputSweep = (oracleCheck === 'buzzer_active' && ![...buzRange.values()].some(r => Math.max(Math.abs(r.min), Math.abs(r.max), r.max - r.min) > 0.25))
+    || (oracleCheck === 'seg7_active' && seg7PeakMa < 0.5)
+    || (oracleCheck === 'bargraph_active' && barPeakMa < 0.5);
+  if (needInputSweep) {
+    const swToggles = app.circuit.parts.filter(p => p.type === 'toggle' || p.type === 'slide');
+    const swButtons = app.circuit.parts.filter(p => p.type === 'button' || p.type === 'tactile');
+    const swDips = app.circuit.parts.filter(p => p.type === 'dip4' || p.type === 'dip8');
+    const swPots = app.circuit.parts.filter(p => p.type === 'pot' || p.type === 'wokwi-slide-potentiometer');
+    if (swToggles.length || swButtons.length || swDips.length || swPots.length) {
+      const savedTog = swToggles.map(p => Boolean(p.props.on));
+      const savedBtn = swButtons.map(p => Boolean(p.ui?.pressed));
+      const savedDip = swDips.map(p => p.props.bits.slice());
+      const savedPot = swPots.map(p => p.props.pos);
+      const topoRebuild = swToggles.some(p => p.type === 'slide') || swButtons.some(p => p.type === 'tactile');
+      try {
+        for (const onState of [true, false]) {
+          swToggles.forEach(p => { p.props.on = onState; });
+          swButtons.forEach(p => { p.ui = { ...(p.ui || {}), pressed: onState }; });
+          swDips.forEach(p => { p.props.bits = p.props.bits.map(() => onState); });
+          for (const pos of (swPots.length ? [0.95, 0.05] : [null])) {
+            if (pos !== null) swPots.forEach(p => { p.props.pos = pos; });
+            if (topoRebuild) app.engine.build(app.circuit);
+            for (let k = 0; k < 8; k++) { app.engine.step(0.005); sampleStep(); }
+          }
+        }
+      } finally {
+        swToggles.forEach((p, i) => { p.props.on = savedTog[i]; });
+        swButtons.forEach((p, i) => { p.ui = { ...(p.ui || {}), pressed: savedBtn[i] }; });
+        swDips.forEach((p, i) => { p.props.bits = savedDip[i]; });
+        swPots.forEach((p, i) => { p.props.pos = savedPot[i]; });
+        if (topoRebuild) app.engine.build(app.circuit);
       }
     }
   }

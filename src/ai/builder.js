@@ -53,91 +53,187 @@ export function normalizePartSpec(raw = {}) {
   return { ...raw, ref, type: type == null ? '' : String(type), props, ...(row !== undefined ? { row } : {}), ...(col !== undefined ? { col } : {}) };
 }
 
+/** Parse engineering numbers with SI suffixes (e.g. "10k", "4.7kΩ", "100nF", "10uF", "1kHz") into numeric base units. */
+export function parseEngNumber(raw, kind = 'num') {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : NaN;
+  const s = String(raw ?? '').trim().replace(/,/g, '').replace(/µ/g, 'u').replace(/Ω/g, 'ohm');
+  if (!s) return NaN;
+  // Support European/compact R/K/M infix notation like "4k7" or "2R2"
+  const infix = /^([+-]?\d+)([kKmMrRuUnNpP])(\d+)$/.exec(s);
+  if (infix) {
+    const val = parseFloat(`${infix[1]}.${infix[3]}`);
+    const u = infix[2];
+    if (kind === 'ohms') return val * (u === 'M' ? 1e6 : /[kK]/.test(u) ? 1e3 : 1);
+    if (kind === 'uf') return val * (/[pP]/.test(u) ? 1e-6 : /[nN]/.test(u) ? 1e-3 : u === 'm' ? 1e3 : 1);
+  }
+  const m = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*([a-zA-Z%]*)/.exec(s);
+  if (!m) return NaN;
+  const n = parseFloat(m[1]);
+  if (!Number.isFinite(n)) return NaN;
+  const unit = m[2] || '';
+  const uLow = unit.toLowerCase();
+  if (kind === 'ohms') {
+    if (/^meg|^m(?:ohm)?$/.test(uLow) && unit[0] === 'M') return n * 1e6;
+    if (/^meg/.test(uLow)) return n * 1e6;
+    if (/^k/.test(uLow)) return n * 1e3;
+    if (/^m(?:ohm)?$/.test(uLow) && unit[0] === 'm') return n * 1e-3;
+    return n;
+  }
+  if (kind === 'uf') {
+    if (/^p/.test(uLow)) return n * 1e-6;
+    if (/^n/.test(uLow)) return n * 1e-3;
+    if (/^u/.test(uLow)) return n;
+    if (/^m/.test(uLow)) return n * 1e3;
+    if (uLow === 'f' || uLow === 'farad' || uLow === 'farads') return n * 1e6;
+    return n;
+  }
+  if (kind === 'mh') {
+    if (/^n/.test(uLow)) return n * 1e-6;
+    if (/^u/.test(uLow)) return n * 1e-3;
+    if (/^m/.test(uLow)) return n;
+    if (uLow === 'h' || uLow === 'henry' || uLow === 'henries') return n * 1e3;
+    return n;
+  }
+  if (kind === 'hz') {
+    if (/^m/.test(uLow) && unit[0] === 'M') return n * 1e6;
+    if (/^k/.test(uLow)) return n * 1e3;
+    return n;
+  }
+  if (kind === 'sec') {
+    if (/^u/.test(uLow)) return n * 1e-6;
+    if (/^m/.test(uLow)) return n * 1e-3;
+    return n;
+  }
+  return n;
+}
+
+function sanitizeNumericProps(type, props) {
+  if (!props || typeof props !== 'object') return props;
+  if (props.value !== undefined) {
+    if ((type === 'resistor' || type === 'pot' || type === 'wokwi-slide-potentiometer') && props.ohms === undefined) {
+      props.ohms = props.value;
+    } else if (type === 'capacitor' && props.uf === undefined) {
+      props.uf = props.value;
+    } else if (type === 'inductor' && props.mh === undefined) {
+      props.mh = props.value;
+    }
+    delete props.value;
+  }
+  if (props.ohms !== undefined) {
+    const v = parseEngNumber(props.ohms, 'ohms');
+    if (Number.isFinite(v) && v > 0) props.ohms = v; else delete props.ohms;
+  }
+  if (props.uf !== undefined) {
+    const v = parseEngNumber(props.uf, 'uf');
+    if (Number.isFinite(v) && v > 0) props.uf = v; else delete props.uf;
+  }
+  if (props.mh !== undefined) {
+    const v = parseEngNumber(props.mh, 'mh');
+    if (Number.isFinite(v) && v > 0) props.mh = v; else delete props.mh;
+  }
+  if (props.hz !== undefined) {
+    const v = parseEngNumber(props.hz, 'hz');
+    if (Number.isFinite(v) && v > 0) props.hz = v; else delete props.hz;
+  }
+  if (props.frequency !== undefined) {
+    const v = parseEngNumber(props.frequency, 'hz');
+    if (Number.isFinite(v) && v > 0) { props.hz = props.hz ?? v; props.frequency = v; } else delete props.frequency;
+  }
+  if (props.timeDiv !== undefined) {
+    const v = parseEngNumber(props.timeDiv, 'sec');
+    if (Number.isFinite(v) && v > 0) props.timeDiv = v; else delete props.timeDiv;
+  }
+  for (const k of ['volts', 'vpp', 'v1', 'v2', 'i1', 'i2', 'vz', 'vreg', 'vmax', 'offset', 'duty', 'pos', 'rs', 'watts', 'ch1Scale', 'ch2Scale', 'trigLevel']) {
+    if (props[k] !== undefined && typeof props[k] !== 'boolean') {
+      const v = parseEngNumber(props[k], 'num');
+      if (Number.isFinite(v)) props[k] = v; else delete props[k];
+    }
+  }
+  return props;
+}
+
 /** Normalize common AI part type synonyms to registered part types. */
 export function resolvePartType(rawType, rawProps = {}) {
   const props = { ...(rawProps || {}) };
   if (props.sketch !== undefined && props.code === undefined) { props.code = props.sketch; delete props.sketch; }
   if (props.program !== undefined && props.code === undefined) { props.code = props.program; delete props.program; }
-  if (props.resistance !== undefined && props.ohms === undefined) { props.ohms = +props.resistance || props.resistance; delete props.resistance; }
-  if (props.value !== undefined && props.ohms === undefined && String(rawType).toLowerCase().includes('res')) { props.ohms = parseFloat(props.value) || 220; }
-  if (props.capacitance !== undefined && props.uf === undefined) { props.uf = +props.capacitance || props.capacitance; delete props.capacitance; }
+  if (props.resistance !== undefined && props.ohms === undefined) { props.ohms = props.resistance; delete props.resistance; }
+  if (props.capacitance !== undefined && props.uf === undefined) { props.uf = props.capacitance; delete props.capacitance; }
+  if (props.inductance !== undefined && props.mh === undefined) { props.mh = props.inductance; delete props.inductance; }
+
+  const finish = (type, extra = null) => {
+    const merged = extra ? { ...extra, ...props } : { ...props };
+    sanitizeNumericProps(type, merged);
+    return { type, props: merged };
+  };
 
   const s = String(rawType || '').trim();
   if (!s) return null;
-  if (getDef(s, true)) return { type: s, props };
+  if (getDef(s, true)) return finish(s);
 
   const low = s.toLowerCase().replace(/\s+/g, ' ');
-  if (/^(?:555|ne-?555|lm-?555|ic-?555|timer\s*555|555\s*timer|555\s*oscil+\w*)$/.test(low)) return { type: 'ne555', props: { ...props } };
-  if (/^(?:dip-?8|8[-\s]*dip\s*switch|dip\s*switch\s*8|dip\s*switch)$/.test(low)) return { type: 'dip8', props: { ...props } };
-  if (/^(?:dip-?4|4[-\s]*dip\s*switch|dip\s*switch\s*4)$/.test(low)) return { type: 'dip4', props: { ...props } };
-  if (/^(?:r|resis?t[eo]rs?)$/.test(low)) return { type: 'resistor', props: { ...props } };
-  if (/^(?:c|caps?|capacitors?|capcitors?|condensators?|condensers?)$/.test(low)) return { type: 'capacitor', props: { ...props } };
-  if (/^(?:ceramic|non[-\s]*polarized|film|disc)\s*cap\w*$/.test(low)) return { type: 'capacitor', props: { kind: 'ceramic', uf: 0.1, vmax: 50, ...props } };
-  if (/^(?:l|inductors?|coils?|chokes?)$/.test(low)) return { type: 'inductor', props: { ...props } };
-  if (/^(?:potentiometers?|potnetiometers?|potentiomters?|trimpots?|variable\s*resistors?|rheostats?|vr|pot)$/.test(low)) return { type: 'pot', props: { ...props } };
-  if (/^(?:buzzers?|piezos?|peizos?|piezo\s*buzzers?|peizo\s*buzzers?|peizo\s*sounders?|piezo\s*sounders?|sounders?|beepers?|peizo\s*beepers?|piezo\s*beepers?|speakers?|horns?)$/.test(low)) return { type: 'buzzer', props: { ...props } };
-  if (/^(?:tactile|tact|tact\s*buttons?|tactile\s*buttons?|tactile\s*switch|momentary\s*switch|push\s*buttons?|pushbuttons?|wokwi-pushbutton)$/.test(low)) return { type: 'tactile', props: { ...props } };
+  if (/^(?:555|ne-?555|lm-?555|ic-?555|timer\s*555|555\s*timer|555\s*oscil+\w*)$/.test(low)) return finish('ne555');
+  if (/^(?:dip-?8|8[-\s]*dip\s*switch|dip\s*switch\s*8|dip\s*switch)$/.test(low)) return finish('dip8');
+  if (/^(?:dip-?4|4[-\s]*dip\s*switch|dip\s*switch\s*4)$/.test(low)) return finish('dip4');
+  if (/^(?:r|resis?t[eo]rs?)$/.test(low)) return finish('resistor');
+  if (/^(?:c|caps?|capacitors?|capcitors?|condensators?|condensers?)$/.test(low)) return finish('capacitor');
+  if (/^(?:ceramic|non[-\s]*polarized|film|disc)\s*cap\w*$/.test(low)) return finish('capacitor', { kind: 'ceramic', uf: 0.1, vmax: 50 });
+  if (/^(?:l|inductors?|coils?|chokes?)$/.test(low)) return finish('inductor');
+  if (/^(?:potentiometers?|potnetiometers?|potentiomters?|trimpots?|variable\s*resistors?|rheostats?|vr|pot)$/.test(low)) return finish('pot');
+  if (/^(?:buzzers?|piezos?|peizos?|piezo\s*buzzers?|peizo\s*buzzers?|peizo\s*sounders?|piezo\s*sounders?|sounders?|beepers?|peizo\s*beepers?|piezo\s*beepers?|speakers?|horns?)$/.test(low)) return finish('buzzer');
+  if (/^(?:tactile|tact|tact\s*buttons?|tactile\s*buttons?|tactile\s*switch|momentary\s*switch|push\s*buttons?|pushbuttons?|wokwi-pushbutton)$/.test(low)) return finish('tactile');
   if (/^(?:npn|bjt|npn\s*bjt|transistors?|npn\s*transistors?|2n3904|2n2222|bc547)(?:\s+(?:npn|bjt|transistor))?$/.test(low)) {
-    const out = { ...props };
-    if (/2n3904/.test(low)) out.model = '2N3904';
-    else if (/2n2222/.test(low)) out.model = '2N2222';
-    else if (/bc547/.test(low)) out.model = 'BC547';
-    return { type: 'npn', props: out };
+    const extra = /2n3904/.test(low) ? { model: '2N3904' } : /2n2222/.test(low) ? { model: '2N2222' } : /bc547/.test(low) ? { model: 'BC547' } : null;
+    return finish('npn', extra);
   }
   if (/^(?:pnp|pnp\s*bjt|pnp\s*transistors?|2n3906|2n2907|bc557)(?:\s+(?:pnp|bjt|transistor))?$/.test(low)) {
-    const out = { ...props };
-    if (/2n3906/.test(low)) out.model = '2N3906';
-    else if (/2n2907/.test(low)) out.model = '2N2907';
-    else if (/bc557/.test(low)) out.model = 'BC557';
-    return { type: 'pnp', props: out };
+    const extra = /2n3906/.test(low) ? { model: '2N3906' } : /2n2907/.test(low) ? { model: '2N2907' } : /bc557/.test(low) ? { model: 'BC557' } : null;
+    return finish('pnp', extra);
   }
   if (/^(?:n[-\s]?mos(?:fet)?|mosfet|2n7000|irf540)$/.test(low)) {
-    return { type: 'nmos', props: { model: /irf540/.test(low) ? 'IRF540' : '2N7000', ...props } };
+    return finish('nmos', { model: /irf540/.test(low) ? 'IRF540' : '2N7000' });
   }
   if (/^(?:p[-\s]?mos(?:fet)?|bs250|irf9540)$/.test(low)) {
-    return { type: 'pmos', props: { model: /irf9540/.test(low) ? 'IRF9540' : 'BS250', ...props } };
+    return finish('pmos', { model: /irf9540/.test(low) ? 'IRF9540' : 'BS250' });
   }
-  if (/^(?:zener|zener\s*diodes?|1n4733\w*|1n4728\w*|1n4742\w*)$/.test(low)) return { type: 'zener', props: { ...props } };
+  if (/^(?:zener|zener\s*diodes?|1n4733\w*|1n4728\w*|1n4742\w*)$/.test(low)) return finish('zener');
   if (/^(?:schottky|schottky\s*diodes?|1n5819|bat85)$/.test(low)) {
-    return { type: 'diode', props: { model: /bat85/.test(low) ? 'BAT85' : '1N5819', ...props } };
+    return finish('diode', { model: /bat85/.test(low) ? 'BAT85' : '1N5819' });
   }
-  if (/^(?:op[-\s]?amp|opamp|741|lm-?741|ua741)$/.test(low)) return { type: 'lm741', props: { ...props } };
-  if (/^(?:lm-?358|dual\s*op[-\s]?amp|lm-?324)$/.test(low)) return { type: 'lm358', props: { ...props } };
-  if (/^(?:lm-?393|comparator|voltage\s*comparator|lm-?339)$/.test(low)) return { type: 'lm393', props: { ...props } };
-  if (/^(?:7805|lm-?7805|voltage\s*regulator|5v\s*regulator)$/.test(low)) return { type: 'lm7805', props: { ...props } };
-  if (/^(?:lm-?317|adjustable\s*regulator)$/.test(low)) return { type: 'lm317', props: { ...props } };
-  if (/^(?:pc-?817|opto(?:coupler|isolator)?|4n25|4n35)$/.test(low)) return { type: 'pc817', props: { ...props } };
-  if (/^(?:dmm|multimeter|digital\s*multimeter|voltmeter|ammeter|ohmmeter)$/.test(low)) return { type: 'multimeter', props: { ...props } };
-  if (/^(?:bargraph|bar\s*graph|led\s*bar|led\s*array|8[-\s]*led\s*bar|8[-\s]*segment\s*bar(?:\s*led)?(?:\s*array)?)$/.test(low)) return { type: 'bargraph', props: { ...props } };
+  if (/^(?:op[-\s]?amp|opamp|741|lm-?741|ua741)$/.test(low)) return finish('lm741');
+  if (/^(?:lm-?358|dual\s*op[-\s]?amp|lm-?324)$/.test(low)) return finish('lm358');
+  if (/^(?:lm-?393|comparator|voltage\s*comparator|lm-?339)$/.test(low)) return finish('lm393');
+  if (/^(?:7805|lm-?7805|voltage\s*regulator|5v\s*regulator)$/.test(low)) return finish('lm7805');
+  if (/^(?:lm-?317|adjustable\s*regulator)$/.test(low)) return finish('lm317');
+  if (/^(?:pc-?817|opto(?:coupler|isolator)?|4n25|4n35)$/.test(low)) return finish('pc817');
+  if (/^(?:dmm|multimeter|digital\s*multimeter|voltmeter|ammeter|ohmmeter)$/.test(low)) return finish('multimeter');
+  if (/^(?:bargraph|bar\s*graph|led\s*bar|led\s*array|8[-\s]*led\s*bar|8[-\s]*segment\s*bar(?:\s*led)?(?:\s*array)?)$/.test(low)) return finish('bargraph');
   if (low === 'diode' || low === 'diodes' || low === '1n4148' || low === '1n4001' || low === '1n4007' || low === 'rectifier') {
-    const out = { ...props };
-    if (low.startsWith('1n')) out.model = low.toUpperCase();
-    return { type: 'diode', props: out };
+    return finish('diode', low.startsWith('1n') ? { model: low.toUpperCase() } : null);
   }
   if (/^(red|green|yellow|blue|white)\s*leds?$/.test(low)) {
-    const col = low.split(' ')[0];
-    return { type: 'led', props: { color: col, ...props } };
+    return finish('led', { color: low.split(' ')[0] });
   }
-  if (low === 'scope' || low === 'cro' || low === 'ut2062b') return { type: 'oscilloscope', props: { ...props } };
-  if (low === 'signal generator' || low === 'function generator' || low === 'func gen' || low === 'egc-3235a' || low === 'egc3235a') return { type: 'funcgen', props: { ...props } };
-  if (low === 'psu' || low === 'power supply' || low === 'mps-3005l-3') return { type: 'power-supply', props: { ...props } };
-  if (low === 'arduino' || low === 'arduino uno' || low === 'uno r3' || low === 'board-arduino-uno' || low === 'atmega328' || low === 'atmega328p') return { type: 'uno', props: { ...props } };
-  if (low === 'arduino nano') return { type: 'nano', props: { ...props } };
-  if (low === 'esp-32' || low === 'esp32 devkit' || low === 'esp32 devkit v1') return { type: 'esp32', props: { ...props } };
-  if (low === 'esp-32-s3' || low === 'esp32 s3') return { type: 'esp32s3', props: { ...props } };
-  if (low === 'stm32' || low === 'stm32 blue pill') return { type: 'bluepill', props: { ...props } };
-  if (low === '5v' || low === '+5v' || low === '+5 v supply') return { type: 'vcc', props: { ...props } };
-  if (low === 'ground' || low === '0v') return { type: 'gnd', props: { ...props } };
+  if (low === 'scope' || low === 'cro' || low === 'ut2062b') return finish('oscilloscope');
+  if (low === 'signal generator' || low === 'function generator' || low === 'func gen' || low === 'egc-3235a' || low === 'egc3235a') return finish('funcgen');
+  if (low === 'psu' || low === 'power supply' || low === 'mps-3005l-3') return finish('power-supply');
+  if (low === 'arduino' || low === 'arduino uno' || low === 'uno r3' || low === 'board-arduino-uno' || low === 'atmega328' || low === 'atmega328p') return finish('uno');
+  if (low === 'arduino nano') return finish('nano');
+  if (low === 'esp-32' || low === 'esp32 devkit' || low === 'esp32 devkit v1') return finish('esp32');
+  if (low === 'esp-32-s3' || low === 'esp32 s3') return finish('esp32s3');
+  if (low === 'stm32' || low === 'stm32 blue pill') return finish('bluepill');
+  if (low === '5v' || low === '+5v' || low === '+5 v supply') return finish('vcc');
+  if (low === 'ground' || low === '0v') return finish('gnd');
 
   // Strip 74LS / 74HC / CD prefixes for IC types
   const icNorm = low.replace(/^74(ls|hc|hct|f|ac|act)?/, '74').replace(/^cd/, '').replace(/[^a-z0-9]/g, '');
-  if (getDef('ic' + icNorm, true)) return { type: 'ic' + icNorm, props: { ...props } };
-  if (getDef(icNorm, true)) return { type: icNorm, props: { ...props } };
+  if (getDef('ic' + icNorm, true)) return finish('ic' + icNorm);
+  if (getDef(icNorm, true)) return finish(icNorm);
 
   // Match against registered names / short labels
   for (const d of allDefs()) {
     if (d.name.toLowerCase() === low || (d.short && d.short.toLowerCase() === low)) {
-      return { type: d.type, props: { ...props } };
+      return finish(d.type);
     }
   }
   return null;
@@ -251,8 +347,8 @@ export function resolvePinIndex(part, rawPin) {
     oscilloscope: { CH1: 0, 'CH1+': 0, 'CH1-': 1, GND1: 1, CH1_GND: 1, CH2: 2, 'CH2+': 2, 'CH2-': 3, GND2: 3, CH2_GND: 3, TRIG: 4, EXT: 4 },
     funcgen: { OUT: 4, 'OUT+': 4, SIG: 4, '+': 4, 'OUT-': 5, GND: 5, '-': 5, SYNC: 1 },
     'power-supply': {
-      'V1+': 5, '+V1': 5, 'MASTER+': 5, 'MASTER +': 5,
-      GND: 4, 'MASTER GND': 4, 'V1-': 3, 'MASTER-': 3,
+      'V1+': 5, '+V1': 5, 'MASTER+': 5, 'MASTER +': 5, OUT: 5, 'OUT+': 5, '+': 5, POS: 5, VCC: 5,
+      GND: 4, 'MASTER GND': 4, COM: 4, 'V1-': 3, 'MASTER-': 3, 'OUT-': 3, '-': 3, NEG: 3,
       '+5V': 7, '5V+': 7, '5V FIXED +': 7, '5V-': 6, '5V GND': 6,
       'V2+': 2, '+V2': 2, 'SLAVE+': 2, 'V2-': 0, 'SLAVE-': 0,
     },
@@ -262,7 +358,7 @@ export function resolvePinIndex(part, rawPin) {
     button: { OUT: 0, '1': 0 },
     tactile: { '1L': 0, '1.L': 0, L1: 0, '1R': 1, '1.R': 1, R1: 1, '2L': 2, '2.L': 2, L2: 2, '2R': 3, '2.R': 3, R2: 3, A: 0, IN: 0, '1': 0, B: 2, OUT: 2, '2': 2 },
     clock: { CLK: 0, OUT: 0, '1': 0 },
-    seg7: { CC: 2, CA: 2, COM1: 2, COM2: 7, GND: 2, VCC: 2 },
+    seg7: { CC: 2, CA: 2, COM1: 2, COM2: 7, 'COM.1': 2, 'COM.2': 7, COM_1: 2, COM_2: 7, GND: 2, VCC: 2 },
     ic7447: { BI: 3, RBO: 3, '/LT': 2, '/RBI': 4, '/RBO': 3 },
     ic7448: { BI: 3, RBO: 3, '/LT': 2, '/RBI': 4, '/RBO': 3 },
     ic7483: { CIN: 12, C_IN: 12, COUT: 13, C_OUT: 13, S1: 8, SUM1: 8, S2: 5, SUM2: 5, S3: 1, SUM3: 1, S4: 14, SUM4: 14, C1: 8, C2: 5, C3: 1, C4_SUM: 14 },
@@ -930,6 +1026,10 @@ export function resolveEndpoint(app, token, refMap, otherHint = null, wireCtx = 
     const wp = part.worldPins()[0];
     return { end: { x: wp.x, y: wp.y, pin: { part: part.id, i: 0 } }, rail: null };
   }
+  if (part && part.worldPins().length > 1) {
+    const pins = part.worldPins();
+    throw new Error(`Invalid connection endpoint "${raw}" — "${raw}" (${part.type}) has ${pins.length} pins; specify a pin such as "${raw}.${pins[0].name}" or "${raw}.${pins[1].name}".`);
+  }
 
   throw new Error(`Invalid connection endpoint "${raw}"`);
 }
@@ -1194,6 +1294,9 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
       if (n >= 0) supplyNets.add(n);
     }
   }
+  if (!skipCompleteChecks && app.circuit.parts.length > 0 && app.circuit.wires.length === 0 && !app.circuit.parts.some(p => getDef(p.type).mcu || p.type === 'trainer-board')) {
+    errors.push(`Circuit has ${app.circuit.parts.length} part(s) but 0 wires — include all requested parts and complete the "connections" array.`);
+  }
   const hasVccPart = app.circuit.parts.some(p => p.type === 'vcc' || p.type === 'battery' || p.type === 'power-supply' || getDef(p.type).mcu || p.type === 'trainer-board');
   const hasGndPart = app.circuit.parts.some(p => p.type === 'gnd' || p.type === 'battery' || p.type === 'power-supply' || getDef(p.type).mcu || p.type === 'trainer-board');
   const needsSupply = app.circuit.parts.some(p => ['led', 'buzzer', 'seg7', 'bargraph', 'ne555', 'board-ssd1306', 'wokwi-lcd1602'].includes(p.type) || getDef(p.type).ic);
@@ -1327,7 +1430,7 @@ export function verifyCircuitHealth(app, refById = null, { prompt = '', incremen
     for (const pErr of verifyStaticLedPattern(prompt, sim, app.circuit)) errors.push(pErr);
     for (const lErr of verifyActiveLedHealth(prompt, sim, app.circuit, refById, { requireWiredAll: strictHealth })) errors.push(lErr);
     for (const mErr of verifyMcuSketchPinCrossCheck(sim, app.circuit, refById)) errors.push(mErr);
-    for (const iErr of verifyInstrumentAndLoadLiveness(sim, app.circuit, refById)) errors.push(iErr);
+    for (const iErr of verifyInstrumentAndLoadLiveness(sim, app.circuit, refById, prompt)) errors.push(iErr);
   }
 
   return { ok: errors.length === 0, errors: [...new Set(errors)], warnings: [...new Set(warnings)] };
@@ -1473,6 +1576,13 @@ function autoHealObviousWiring({ app, plan, refById, wirePair, addedWires, wireC
       if (rSum > 0 && cSum > 0 && nThr >= 0 && nThr !== nGnd) {
         const f555 = 1.44 / (rSum * cSum);
         if (f555 > 0.05 && f555 < 100000) estHz = estHz ? Math.min(estHz, f555) : f555;
+      }
+    } else if (src.type === 'ic7414') {
+      const rVals = app.circuit.parts.filter(p => p.type === 'resistor').map(p => +p.props?.ohms || 0).filter(v => v >= 100);
+      const cVals = app.circuit.parts.filter(p => p.type === 'capacitor').map(p => (+p.props?.uf || 0) * 1e-6).filter(v => v > 0);
+      if (rVals.length && cVals.length) {
+        const f7414 = 1 / (0.8 * Math.max(...rVals) * Math.max(...cVals));
+        if (f7414 > 0.1 && f7414 < 100000) estHz = estHz ? Math.min(estHz, f7414) : f7414;
       }
     }
   }
