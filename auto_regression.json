@@ -108,25 +108,6 @@
       "lastFailed": "2026-11-19"
     },
     {
-      "id": "autoreg_comb_bool_039",
-      "name": "Boolean F = A'B + AB' (nand)",
-      "prompt": "make F = A'B + AB' using ONLY NAND gates (ic7400) with a DIP4 switch and an output LED + 220ohm current limiter",
-      "scopes": [],
-      "oracle": {
-        "minParts": 4,
-        "requireTypes": [
-          [
-            "led"
-          ]
-        ],
-        "check": "led_active"
-      },
-      "signature": "Output pins #, #, # are shorted to another output or a supply.",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-19",
-      "lastFailed": "2026-11-19"
-    },
-    {
       "id": "autoreg_comb_bool_042",
       "name": "Boolean Y = (A ^ B) & C (nand)",
       "prompt": "bild Y = (A ^ B) & C using ONLY NAND gates (ic7400) with a DIP4 switch and an output LED + 220ohm resistors",
@@ -203,36 +184,6 @@
       "lastFailed": "2026-11-19"
     },
     {
-      "id": "autoreg_idea_mwobx3wc_9",
-      "name": "74HC151 8-to-1 Multiplexer Logic Selector",
-      "prompt": "Set up a 74151 8-input multiplexer with toggle switches for select lines and a button for data input, displaying the output on an LED.",
-      "scopes": [],
-      "oracle": {
-        "minParts": 3,
-        "requireTypes": [
-          [
-            "ic74151"
-          ],
-          [
-            "toggle"
-          ],
-          [
-            "button",
-            "tactile",
-            "toggle"
-          ],
-          [
-            "led"
-          ]
-        ],
-        "check": "led_active"
-      },
-      "signature": "Combinational logic check failed: output LED(s) stayed stuck (always OFF) across all # tested switch input patterns! Verify gate/IC wiring a",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-20",
-      "lastFailed": "2026-11-20"
-    },
-    {
       "id": "autoreg_comb_bool_090",
       "name": "Boolean F = A'B'C + ABC' (nand)",
       "prompt": "make F = A'B'C + ABC' using ONLY NAND gates (ic7400) with a DIP4 switch and an output LED + 220ohm resistor",
@@ -266,31 +217,6 @@
         "check": "led_active"
       },
       "signature": "Boolean logic verification failed for F = A(B + C'): when (A=#, B=#, C=#): expected #, got LED ON (#); when (A=#, B=#, C=#): expected #, got",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-20",
-      "lastFailed": "2026-11-20"
-    },
-    {
-      "id": "autoreg_reg_555_blinker",
-      "name": "555 Astable LED Blinker + Scope",
-      "prompt": "Build a 555 timer astable LED blinker around 2Hz with resistors, capacitor, red LED and oscilloscope on the output",
-      "scopes": [],
-      "oracle": {
-        "minParts": 5,
-        "requireTypes": [
-          [
-            "ne555"
-          ],
-          [
-            "led"
-          ],
-          [
-            "oscilloscope"
-          ]
-        ],
-        "check": "scope_ac"
-      },
-      "signature": "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC*.CH",
       "tier": "T1_BUILD_FAIL",
       "firstFailed": "2026-11-20",
       "lastFailed": "2026-11-20"
@@ -405,34 +331,6 @@
       "lastFailed": "2026-11-20"
     },
     {
-      "id": "autoreg_idea_mwp0z4jt_4",
-      "name": "74HC164 8-Bit Serial-In Parallel-Out Shift Register",
-      "prompt": "Set up a shift register with a clock input and data toggle switch, attaching LEDs to all eight parallel outputs to watch serial data propagate.",
-      "scopes": [],
-      "oracle": {
-        "minParts": 3,
-        "requireTypes": [
-          [
-            "clock"
-          ],
-          [
-            "toggle"
-          ],
-          [
-            "led"
-          ],
-          [
-            "resistor"
-          ]
-        ],
-        "check": "led_multi"
-      },
-      "signature": "missing expected type (clock)",
-      "tier": "T2_SILENT_DEAD",
-      "firstFailed": "2026-11-20",
-      "lastFailed": "2026-11-20"
-    },
-    {
       "id": "autoreg_idea_mwp0z4jt_5",
       "name": "Op-Amp Wien Bridge Sine Wave Oscillator",
       "prompt": "Design an audio-frequency Wien bridge oscillator using an LM358 op-amp and RC feedback network to generate a clean sine wave output.",
@@ -461,77 +359,6 @@
       "lastFailed": "2026-11-20"
     },
     {
-      "id": "autoreg_wild_traffic_light_4017",
-      "name": "Hardware 555+4017 Traffic Light",
-      "prompt": "build a hardware traffic light sequencer (no arduino) with a 555 timer clocking a cd4017 decade counter driving red yellow and green LEDs through diodes/resistors",
-      "scopes": [],
-      "oracle": {
-        "minParts": 8,
-        "requireTypes": [
-          [
-            "ne555"
-          ],
-          [
-            "ic4017"
-          ],
-          [
-            "led"
-          ]
-        ],
-        "check": "led_multi",
-        "minActiveLeds": 2
-      },
-      "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=NC, Cathode=<val>) — fix its resistor/driver wiring, check counter/gate inputs, and ensure se",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-20",
-      "lastFailed": "2026-11-20"
-    },
-    {
-      "id": "autoreg_comb_bool_105",
-      "name": "Boolean F = A'B'C + ABC' (mixed)",
-      "prompt": "wire F = A'B'C + ABC' using 74xx logic gates with toggle switches and an output LED + 220ohm resistor",
-      "scopes": [],
-      "oracle": {
-        "minParts": 4,
-        "requireTypes": [
-          [
-            "led"
-          ]
-        ],
-        "check": "led_active"
-      },
-      "signature": "Boolean logic verification failed for F = A'B'C + ABC': when (A=#, B=#, C=#): expected #, got LED ON (#); when (A=#, B=#, C=#): expected #, ",
-      "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-20",
-      "lastFailed": "2026-11-20"
-    },
-    {
-      "id": "autoreg_comb_chain_107",
-      "name": "Combinatorial chain #107",
-      "prompt": "make a 2Hz lm555 astable oscillator driving cd4017 decde cntr counting 8 LEDs with resistors in sequence",
-      "scopes": [],
-      "oracle": {
-        "minParts": 10,
-        "requireTypes": [
-          [
-            "ne555"
-          ],
-          [
-            "ic4017"
-          ],
-          [
-            "led"
-          ]
-        ],
-        "check": "led_multi",
-        "minActiveLeds": 2
-      },
-      "signature": "missing expected type (ne555)",
-      "tier": "T2_SILENT_DEAD",
-      "firstFailed": "2026-11-20",
-      "lastFailed": "2026-11-20"
-    },
-    {
       "id": "autoreg_comb_bool_108",
       "name": "Boolean F = A(B + C') (nand)",
       "prompt": "make F = A(B + C') using ONLY NAND gates (ic7400) with a DIP4 switch and an output LED + 220ohm 220ohm resiter",
@@ -547,31 +374,6 @@
       },
       "signature": "Shorted outputs / driver contention: U*.1Y and U*.2Y are both driving the same node — never wire two outputs directly together.",
       "tier": "T1_BUILD_FAIL",
-      "firstFailed": "2026-11-20",
-      "lastFailed": "2026-11-20"
-    },
-    {
-      "id": "autoreg_mut_darlington_v010",
-      "name": "Mutated darlington #10",
-      "prompt": "bild a skin resistance tester with two 2n2222 transistors in darlington, a potentiometer, push button switch, indicator led and horn",
-      "scopes": [],
-      "oracle": {
-        "minParts": 7,
-        "requireTypes": [
-          [
-            "npn"
-          ],
-          [
-            "pot"
-          ],
-          [
-            "led"
-          ]
-        ],
-        "check": "led_active"
-      },
-      "signature": "missing expected type (pot)",
-      "tier": "T2_SILENT_DEAD",
       "firstFailed": "2026-11-20",
       "lastFailed": "2026-11-20"
     },
@@ -612,6 +414,195 @@
       "tier": "T1_BUILD_FAIL",
       "firstFailed": "2026-11-20",
       "lastFailed": "2026-11-20"
+    },
+    {
+      "id": "autoreg_reg_lie_detector",
+      "name": "Darlington NPN Lie Detector (typos)",
+      "prompt": "wire a diy lie detectr skin resistance checkr with 2n3904 npn bjt darlingtn pair, rotary potnetiometer knob, led + horn indicator",
+      "scopes": [],
+      "oracle": {
+        "minParts": 6,
+        "requireTypes": [
+          [
+            "npn"
+          ],
+          [
+            "pot"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "missing expected type (pot)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-21",
+      "lastFailed": "2026-11-21"
+    },
+    {
+      "id": "autoreg_reg_arduino_reaction",
+      "name": "Arduino Tactile Button + Buzzer + LED",
+      "prompt": "build an Arduino Uno button-triggered alarm: pressing tactile switch on D2 blinks a red LED on D13 and sounds a piezo buzzer on D8",
+      "scopes": [
+        "uno"
+      ],
+      "oracle": {
+        "minParts": 5,
+        "requireTypes": [
+          [
+            "uno"
+          ],
+          [
+            "led"
+          ],
+          [
+            "buzzer"
+          ],
+          [
+            "tactile",
+            "button"
+          ]
+        ],
+        "check": "mcu_run"
+      },
+      "signature": "too few parts (# < #)",
+      "tier": "T2_SILENT_DEAD",
+      "firstFailed": "2026-11-21",
+      "lastFailed": "2026-11-21"
+    },
+    {
+      "id": "autoreg_idea_mwpr6arj_1",
+      "name": "74HC00 Quad NAND Gate Oscillator",
+      "prompt": "Create a ring oscillator circuit using a 7400 quad 2-input NAND gate IC, a timing capacitor, and a resistor, and verify the high-frequency square wave output on the oscilloscope.",
+      "scopes": [],
+      "oracle": {
+        "minParts": 3,
+        "requireTypes": [
+          [
+            "ic7400"
+          ],
+          [
+            "resistor"
+          ],
+          [
+            "capacitor"
+          ],
+          [
+            "oscilloscope"
+          ]
+        ],
+        "check": "scope_ac"
+      },
+      "signature": "ic7400 (\"<ref>\") gate #: input pin 2B floating while gate is in use! Wire 2B to a signal (or tie unused gate input appropriately, e.g. to \"+",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-21",
+      "lastFailed": "2026-11-21"
+    },
+    {
+      "id": "autoreg_wild_traffic_light_4017",
+      "name": "Hardware 555+4017 Traffic Light",
+      "prompt": "build a hardware traffic light sequencer (no arduino) with a 555 timer clocking a cd4017 decade counter driving red yellow and green LEDs through diodes/resistors",
+      "scopes": [],
+      "oracle": {
+        "minParts": 8,
+        "requireTypes": [
+          [
+            "ne555"
+          ],
+          [
+            "ic4017"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_multi",
+        "minActiveLeds": 2
+      },
+      "signature": "Output pins #, #, # are shorted to another output or a supply.",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-21",
+      "lastFailed": "2026-11-21"
+    },
+    {
+      "id": "autoreg_mut_monostable_v011",
+      "name": "Mutated monostable #11",
+      "prompt": "bild a 555 timmer one-shot monostable pulse timer triggered by tact button switch lighting a led blub with current limiter and cap",
+      "scopes": [],
+      "oracle": {
+        "minParts": 6,
+        "requireTypes": [
+          [
+            "ne555"
+          ],
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "Short circuit on the supply — it is wired straight to another supply or ground.",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-21",
+      "lastFailed": "2026-11-21"
+    },
+    {
+      "id": "autoreg_comb_bool_132",
+      "name": "Boolean F = (A + B) * C' (nand)",
+      "prompt": "design F = (A + B) * C' using ONLY NAND gates (ic7400) with toggle switches and an output LED + 220ohm resister",
+      "scopes": [],
+      "oracle": {
+        "minParts": 4,
+        "requireTypes": [
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "Shorted outputs / driver contention: U*.3Y and SW*.OUT are both driving the same node — never wire two outputs directly together.",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-21",
+      "lastFailed": "2026-11-21"
+    },
+    {
+      "id": "autoreg_comb_bool_135",
+      "name": "Boolean F = A'B'C + ABC' (nand)",
+      "prompt": "cretae F = A'B'C + ABC' using ONLY NAND gates (ic7400) with toggle switches and an output LED + 220ohm resistor",
+      "scopes": [],
+      "oracle": {
+        "minParts": 4,
+        "requireTypes": [
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "Shorted outputs / driver contention: U*.4Y and SW*.OUT are both driving the same node — never wire two outputs directly together.",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-21",
+      "lastFailed": "2026-11-21"
+    },
+    {
+      "id": "autoreg_comb_bool_150",
+      "name": "Boolean F = A'B'C + ABC' (nand)",
+      "prompt": "setup F = A'B'C + ABC' using ONLY NAND gates (ic7400) with toggle switches and an output LED + 220ohm resistor",
+      "scopes": [],
+      "oracle": {
+        "minParts": 4,
+        "requireTypes": [
+          [
+            "led"
+          ]
+        ],
+        "check": "led_active"
+      },
+      "signature": "Output pin # is shorted to another output or a supply.",
+      "tier": "T1_BUILD_FAIL",
+      "firstFailed": "2026-11-21",
+      "lastFailed": "2026-11-21"
     }
   ],
   "resolved": [
@@ -894,6 +885,46 @@
       "id": "autoreg_mut_rectifier_v008",
       "signature": "too few parts (# < #)",
       "resolvedAt": "2026-11-20"
+    },
+    {
+      "id": "autoreg_comb_bool_039",
+      "signature": "Output pins #, #, # are shorted to another output or a supply.",
+      "resolvedAt": "2026-11-21"
+    },
+    {
+      "id": "autoreg_idea_mwobx3wc_9",
+      "signature": "Combinational logic check failed: output LED(s) stayed stuck (always OFF) across all # tested switch input patterns! Verify gate/IC wiring a",
+      "resolvedAt": "2026-11-21"
+    },
+    {
+      "id": "autoreg_reg_555_blinker",
+      "signature": "Oscilloscope \"<ref>\" CH*/CH* captured #.# Vpp on dynamic circuit — probe an oscillating signal net (e.g. U*.OUT / filter node) with \"OSC*.CH",
+      "resolvedAt": "2026-11-21"
+    },
+    {
+      "id": "autoreg_idea_mwp0z4jt_4",
+      "signature": "missing expected type (clock)",
+      "resolvedAt": "2026-11-21"
+    },
+    {
+      "id": "autoreg_wild_traffic_light_4017",
+      "signature": "LED \"<ref>\" never turned ON (peak <val>; Anode=NC, Cathode=<val>) — fix its resistor/driver wiring, check counter/gate inputs, and ensure se",
+      "resolvedAt": "2026-11-21"
+    },
+    {
+      "id": "autoreg_comb_bool_105",
+      "signature": "Boolean logic verification failed for F = A'B'C + ABC': when (A=#, B=#, C=#): expected #, got LED ON (#); when (A=#, B=#, C=#): expected #, ",
+      "resolvedAt": "2026-11-21"
+    },
+    {
+      "id": "autoreg_comb_chain_107",
+      "signature": "missing expected type (ne555)",
+      "resolvedAt": "2026-11-21"
+    },
+    {
+      "id": "autoreg_mut_darlington_v010",
+      "signature": "missing expected type (pot)",
+      "resolvedAt": "2026-11-21"
     }
   ]
 }

@@ -1994,5 +1994,235 @@
       "check": "led_multi"
     },
     "createdAt": "2026-11-20"
+  },
+  {
+    "id": "idea_mwpr6ari_0",
+    "bucket": "curriculum",
+    "name": "555 Astable LED Blasher",
+    "prompt": "Build a classic astable multivibrator circuit using a 555 timer chip, a couple of timing resistors, a capacitor, and an LED to create a reliable flashing light source.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ne555"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-21"
+  },
+  {
+    "id": "idea_mwpr6arj_1",
+    "bucket": "curriculum",
+    "name": "74HC00 Quad NAND Gate Oscillator",
+    "prompt": "Create a ring oscillator circuit using a 7400 quad 2-input NAND gate IC, a timing capacitor, and a resistor, and verify the high-frequency square wave output on the oscilloscope.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7400"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ],
+        [
+          "oscilloscope"
+        ]
+      ],
+      "check": "scope_ac"
+    },
+    "createdAt": "2026-11-21"
+  },
+  {
+    "id": "idea_mwpr6arj_2",
+    "bucket": "curriculum",
+    "name": "74HC595 8-Bit Shift Register LED Bar",
+    "prompt": "Hook up a 74595 shift register to drive an 8-segment LED bar graph from serial data inputs, and test the shift pattern sequence.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic74595"
+        ],
+        [
+          "bargraph"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "vcc",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
+        ]
+      ],
+      "check": "bargraph_active"
+    },
+    "createdAt": "2026-11-21"
+  },
+  {
+    "id": "idea_mwpr6arj_3",
+    "bucket": "curriculum",
+    "name": "Arduino Uno Temperature Monitor",
+    "prompt": "Set up an Arduino Uno with an analog temperature sensor and display the temperature values through the serial monitor while driving an indicator LED.",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "led"
+        ],
+        [
+          "vcc",
+          "battery",
+          "power-supply",
+          "funcgen",
+          "uno",
+          "nano",
+          "esp32",
+          "esp32s3",
+          "bluepill"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-21"
+  },
+  {
+    "id": "idea_mwpr6arj_4",
+    "bucket": "curriculum",
+    "name": "555 Monostable One-Shot Timer",
+    "prompt": "Wire up a 555 timer in monostable mode triggered by a tactile push button to turn on an LED for a precise timed duration determined by an RC network.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ne555"
+        ],
+        [
+          "button",
+          "tactile",
+          "toggle"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "capacitor"
+        ]
+      ],
+      "check": "led_active"
+    },
+    "createdAt": "2026-11-21"
+  },
+  {
+    "id": "idea_mwpr6arj_5",
+    "bucket": "curriculum",
+    "name": "Op-Amp Comparator Light Detector",
+    "prompt": "Design a light-activated switch using an LM393 voltage comparator, a photoresistor or potentiometer voltage divider, and an output relay module to switch a load.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "lm393"
+        ],
+        [
+          "pot"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "wokwi-relay-module"
+        ]
+      ],
+      "check": "built_clean"
+    },
+    "createdAt": "2026-11-21"
+  },
+  {
+    "id": "idea_mwpr6arj_6",
+    "bucket": "curriculum",
+    "name": "74HC93 4-Bit Binary Ripple Counter",
+    "prompt": "Build a 4-bit ripple counter using a 7493 binary counter IC driven by a clock pulse generator, and monitor the binary count output using four individual LEDs.",
+    "scopes": [],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "ic7493"
+        ],
+        [
+          "clock"
+        ],
+        [
+          "resistor"
+        ],
+        [
+          "led"
+        ]
+      ],
+      "check": "led_multi"
+    },
+    "createdAt": "2026-11-21"
+  },
+  {
+    "id": "idea_mwpr6arj_7",
+    "bucket": "curriculum",
+    "name": "Arduino Uno PWM LED Dimmer",
+    "prompt": "Create an Arduino Uno circuit featuring a slide potentiometer connected to an analog input pin to control the PWM brightness level of an output LED.",
+    "scopes": [
+      "uno"
+    ],
+    "oracle": {
+      "minParts": 3,
+      "requireTypes": [
+        [
+          "uno"
+        ],
+        [
+          "wokwi-slide-potentiometer"
+        ],
+        [
+          "led"
+        ],
+        [
+          "resistor"
+        ]
+      ],
+      "check": "mcu_run"
+    },
+    "createdAt": "2026-11-21"
   }
 ]

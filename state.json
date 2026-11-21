@@ -1,8 +1,8 @@
 {
   "cursors": {
-    "wild": 78,
-    "mutation": 125,
-    "combinatorial": 128
+    "wild": 94,
+    "mutation": 161,
+    "combinatorial": 164
   },
   "history": [
     {
@@ -64,6 +64,16 @@
       "totalTokens": 662848,
       "graduated": 14,
       "stopReason": "reached time budget (25m)"
+    },
+    {
+      "date": "2026-11-21",
+      "dryRun": false,
+      "cases": 149,
+      "pass": 121,
+      "httpCalls": 301,
+      "totalTokens": 769355,
+      "graduated": 8,
+      "stopReason": "reached daily call cap (300)"
     }
   ],
   "signatures": {
@@ -90,9 +100,9 @@
     },
     "oscilloscope captured flat/no AC waveform (vpp <= <val>)": {
       "tier": "T2_SILENT_DEAD",
-      "count": 11,
+      "count": 13,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-20",
+      "lastSeen": "2026-11-21",
       "sampleId": "idea_mwl354p0_4_typo"
     },
     "button (ref \"<ref>\") OUT is a #-pin active HIGH/LOW driver; do NOT wire it directly to +<val> or GND (wire \"B*.OUT\" directly to its destinat": {
@@ -139,9 +149,9 @@
     },
     "Output pins #, # are shorted to another output or a supply.": {
       "tier": "T1_BUILD_FAIL",
-      "count": 8,
+      "count": 10,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-20",
+      "lastSeen": "2026-11-21",
       "sampleId": "wild_traffic_light_4017"
     },
     "LED \"<ref>\" never turned ON (peak <val>; Anode=<val>, Cathode=<val>) — fix its resistor/driver wiring, check counter/gate inputs, and ensure": {
@@ -188,9 +198,9 @@
     },
     "Short circuit on the supply — it is wired straight to another supply or ground.": {
       "tier": "T1_BUILD_FAIL",
-      "count": 2,
+      "count": 3,
       "firstSeen": "2026-11-17",
-      "lastSeen": "2026-11-19",
+      "lastSeen": "2026-11-21",
       "sampleId": "comb_chain_016"
     },
     "diode (\"<ref>\") has one open/unconnected pin (\"Cathode\") — connect \"D*.Cathode\" to complete the circuit.": {
@@ -300,16 +310,16 @@
     },
     "missing expected type (pot)": {
       "tier": "T2_SILENT_DEAD",
-      "count": 2,
+      "count": 3,
       "firstSeen": "2026-11-19",
-      "lastSeen": "2026-11-20",
+      "lastSeen": "2026-11-21",
       "sampleId": "idea_mwmwtu2f_9"
     },
     "too few parts (# < #)": {
       "tier": "T2_SILENT_DEAD",
-      "count": 3,
+      "count": 4,
       "firstSeen": "2026-11-19",
-      "lastSeen": "2026-11-20",
+      "lastSeen": "2026-11-21",
       "sampleId": "idea_mwmwtu2f_10"
     },
     "missing expected type (button)": {
@@ -328,9 +338,9 @@
     },
     "IC \"<ref>\" (ne555): No power — pin # (VCC) needs +<val> and pin # (GND) needs ground.. Ensure \"V*.#\"->\"+\", \"G*.#\"->\"-\", \"U*.VCC\"->\"+\", \"U*.G": {
       "tier": "T1_BUILD_FAIL",
-      "count": 12,
+      "count": 13,
       "firstSeen": "2026-11-19",
-      "lastSeen": "2026-11-20",
+      "lastSeen": "2026-11-21",
       "sampleId": "comb_chain_032"
     },
     "Shorted outputs / driver contention: U*.1Y and U*.2Y are both driving the same node — never wire two outputs directly together.": {
@@ -377,23 +387,23 @@
     },
     "None of the # wired LED(s) lit up (all <val>)! Check that \"vcc\"->\"+\", \"gnd\"->\"-\", and LED Anodes reach \"+\" (via resistor) and Cathodes reach": {
       "tier": "T1_BUILD_FAIL",
-      "count": 8,
+      "count": 11,
       "firstSeen": "2026-11-19",
-      "lastSeen": "2026-11-20",
+      "lastSeen": "2026-11-21",
       "sampleId": "idea_mwnd6cwb_9"
     },
     "Output pins #, #, # are shorted to another output or a supply.": {
       "tier": "T1_BUILD_FAIL",
-      "count": 2,
+      "count": 4,
       "firstSeen": "2026-11-19",
-      "lastSeen": "2026-11-20",
+      "lastSeen": "2026-11-21",
       "sampleId": "comb_bool_039"
     },
     "Boolean logic verification failed for Y = (A ^ B) & C: when (A=#, B=#, C=#): expected #, got LED ON (#); when (A=#, B=#, C=#): expected #, g": {
       "tier": "T1_BUILD_FAIL",
-      "count": 3,
+      "count": 4,
       "firstSeen": "2026-11-19",
-      "lastSeen": "2026-11-20",
+      "lastSeen": "2026-11-21",
       "sampleId": "comb_bool_042"
     },
     "MCU runtime error: p10126: i is not defined": {
@@ -496,16 +506,16 @@
     },
     "Output pin # is shorted to another output or a supply.": {
       "tier": "T1_BUILD_FAIL",
-      "count": 3,
+      "count": 5,
       "firstSeen": "2026-11-20",
-      "lastSeen": "2026-11-20",
+      "lastSeen": "2026-11-21",
       "sampleId": "comb_bool_090"
     },
     "Boolean logic verification failed for F = A(B + C'): when (A=#, B=#, C=#): expected #, got LED ON (#); when (A=#, B=#, C=#): expected #, got": {
       "tier": "T1_BUILD_FAIL",
-      "count": 1,
+      "count": 2,
       "firstSeen": "2026-11-20",
-      "lastSeen": "2026-11-20",
+      "lastSeen": "2026-11-21",
       "sampleId": "comb_bool_093"
     },
     "Unknown pin \"1VCC\" on part \"<ref>\" (ic7400). Valid pins: [1A(##), 1B(##), 1Y(##), 2A(##), 2B(##), 2Y(##), GND(##), 3Y(##), 3A(##), 3B(##), 4": {
@@ -538,9 +548,9 @@
     },
     "missing expected type (oscilloscope)": {
       "tier": "T2_SILENT_DEAD",
-      "count": 2,
+      "count": 5,
       "firstSeen": "2026-11-20",
-      "lastSeen": "2026-11-20",
+      "lastSeen": "2026-11-21",
       "sampleId": "idea_mwp0z4jr_0"
     },
     "missing expected type (npn)": {
@@ -584,6 +594,62 @@
       "firstSeen": "2026-11-20",
       "lastSeen": "2026-11-20",
       "sampleId": "comb_bool_123"
+    },
+    "Unknown pin \"2C\" on part \"<ref>\" (ic7400). Valid pins: [1A(##), 1B(##), 1Y(##), 2A(##), 2B(##), 2Y(##), GND(##), 3Y(##), 3A(##), 3B(##), 4Y(": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-21",
+      "lastSeen": "2026-11-21",
+      "sampleId": "autoreg_comb_bool_006"
+    },
+    "Shorted outputs / driver contention: SW*.S* and SW*.S* are both driving the same node — never wire two outputs directly together.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-21",
+      "lastSeen": "2026-11-21",
+      "sampleId": "autoreg_comb_bool_042"
+    },
+    "Unknown pin \"9A\" on part \"<ref>\" (ic7400). Valid pins: [1A(##), 1B(##), 1Y(##), 2A(##), 2B(##), 2Y(##), GND(##), 3Y(##), 3A(##), 3B(##), 4Y(": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-21",
+      "lastSeen": "2026-11-21",
+      "sampleId": "autoreg_comb_bool_048"
+    },
+    "Boolean logic verification failed for F = A'B'C + ABC': when (A=#, B=#, C=#): expected #, got LED OFF (#); when (A=#, B=#, C=#): expected #,": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-21",
+      "lastSeen": "2026-11-21",
+      "sampleId": "autoreg_comb_bool_090"
+    },
+    "Unknown pin \"<ref>\" on part \"<ref>\" (ic7400). Valid pins: [1A(##), 1B(##), 1Y(##), 2A(##), 2B(##), 2Y(##), GND(##), 3Y(##), 3A(##), 3B(##), ": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-21",
+      "lastSeen": "2026-11-21",
+      "sampleId": "autoreg_comb_bool_108"
+    },
+    "ic7400 (\"<ref>\") gate #: input pin 2B floating while gate is in use! Wire 2B to a signal (or tie unused gate input appropriately, e.g. to \"+": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-21",
+      "lastSeen": "2026-11-21",
+      "sampleId": "idea_mwpr6arj_1"
+    },
+    "Shorted outputs / driver contention: U*.3Y and SW*.OUT are both driving the same node — never wire two outputs directly together.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-21",
+      "lastSeen": "2026-11-21",
+      "sampleId": "comb_bool_132"
+    },
+    "Shorted outputs / driver contention: U*.4Y and SW*.OUT are both driving the same node — never wire two outputs directly together.": {
+      "tier": "T1_BUILD_FAIL",
+      "count": 1,
+      "firstSeen": "2026-11-21",
+      "lastSeen": "2026-11-21",
+      "sampleId": "comb_bool_135"
     }
   }
 }
